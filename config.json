@@ -1,0 +1,34 @@
+{
+    "gateway": {
+      "default_agent": "default"
+    },
+    "agents": [
+      {
+        "name": "default",
+        "system_prompt": "你是一个有用的AI助手。你可以使用工具来帮助用户。当用户询问天气时，使用get_weather工具。保持回答简洁、有帮助。",
+        "model": "deepseek-v4-oc",
+        "api_key": "eyJraWQiOiIxNmQwYzdiMDI2ZTU0OGEyODk4Yjg0Nzc3YTdmNmNmZSIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJyb2xlIjoib3BlbkFwaSIsImNyZWF0ZVRpbWUiOjE3NzkwOTE2MzIxNDYsImNwVG9rZW4iOiI2ZDM1NTVmNzRlY2E0ZmM2YWYyNGM2Yzc3OGRjZTcxOSIsImlzcyI6ImN0Zy5lYWkifQ.7Jg5UCoPU0FdsJWAbzscIGm1krEdh7D-yvT7nGfbn28",
+        "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
+        "tools": ["weather", "exec"],
+        "max_iterations": 5
+      },
+      {
+        "name": "weather_agent",
+        "system_prompt": "你是一个天气助手，专门回答天气相关问题。",
+        "model": "deepseek-v4-oc",
+        "api_key": "eyJraWQiOiIxNmQwYzdiMDI2ZTU0OGEyODk4Yjg0Nzc3YTdmNmNmZSIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJyb2xlIjoib3BlbkFwaSIsImNyZWF0ZVRpbWUiOjE3NzkwOTE2MzIxNDYsImNwVG9rZW4iOiI2ZDM1NTVmNzRlY2E0ZmM2YWYyNGM2Yzc3OGRjZTcxOSIsImlzcyI6ImN0Zy5lYWkifQ.7Jg5UCoPU0FdsJWAbzscIGm1krEdh7D-yvT7nGfbn28",
+        "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
+        "tools": ["weather"],
+        "max_iterations": 3
+      }
+    ],
+    "channels": {
+      "console": {
+        "enabled": true
+      },
+      "webhook": {
+        "enabled": false,
+        "port": "8080"
+      }
+    }
+  }
