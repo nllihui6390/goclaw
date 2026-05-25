@@ -102,6 +102,18 @@ func init() {
 	GlobalRegistry.Register("exec", func() Tool {
 		return &ExecTool{}
 	})
+	GlobalRegistry.Register("write_file", func() Tool {
+		return &WriteFileTool{}
+	})
+	GlobalRegistry.Register("read_file", func() Tool {
+		return &ReadFileTool{}
+	})
+	GlobalRegistry.Register("edit_file", func() Tool {
+		return &EditFileTool{}
+	})
+	GlobalRegistry.Register("browser_use", func() Tool {
+		return NewBrowserUseTool()
+	})
 	GlobalRegistry.Register("memory_add", func() Tool {
 		return &MemoryTool{mode: "add"}
 	})
@@ -119,9 +131,19 @@ func init() {
 		ToolNames:   []string{"exec"},
 	})
 	GlobalRegistry.RegisterSkill(Skill{
+		Name:        "file",
+		Description: "文件读写和编辑操作",
+		ToolNames:   []string{"write_file", "read_file", "edit_file"},
+	})
+	GlobalRegistry.RegisterSkill(Skill{
 		Name:        "memory",
 		Description: "长期记忆存储和检索",
 		ToolNames:   []string{"memory_add", "memory_search"},
+	})
+	GlobalRegistry.RegisterSkill(Skill{
+		Name:        "browser",
+		Description: "浏览器自动化操作（导航、点击、输入、截图等）",
+		ToolNames:   []string{"browser_use"},
 	})
 }
 

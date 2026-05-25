@@ -1,17 +1,42 @@
 {
   "gateway": {
     "default_agent": "default",
-    "session_ttl": 60
+    "session_ttl": 0
+  },
+  "providers": {
+    "deepseek": {
+      "type": "openai",
+      "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
+      "api_key": "eyJraWQiOiIxNmQwYzdiMDI2ZTU0OGEyODk4Yjg0Nzc3YTdmNmNmZSIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJyb2xlIjoib3BlbkFwaSIsImNyZWF0ZVRpbWUiOjE3NzkwOTE2MzIxNDYsImNwVG9rZW4iOiI2ZDM1NTVmNzRlY2E0ZmM2YWYyNGM2Yzc3OGRjZTcxOSIsImlzcyI6ImN0Zy5lYWkifQ.7Jg5UCoPU0FdsJWAbzscIGm1krEdh7D-yvT7nGfbn28",
+      "default_model": "deepseek-v4-oc"
+    },
+    "ollama": {
+      "type": "ollama",
+      "base_url": "http://localhost:11434",
+      "default_model": "llama3"
+    },
+    "openai": {
+      "type": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "default_model": "gpt-4"
+    }
   },
   "agents": [
     {
       "name": "default",
+      "provider": "deepseek",
       "system_prompt": "你是一个有用的AI助手。你可以使用工具来帮助用户。",
-      "model": "deepseek-v4-oc",
-      "api_key": "eyJraWQiOiIxNmQwYzdiMDI2ZTU0OGEyODk4Yjg0Nzc3YTdmNmNmZSIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJyb2xlIjoib3BlbkFwaSIsImNyZWF0ZVRpbWUiOjE3NzkwOTE2MzIxNDYsImNwVG9rZW4iOiI2ZDM1NTVmNzRlY2E0ZmM2YWYyNGM2Yzc3OGRjZTcxOSIsImlzcyI6ImN0Zy5lYWkifQ.7Jg5UCoPU0FdsJWAbzscIGm1krEdh7D-yvT7nGfbn28",
-      "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
-      "tools": ["weather", "exec"],
-      "max_iterations": 5
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use"],
+      "max_iterations": 50
+    },
+    {
+      "name": "local",
+      "provider": "ollama",
+      "model": "qwen2.5:7b",
+      "system_prompt": "你是一个本地AI助手，运行在Ollama上。",
+      "tools": [],
+      "max_iterations": 50
     }
   ],
   "channels": {
@@ -24,8 +49,10 @@
     }
   },
   "logging": {
-    "level": "info",
-    "json_mode": false
+    "level": "debug",
+    "json_mode": false,
+    "file_path": "logs/app.log",
+    "console": false
   },
   "auth": {
     "enabled": false,

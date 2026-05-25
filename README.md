@@ -7,11 +7,12 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 ## 特性
 
 - **三层架构**: Gateway（路由协调）→ Agent（LLM 交互）→ Session（会话管理）
+- **多模型供应商**: 支持 OpenAI/DeepSeek 等云 API + 本地 Ollama，一个配置多个供应商
 - **手动 Agent 路由**: `/agent <name>` 切换、API `agent` 字段指定，无自动关键词匹配
 - **多渠道接入**: 控制台 (stdin/stdout)、REST API (HTTP)、WebSocket (实时双向)、Webhook (旧版兼容)
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索 (Embedding + 余弦相似度)、JSON 文件持久化
-- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询和命令执行
+- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化；控制台实时输出工具调用过程
 - **多 Agent 协作**: 事件总线 (AgentBus)、监督者模式 (SupervisorAgent)
 - **安全**: Bearer Token 鉴权、令牌桶限流、命令执行安全过滤
 - **运维**: Docker 化部署、配置热加载 (fsnotify)、Prometheus 指标、结构化日志
@@ -139,6 +140,8 @@ go-claw/
 │   │   ├── registry.go              # 工具注册表 + Skill 分组
 │   │   ├── weather.go               # 天气工具
 │   │   └── exec.go                  # 命令执行
+│   │   └── file.go                  # 文件读写编辑工具
+│   │   └── browser.go               # 浏览器自动化工具 (chromedp)
 │   ├── memory/
 │   │   ├── memory.go                # 记忆接口
 │   │   ├── simple.go                # 关键词检索 + 持久化
@@ -161,15 +164,35 @@ go-claw/
 ```json
 {
   "gateway": { "default_agent": "default", "session_ttl": 60 },
+  "providers": {
+    "deepseek": {
+      "type": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "your-api-key",
+      "default_model": "deepseek-chat"
+    },
+    "ollama": {
+      "type": "ollama",
+      "base_url": "http://localhost:11434",
+      "default_model": "llama3"
+    }
+  },
   "agents": [
     {
       "name": "default",
+      "provider": "deepseek",
+      "model": "deepseek-v4-oc",
       "system_prompt": "你是一个有用的AI助手。",
-      "model": "gpt-4",
-      "api_key": "...",
-      "base_url": "https://api.openai.com/v1",
-      "tools": ["weather", "exec"],
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file"],
       "max_iterations": 5
+    },
+    {
+      "name": "local",
+      "provider": "ollama",
+      "model": "qwen2.5:7b",
+      "system_prompt": "你是一个本地AI助手。",
+      "tools": [],
+      "max_iterations": 3
     }
   ],
   "channels": {
@@ -177,16 +200,25 @@ go-claw/
     "webhook":   { "enabled": true, "port": "8080" },
     "websocket": { "enabled": false, "port": "8081" }
   },
-  "logging": { "level": "info", "json_mode": false },
+  "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": false },
   "auth": { "enabled": false, "token": "" }
 }
 ```
 
-## 环境变量
+### 供应商类型
+
+| 类型 | 说明 | API格式 | 认证 |
+|------|------|---------|------|
+| `openai` | OpenAI兼容API (OpenAI/DeepSeek/Azure等) | `/chat/completions` | Bearer Token |
+| `ollama` | 本地 Ollama | `/api/chat` | 无需认证 |
+
+### 环境变量
 
 | 变量 | 说明 | 必需 |
 |------|------|------|
-| `OPENAI_API_KEY` | LLM API Key | 是 |
-| `OPENAI_BASE_URL` | LLM API 基础地址 | 是 |
+| `PROVIDER_<name>_API_KEY` | 供应商 API Key（如 `PROVIDER_DEEPSEEK_API_KEY`） | 按需 |
+| `PROVIDER_<name>_BASE_URL` | 供应商 API 地址 | 否 |
+| `OPENAI_API_KEY` | 兼容旧配置，覆盖 agent 的 api_key | 否 |
+| `OPENAI_BASE_URL` | 兼容旧配置，覆盖 agent 的 base_url | 否 |
 | `HEFENG_API_KEY` | 和风天气 API Key | 否 |
 | `GOCLAW_HOT_RELOAD` | 启用配置热加载 (`true`) | 否 |

@@ -123,9 +123,21 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				}
 			}
 
-			// 处理消息
+			// 处理消息（带工具事件回调）
 			sessionID := fmt.Sprintf("%s:%s", msg.Channel, msg.From)
-			response, err := ag.Process(g.ctx, sessionID, msg.Content)
+
+			handler := func(event agent.ToolEvent) {
+				ch.SendToolEvent(channel.ToolEvent{
+					Type:     channel.ToolEventType(event.Type),
+					ToolName: event.ToolName,
+					Args:     event.Args,
+					Result:   event.Result,
+					Error:    event.Error,
+					Thinking: event.Thinking,
+				})
+			}
+
+			response, err := ag.ProcessWithHandler(g.ctx, sessionID, msg.Content, handler)
 			if err != nil {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)

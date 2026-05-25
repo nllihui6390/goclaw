@@ -9,6 +9,7 @@ import (
 	"go-claw/internal/memory"
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
+	glog "go-claw/pkg/log"
 )
 
 // Config Agent配置
@@ -18,6 +19,7 @@ type Config struct {
 	Model         string
 	APIKey        string
 	BaseURL       string
+	ProviderType  string            // 供应商类型: openai, ollama, anthropic, azure
 	Tools         []tool.Tool
 	MaxIterations int
 	Memory        memory.Memory
@@ -44,12 +46,30 @@ func NewAgent(cfg *Config) *Agent {
 
 // Process 处理用户消息
 func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (string, error) {
-	session := a.sessionMgr.GetOrCreate(sessionID)
+	return a.ProcessWithHandler(ctx, sessionID, userMessage, nil)
+}
 
+// ProcessWithHandler 处理用户消息（带工具事件回调）
+func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage string, handler ToolEventHandler) (string, error) {
+	logger := glog.Logger()
+	logger.Info("[Agent] 开始处理消息",
+		"agent", a.config.Name,
+		"session", sessionID,
+		"model", a.config.Model,
+		"provider", a.config.ProviderType,
+		"msg_len", len(userMessage))
+
+	session := a.sessionMgr.GetOrCreate(sessionID)
+	logger.Debug("[Agent] 会话已获取/创建", "session_id", sessionID, "msg_count", len(session.Messages))
+
+	// 检索相关记忆
 	var relevantMemories []string
 	if a.memory != nil {
 		results, err := a.memory.Retrieve(ctx, userMessage, sessionID, 5)
-		if err == nil && len(results) > 0 {
+		if err != nil {
+			logger.Warn("[Agent] 记忆检索失败", "err", err)
+		} else if len(results) > 0 {
+			logger.Debug("[Agent] 检索到相关记忆", "count", len(results))
 			for _, res := range results {
 				relevantMemories = append(relevantMemories,
 					fmt.Sprintf("[%s] %s", res.Entry.Type, res.Entry.Content))
@@ -61,15 +81,26 @@ func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (str
 	if len(relevantMemories) > 0 {
 		memoryContext := "相关记忆:\n" + strings.Join(relevantMemories, "\n")
 		enhancedMessage = memoryContext + "\n\n用户问题: " + userMessage
+		logger.Debug("[Agent] 消息已增强，加入记忆上下文")
 	}
 
 	session.AddMessage("user", enhancedMessage)
+	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages))
 
-	finalResponse, err := a.runtime.Execute(ctx, session, a.config.Tools, a.config.MaxIterations)
+	// 执行运行时
+	logger.Info("[Agent] 开始执行Runtime",
+		"tools_count", len(a.config.Tools),
+		"max_iterations", a.config.MaxIterations)
+
+	finalResponse, err := a.runtime.Execute(ctx, session, a.config.Tools, a.config.MaxIterations, handler)
 	if err != nil {
+		logger.Error("[Agent] Runtime执行失败", "err", err)
 		return "", err
 	}
 
+	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse))
+
+	// 存储记忆
 	if a.memory != nil {
 		a.memory.Store(ctx, memory.MemoryEntry{
 			Content:    userMessage,
@@ -89,9 +120,11 @@ func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (str
 			Importance: 0.6,
 			CreatedAt:  time.Now(),
 		})
+		logger.Debug("[Agent] 对话已存入记忆")
 	}
 
 	session.AddMessage("assistant", finalResponse)
+	logger.Info("[Agent] 消息处理完成", "session", sessionID)
 
 	return finalResponse, nil
 }

@@ -105,6 +105,13 @@ func (w *WebhookChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendToolEvent 发送工具执行事件（webhook暂不支持实时输出，忽略）
+func (w *WebhookChannel) SendToolEvent(event ToolEvent) error {
+	// Webhook 是请求-响应模式，无法实时推送工具事件
+	// 如需支持，可通过 SSE stream 推送
+	return nil
+}
+
 func (w *WebhookChannel) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if w.authToken == "" {

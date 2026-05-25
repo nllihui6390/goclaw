@@ -14,7 +14,7 @@ The codebase follows a clean layered architecture:
 
 ```
 main.go                          → Entry point: loads config, creates gateway, registers agents/channels/tools
-config/config.go                 → JSON-based configuration (agents, channels, gateway, logging, auth)
+config/config.go                 → JSON-based configuration (providers, agents, channels, gateway, logging, auth)
 internal/gateway/
   gateway.go                     → Gateway core: lifecycle, message routing (manual agent selection), session cleanup
   router.go                      → Manual routing: msg.Agent → agent, fallback to defaultAgent (no keyword auto-routing)
@@ -35,6 +35,8 @@ internal/tool/
   registry.go                    → ToolRegistry + Skill groups + GlobalRegistry (plugin pattern)
   weather.go                     → Weather tool (HeFeng, OpenWeather, Seniverse APIs)
   exec.go                        → Shell command execution with safety guards
+  file.go                        → File operations (read_file, write_file, edit_file)
+  browser.go                     → Browser automation (chromedp: navigate, click, type, extract, screenshot, evaluate, scroll, wait)
 internal/memory/
   memory.go                      → Memory interface (Store/Retrieve/Consolidate/Forget)
   simple.go                      → In-memory keyword retrieval + persistence backend
@@ -87,15 +89,19 @@ If neither is set, the message routes to the default agent.
 
 - Primary config file: `config.json` (in project root)
 - Fallback: `getDefaultConfig()` in `main.go` when config file fails to load
-- API keys should come from environment variables (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `HEFENG_API_KEY`)
+- **Multi-provider support**: `providers` section defines multiple LLM providers (OpenAI, DeepSeek, Ollama, etc.), agents reference providers via `provider` field
+- Provider types: `openai` (OpenAI-compatible API with Bearer auth), `ollama` (local Ollama `/api/chat`, no auth)
+- Per-provider env vars: `PROVIDER_<name>_API_KEY`, `PROVIDER_<name>_BASE_URL` override config.json
+- Legacy env vars: `OPENAI_API_KEY`, `OPENAI_BASE_URL` still work (override agent-level api_key/base_url)
 - Set `GOCLAW_HOT_RELOAD=true` to enable config.json hot-reload
 - `.env.example` provides template for environment variables
 
 ## Key Architectural Patterns
 
 - **Gateway**: Central coordinator — manages agent/channel registration, **manual agent routing** (msg.Agent field), session TTL cleanup, and inter-agent event bus. No automatic keyword/channel pattern routing.
-- **Agent**: Encapsulates LLM interaction loop with two execution modes — blocking (`Execute`) and streaming (`ExecuteStream` with SSE parsing)
+- **Agent**: Encapsulates LLM interaction loop with two execution modes — blocking (`Execute`) and streaming (`ExecuteStream` with SSE parsing). Supports multiple provider types via `ProviderType` field: `openai` (OpenAI-compatible) and `ollama` (local Ollama)
+- **Provider**: Decoupled model configuration — agents reference providers by name, providers define type/base_url/api_key/default_model. Enables mixing cloud APIs (DeepSeek, OpenAI) with local models (Ollama)
 - **Channel**: Pluggable message interface — `channel.go` defines the contract, implemented by console (with `/agent` command), webhook (HTTP REST + SSE + agent field), and websocket
-- **Tool**: Plugin pattern — `tool.go` defines the interface, `registry.go` provides dynamic registration + skill grouping
+- **Tool**: Plugin pattern — `tool.go` defines the interface, `registry.go` provides dynamic registration + skill grouping. Built-in tools: weather, exec, write_file, read_file, edit_file, browser_use
 - **Memory**: Cross-cutting concern with two implementations — `SimpleMemory` (keyword + importance scoring) and `VectorMemory` (embedding + cosine similarity), both backed by `store.FileStore` for JSON persistence
 - **Supervisor**: Multi-agent orchestration — LLM-based intent classification routes user messages to specialized sub-agents

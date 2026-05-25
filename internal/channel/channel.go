@@ -20,9 +20,33 @@ type Response struct {
 	To      string
 }
 
+// ToolEventType 工具事件类型
+type ToolEventType string
+
+const (
+	ToolEventThinking ToolEventType = "thinking"  // Agent正在思考
+	ToolEventCalling  ToolEventType = "calling"   // 正在调用工具
+	ToolEventResult   ToolEventType = "result"    // 工具返回结果
+	ToolEventError    ToolEventType = "error"     // 工具执行出错
+)
+
+// ToolEvent 工具执行事件（用于实时输出工具调用过程）
+type ToolEvent struct {
+	Type     ToolEventType // 事件类型
+	ToolName string        // 工具名称
+	Args     string        // 工具参数（JSON）
+	Result   string        // 工具返回结果
+	Error    string        // 错误信息
+	Thinking string        // 思考内容
+}
+
+// ToolEventHandler 工具事件回调函数
+type ToolEventHandler func(event ToolEvent)
+
 // Channel 渠道接口
 type Channel interface {
 	Send(ctx context.Context, resp Response) error
+	SendToolEvent(event ToolEvent) error // 发送工具执行事件
 	Receive(ctx context.Context) (<-chan Message, error)
 	GetName() string
 	Start(ctx context.Context) error

@@ -90,6 +90,29 @@ func (w *WebSocketChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendToolEvent 发送工具执行事件（WebSocket实时推送）
+func (w *WebSocketChannel) SendToolEvent(event ToolEvent) error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	for _, wc := range w.conns {
+		if wc == nil {
+			continue
+		}
+		wc.mu.Lock()
+		wc.conn.WriteJSON(map[string]interface{}{
+			"type":      "tool_event",
+			"event_type": event.Type,
+			"tool_name": event.ToolName,
+			"args":      event.Args,
+			"result":    event.Result,
+			"error":     event.Error,
+			"thinking":  event.Thinking,
+		})
+		wc.mu.Unlock()
+	}
+	return nil
+}
+
 func (w *WebSocketChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 	conn, err := w.upgrader.Upgrade(rw, r, nil)
 	if err != nil {

@@ -52,6 +52,36 @@ func (c *ConsoleChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendToolEvent 发送工具执行事件（实时输出工具调用过程）
+func (c *ConsoleChannel) SendToolEvent(event ToolEvent) error {
+	switch event.Type {
+	case "thinking":
+		if event.Thinking != "" {
+			fmt.Printf("\n  💭 思考: %s\n", event.Thinking)
+		}
+	case "calling":
+		fmt.Printf("\n  🔧 调用工具: %s\n", event.ToolName)
+		if event.Args != "" {
+			// 格式化参数，截断过长的内容
+			args := event.Args
+			if len(args) > 200 {
+				args = args[:200] + "..."
+			}
+			fmt.Printf("     参数: %s\n", args)
+		}
+	case "result":
+		// 截断过长的结果
+		result := event.Result
+		if len(result) > 500 {
+			result = result[:500] + "...(已截断)"
+		}
+		fmt.Printf("  ✅ 结果: %s\n", result)
+	case "error":
+		fmt.Printf("  ❌ 错误: %s - %s\n", event.ToolName, event.Error)
+	}
+	return nil
+}
+
 // SendCtrl 发送控制响应
 func (c *ConsoleChannel) SendCtrl(msg string) {
 	fmt.Printf("\n[系统] %s\n", msg)
