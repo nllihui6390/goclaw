@@ -3,4 +3,4 @@ logs
 *.log
 *.exe
 .env
-
+data.json
