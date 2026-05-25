@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"go-claw/internal/tool"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -21,7 +23,7 @@ type Runtime struct {
 func NewRuntime(cfg *Config) *Runtime {
 	return &Runtime{
 		config: cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -43,24 +45,20 @@ type ToolCall struct {
 	} `json:"function"`
 }
 
-// Execute 执行Agent循环
+// Execute 执行Agent循环（阻塞版）
 func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int) (string, error) {
-	// 构建消息列表
 	messages := r.buildMessages(session)
 
 	for i := 0; i < maxIterations; i++ {
-		// 调用LLM
 		resp, err := r.callLLM(ctx, messages, tools)
 		if err != nil {
 			return "", err
 		}
 
-		// 如果没有工具调用，返回最终响应
 		if len(resp.ToolCalls) == 0 {
 			return resp.Content, nil
 		}
 
-		// 执行工具调用
 		assistantMsg := ChatMessage{
 			Role:      "assistant",
 			Content:   resp.Content,
@@ -68,14 +66,12 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 		}
 		messages = append(messages, assistantMsg)
 
-		// 执行每个工具
 		for _, tc := range resp.ToolCalls {
 			result, err := r.executeTool(ctx, tc, tools)
 			if err != nil {
 				result = fmt.Sprintf("工具执行错误: %v", err)
 			}
 
-			// 添加工具结果
 			toolMsg := ChatMessage{
 				Role:       "tool",
 				ToolCallID: tc.ID,
@@ -88,28 +84,76 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 	return "达到最大迭代次数", nil
 }
 
-// callLLM 调用大模型API
+// StreamCallback 流式回调
+type StreamCallback func(chunk string)
+
+// ExecuteStream 执行Agent循环（流式版）
+func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int, cb StreamCallback) (string, error) {
+	messages := r.buildMessages(session)
+
+	for i := 0; i < maxIterations; i++ {
+		var fullContent strings.Builder
+		var toolCalls []ToolCall
+		var err error
+
+		// 如果有工具，先用非流式调用判断是否需要工具调用
+		if len(tools) > 0 {
+			resp, err := r.callLLM(ctx, messages, tools)
+			if err != nil {
+				return "", err
+			}
+			if len(resp.ToolCalls) > 0 {
+				// 需要工具调用，走阻塞路径
+				assistantMsg := ChatMessage{
+					Role:      "assistant",
+					Content:   resp.Content,
+					ToolCalls: resp.ToolCalls,
+				}
+				messages = append(messages, assistantMsg)
+
+				for _, tc := range resp.ToolCalls {
+					result, err := r.executeTool(ctx, tc, tools)
+					if err != nil {
+						result = fmt.Sprintf("工具执行错误: %v", err)
+					}
+					toolMsg := ChatMessage{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    result,
+					}
+					messages = append(messages, toolMsg)
+				}
+				continue
+			}
+			// 不需要工具，走流式
+			toolCalls = resp.ToolCalls
+			fullContent.WriteString(resp.Content)
+			for _, ch := range resp.Content {
+				cb(string(ch))
+			}
+		} else {
+			fullContent, toolCalls, err = r.callLLMStream(ctx, messages, cb)
+			if err != nil {
+				return "", err
+			}
+		}
+
+		if len(toolCalls) == 0 {
+			return fullContent.String(), nil
+		}
+	}
+
+	return "达到最大迭代次数", nil
+}
+
+// callLLM 调用大模型API（阻塞版）
 func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
-	// 构建请求体
-	reqBody := map[string]interface{}{
-		"model":       r.config.Model,
-		"messages":    messages,
-		"max_tokens":  2000,
-		"temperature": 0.7,
-	}
-
-	// 如果有工具，添加到请求
-	if len(tools) > 0 {
-		reqBody["tools"] = r.convertTools(tools)
-		reqBody["tool_choice"] = "auto"
-	}
-
+	reqBody := r.buildRequest(messages, tools)
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
 	}
 
-	// 发送请求
 	url := r.config.BaseURL + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -130,7 +174,6 @@ func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []t
 		return nil, err
 	}
 
-	// 解析响应
 	var llmResp struct {
 		Choices []struct {
 			Message struct {
@@ -146,7 +189,7 @@ func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []t
 	}
 
 	if len(llmResp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from LLM")
+		return nil, fmt.Errorf("no response from LLM: %s", string(body))
 	}
 
 	msg := &ChatMessage{
@@ -158,9 +201,90 @@ func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []t
 	return msg, nil
 }
 
+// callLLMStream 调用大模型API（流式版）
+func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb StreamCallback) (strings.Builder, []ToolCall, error) {
+	reqBody := r.buildRequest(messages, nil)
+	reqBody["stream"] = true
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return strings.Builder{}, nil, err
+	}
+
+	url := r.config.BaseURL + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return strings.Builder{}, nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+r.config.APIKey)
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return strings.Builder{}, nil, err
+	}
+	defer resp.Body.Close()
+
+	var fullContent strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		if len(chunk.Choices) > 0 {
+			content := chunk.Choices[0].Delta.Content
+			if content != "" {
+				fullContent.WriteString(content)
+				if cb != nil {
+					cb(content)
+				}
+			}
+			if chunk.Choices[0].FinishReason != "" {
+				break
+			}
+		}
+	}
+
+	return fullContent, nil, nil
+}
+
+func (r *Runtime) buildRequest(messages []ChatMessage, tools []tool.Tool) map[string]interface{} {
+	reqBody := map[string]interface{}{
+		"model":       r.config.Model,
+		"messages":    messages,
+		"max_tokens":  2000,
+		"temperature": 0.7,
+	}
+
+	if len(tools) > 0 {
+		reqBody["tools"] = r.convertTools(tools)
+		reqBody["tool_choice"] = "auto"
+	}
+
+	return reqBody
+}
+
 // executeTool 执行工具
 func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Tool) (string, error) {
-	// 查找工具
 	var targetTool tool.Tool
 	for _, t := range tools {
 		if t.Name() == tc.Function.Name {
@@ -173,19 +297,12 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 		return "", fmt.Errorf("tool not found: %s", tc.Function.Name)
 	}
 
-	// 解析参数
 	var params map[string]interface{}
 	if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err != nil {
 		return "", err
 	}
 
-	// 执行工具
-	result, err := targetTool.Execute(ctx, params)
-	if err != nil {
-		return "", err
-	}
-
-	return result, nil
+	return targetTool.Execute(ctx, params)
 }
 
 // convertTools 转换工具格式
@@ -206,7 +323,7 @@ func (r *Runtime) convertTools(tools []tool.Tool) []map[string]interface{} {
 	return openAITools
 }
 
-// buildMessages 构建消息列表（包含系统提示词）
+// buildMessages 构建消息列表
 func (r *Runtime) buildMessages(session *Session) []ChatMessage {
 	messages := []ChatMessage{
 		{Role: "system", Content: r.config.SystemPrompt},

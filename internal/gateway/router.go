@@ -1,71 +1,59 @@
 package gateway
 
 import (
-    "regexp"
-    "strings"
-    "go-claw/internal/channel"
+	"go-claw/internal/channel"
+	"strings"
 )
 
-// RouteRule 路由规则
-type RouteRule struct {
-    ChannelPattern string   // 渠道名称正则
-    UserPattern    string   // 用户正则
-    KeywordPattern string   // 关键词正则
-    AgentName      string   // 目标Agent
-}
-
-// Router 消息路由器
+// Router 消息路由器 — 手动指定模式
 type Router struct {
-    rules []RouteRule
-    defaultAgent string
+	defaultAgent string
 }
 
 // NewRouter 创建路由器
 func NewRouter() *Router {
-    return &Router{
-        rules: []RouteRule{},
-        defaultAgent: "default",
-    }
-}
-
-// AddRule 添加路由规则
-func (r *Router) AddRule(rule RouteRule) {
-    r.rules = append(r.rules, rule)
+	return &Router{
+		defaultAgent: "default",
+	}
 }
 
 // SetDefaultAgent 设置默认Agent
 func (r *Router) SetDefaultAgent(name string) {
-    r.defaultAgent = name
+	r.defaultAgent = name
 }
 
-// Route 路由消息到合适的Agent
+// Route 路由消息 — 优先使用消息中指定的Agent，否则使用默认
 func (r *Router) Route(msg channel.Message) string {
-    for _, rule := range r.rules {
-        // 匹配渠道
-        if rule.ChannelPattern != "" {
-            matched, _ := regexp.MatchString(rule.ChannelPattern, msg.Channel)
-            if !matched {
-                continue
-            }
-        }
-        
-        // 匹配用户
-        if rule.UserPattern != "" {
-            matched, _ := regexp.MatchString(rule.UserPattern, msg.From)
-            if !matched {
-                continue
-            }
-        }
-        
-        // 匹配关键词
-        if rule.KeywordPattern != "" {
-            if !strings.Contains(strings.ToLower(msg.Content), strings.ToLower(rule.KeywordPattern)) {
-                continue
-            }
-        }
-        
-        return rule.AgentName
-    }
-    
-    return r.defaultAgent
+	if msg.Agent != "" {
+		return msg.Agent
+	}
+	return r.defaultAgent
+}
+
+// RouteRule 保留兼容性（已废弃，不再使用关键词路由）
+type RouteRule struct {
+	ChannelPattern string
+	UserPattern    string
+	KeywordPattern string
+	AgentName      string
+}
+
+// AddRule 保留兼容性（空操作）
+func (r *Router) AddRule(rule RouteRule) {
+	// 废弃：不再使用自动规则路由
+}
+
+// IsCommand 判断是否为控制台命令
+func IsCommand(text string) (string, string, bool) {
+	if !strings.HasPrefix(text, "/") {
+		return "", "", false
+	}
+	parts := strings.Fields(text[1:])
+	if len(parts) == 0 {
+		return "", "", false
+	}
+	if len(parts) == 1 {
+		return parts[0], "", true
+	}
+	return parts[0], strings.Join(parts[1:], " "), true
 }

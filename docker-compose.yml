@@ -1,0 +1,15 @@
+services:
+  go-claw:
+    build: .
+    container_name: go-claw
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - ./config.json:/app/config.json
+      - ./data.json:/app/data.json
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - HEFENG_API_KEY=${HEFENG_API_KEY}
+    restart: unless-stopped

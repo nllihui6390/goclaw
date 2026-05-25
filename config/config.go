@@ -10,10 +10,23 @@ type Config struct {
 	Gateway  GatewayConfig  `json:"gateway"`
 	Agents   []AgentConfig  `json:"agents"`
 	Channels ChannelsConfig `json:"channels"`
+	Logging  LoggingConfig  `json:"logging"`
+	Auth     AuthConfig     `json:"auth"`
 }
 
 type GatewayConfig struct {
 	DefaultAgent string `json:"default_agent"`
+	SessionTTL   int    `json:"session_ttl"` // 会话超时分钟数, 0=永不过期
+}
+
+type LoggingConfig struct {
+	Level    string `json:"level"`     // debug, info, warn, error
+	JSONMode bool   `json:"json_mode"` // 是否输出JSON格式
+}
+
+type AuthConfig struct {
+	Enabled bool   `json:"enabled"`
+	Token   string `json:"token"`
 }
 
 type AgentConfig struct {
@@ -27,8 +40,9 @@ type AgentConfig struct {
 }
 
 type ChannelsConfig struct {
-	Console ConsoleConfig `json:"console"`
-	Webhook WebhookConfig `json:"webhook"`
+	Console     ConsoleConfig     `json:"console"`
+	Webhook     WebhookConfig     `json:"webhook"`
+	WebSocket   WebSocketConfig   `json:"websocket"`
 }
 
 type ConsoleConfig struct {
@@ -36,6 +50,11 @@ type ConsoleConfig struct {
 }
 
 type WebhookConfig struct {
+	Enabled bool   `json:"enabled"`
+	Port    string `json:"port"`
+}
+
+type WebSocketConfig struct {
 	Enabled bool   `json:"enabled"`
 	Port    string `json:"port"`
 }

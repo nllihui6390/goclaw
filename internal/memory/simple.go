@@ -2,31 +2,33 @@ package memory
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"go-claw/internal/store"
+	"go-claw/pkg/log"
 )
 
 // SimpleMemory 简单内存记忆实现
 type SimpleMemory struct {
 	mu         sync.RWMutex
 	entries    map[string]MemoryEntry
-	sessionIdx map[string][]string // sessionID -> entryIDs
+	sessionIdx map[string][]string
 	idCounter  int64
+	st         store.Store
 }
 
 // NewSimpleMemory 创建简单记忆实例
-func NewSimpleMemory() *SimpleMemory {
+func NewSimpleMemory(st store.Store) *SimpleMemory {
 	m := &SimpleMemory{
 		entries:    make(map[string]MemoryEntry),
 		sessionIdx: make(map[string][]string),
+		st:         st,
 	}
 
-	// 启动定期记忆巩固和遗忘协程
 	go m.maintenanceLoop()
 
 	return m
@@ -40,15 +42,58 @@ func (m *SimpleMemory) maintenanceLoop() {
 	for range ticker.C {
 		ctx := context.Background()
 		m.Consolidate(ctx)
-		m.Forget(ctx, 0.1) // 遗忘重要性低于0.1的记忆
+		m.Forget(ctx, 0.1)
 	}
 }
 
 // generateID 生成唯一ID
 func (m *SimpleMemory) generateID() string {
 	m.idCounter++
-	hash := md5.Sum([]byte(fmt.Sprintf("%d-%d", time.Now().UnixNano(), m.idCounter)))
-	return hex.EncodeToString(hash[:])[:16]
+	return fmt.Sprintf("mem-%d-%d", time.Now().UnixNano(), m.idCounter)
+}
+
+func toStoreEntry(e MemoryEntry) store.MemoryEntry {
+	return store.MemoryEntry{
+		ID:          e.ID,
+		Content:     e.Content,
+		Type:        e.Type,
+		SessionID:   e.SessionID,
+		UserID:      e.UserID,
+		Metadata:    e.Metadata,
+		CreatedAt:   e.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   e.UpdatedAt.Format(time.RFC3339),
+		AccessCount: e.AccessCount,
+		Importance:  e.Importance,
+	}
+}
+
+func toMemoryEntry(e store.MemoryEntry) (MemoryEntry, error) {
+	var createdAt, updatedAt time.Time
+	var err error
+	if e.CreatedAt != "" {
+		createdAt, err = time.Parse(time.RFC3339, e.CreatedAt)
+		if err != nil {
+			return MemoryEntry{}, err
+		}
+	}
+	if e.UpdatedAt != "" {
+		updatedAt, err = time.Parse(time.RFC3339, e.UpdatedAt)
+		if err != nil {
+			return MemoryEntry{}, err
+		}
+	}
+	return MemoryEntry{
+		ID:          e.ID,
+		Content:     e.Content,
+		Type:        e.Type,
+		SessionID:   e.SessionID,
+		UserID:      e.UserID,
+		Metadata:    e.Metadata,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+		AccessCount: e.AccessCount,
+		Importance:  e.Importance,
+	}, nil
 }
 
 // Store 存储记忆
@@ -66,7 +111,6 @@ func (m *SimpleMemory) Store(ctx context.Context, entry MemoryEntry) error {
 
 	m.entries[entry.ID] = entry
 
-	// 更新索引
 	if entry.SessionID != "" {
 		if _, exists := m.sessionIdx[entry.SessionID]; !exists {
 			m.sessionIdx[entry.SessionID] = []string{}
@@ -74,10 +118,16 @@ func (m *SimpleMemory) Store(ctx context.Context, entry MemoryEntry) error {
 		m.sessionIdx[entry.SessionID] = append(m.sessionIdx[entry.SessionID], entry.ID)
 	}
 
+	if m.st != nil {
+		if err := m.st.SaveMemory(ctx, toStoreEntry(entry)); err != nil {
+			log.Logger().Error("保存记忆失败", "err", err)
+		}
+	}
+
 	return nil
 }
 
-// Retrieve 检索相关记忆（使用简单的关键词匹配）
+// Retrieve 检索相关记忆
 func (m *SimpleMemory) Retrieve(ctx context.Context, query string, sessionID string, limit int) ([]SearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -85,7 +135,6 @@ func (m *SimpleMemory) Retrieve(ctx context.Context, query string, sessionID str
 	var results []SearchResult
 	query = strings.ToLower(query)
 
-	// 获取会话的所有记忆
 	var sessionEntries []MemoryEntry
 	if sessionID != "" {
 		if ids, exists := m.sessionIdx[sessionID]; exists {
@@ -101,7 +150,6 @@ func (m *SimpleMemory) Retrieve(ctx context.Context, query string, sessionID str
 		}
 	}
 
-	// 计算相关性评分
 	for _, entry := range sessionEntries {
 		score := m.calculateRelevance(query, entry)
 		if score > 0 {
@@ -112,7 +160,6 @@ func (m *SimpleMemory) Retrieve(ctx context.Context, query string, sessionID str
 		}
 	}
 
-	// 按评分排序
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
@@ -124,11 +171,9 @@ func (m *SimpleMemory) Retrieve(ctx context.Context, query string, sessionID str
 	return results, nil
 }
 
-// calculateRelevance 计算相关性（简化版：关键词匹配 + 时间衰减 + 重要性）
 func (m *SimpleMemory) calculateRelevance(query string, entry MemoryEntry) float64 {
-	var score float64 = 0
+	var score float64
 
-	// 1. 内容匹配度
 	content := strings.ToLower(entry.Content)
 	words := strings.Fields(query)
 	matchedWords := 0
@@ -141,22 +186,19 @@ func (m *SimpleMemory) calculateRelevance(query string, entry MemoryEntry) float
 		score += float64(matchedWords) / float64(len(words)) * 0.6
 	}
 
-	// 2. 重要性评分
 	score += entry.Importance * 0.3
 
-	// 3. 时间衰减（最近7天内有效）
 	hoursSince := time.Since(entry.CreatedAt).Hours()
 	timeDecay := 1.0
-	if hoursSince > 168 { // 超过7天
+	if hoursSince > 168 {
 		timeDecay = 0.5
 	} else if hoursSince > 24 {
 		timeDecay = 0.8
 	}
 	score *= timeDecay
 
-	// 4. 访问频率加成
 	if entry.AccessCount > 0 {
-		score += float64(min(entry.AccessCount, 10)) / 100.0
+		score += float64(minInt(entry.AccessCount, 10)) / 100.0
 	}
 
 	return score
@@ -179,7 +221,6 @@ func (m *SimpleMemory) GetRecent(ctx context.Context, sessionID string, limit in
 		}
 	}
 
-	// 按时间倒序排序
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].CreatedAt.After(entries[j].CreatedAt)
 	})
@@ -201,14 +242,9 @@ func (m *SimpleMemory) GetByID(ctx context.Context, id string) (*MemoryEntry, er
 		return nil, fmt.Errorf("记忆不存在: %s", id)
 	}
 
-	// 增加访问计数
 	entry.AccessCount++
 	entry.UpdatedAt = time.Now()
-	m.mu.RUnlock()
-	m.mu.Lock()
 	m.entries[id] = entry
-	m.mu.Unlock()
-	m.mu.RLock()
 
 	return &entry, nil
 }
@@ -238,7 +274,6 @@ func (m *SimpleMemory) Delete(ctx context.Context, id string) error {
 		return nil
 	}
 
-	// 从会话索引中移除
 	if entry.SessionID != "" {
 		ids := m.sessionIdx[entry.SessionID]
 		for i, eid := range ids {
@@ -250,6 +285,13 @@ func (m *SimpleMemory) Delete(ctx context.Context, id string) error {
 	}
 
 	delete(m.entries, id)
+
+	if m.st != nil {
+		if err := m.st.DeleteMemory(ctx, id); err != nil {
+			log.Logger().Error("删除持久化记忆失败", "err", err)
+		}
+	}
+
 	return nil
 }
 
@@ -265,17 +307,22 @@ func (m *SimpleMemory) ClearSession(ctx context.Context, sessionID string) error
 		delete(m.sessionIdx, sessionID)
 	}
 
+	if m.st != nil {
+		if err := m.st.ClearSessionMemories(ctx, sessionID); err != nil {
+			log.Logger().Error("清除持久化记忆失败", "err", err)
+		}
+	}
+
 	return nil
 }
 
-// Consolidate 记忆巩固（将短期记忆转为长期）
+// Consolidate 记忆巩固
 func (m *SimpleMemory) Consolidate(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now()
 	for id, entry := range m.entries {
-		// 如果记忆存在超过1小时，且类型为短期，且重要性>0.3，则转为长期
 		if entry.Type == "short_term" &&
 			now.Sub(entry.CreatedAt).Hours() > 1 &&
 			entry.Importance > 0.3 {
@@ -295,27 +342,33 @@ func (m *SimpleMemory) Forget(ctx context.Context, threshold float64) error {
 
 	toDelete := []string{}
 	for id, entry := range m.entries {
-		// 遗忘长期且重要性低、超过30天未访问的记忆
 		if entry.Type == "long_term" &&
 			entry.Importance < threshold &&
-			time.Since(entry.UpdatedAt).Hours() > 720 { // 30天
+			time.Since(entry.UpdatedAt).Hours() > 720 {
 			toDelete = append(toDelete, id)
 		}
-		// 遗忘短期且超过24小时的记忆
 		if entry.Type == "short_term" && time.Since(entry.CreatedAt).Hours() > 24 {
 			toDelete = append(toDelete, id)
 		}
 	}
 
 	for _, id := range toDelete {
-		m.Delete(ctx, id)
+		delete(m.entries, id)
+		if entry, ok := m.entries[id]; ok && entry.SessionID != "" {
+			ids := m.sessionIdx[entry.SessionID]
+			for i, eid := range ids {
+				if eid == id {
+					m.sessionIdx[entry.SessionID] = append(ids[:i], ids[i+1:]...)
+					break
+				}
+			}
+		}
 	}
 
 	return nil
 }
 
-// min 辅助函数
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

@@ -3,13 +3,15 @@ package agent
 import (
 	"context"
 	"fmt"
-	"go-claw/internal/memory"
-	"go-claw/internal/tool"
 	"strings"
 	"time"
+
+	"go-claw/internal/memory"
+	"go-claw/internal/store"
+	"go-claw/internal/tool"
 )
 
-// Config Agent配置（原有基础上添加记忆配置）
+// Config Agent配置
 type Config struct {
 	Name          string
 	SystemPrompt  string
@@ -18,10 +20,11 @@ type Config struct {
 	BaseURL       string
 	Tools         []tool.Tool
 	MaxIterations int
-	Memory        memory.Memory // 添加记忆组件
+	Memory        memory.Memory
+	Store         store.Store
 }
 
-// Agent AI智能体（更新版）
+// Agent AI智能体
 type Agent struct {
 	config     *Config
 	runtime    *Runtime
@@ -29,22 +32,20 @@ type Agent struct {
 	memory     memory.Memory
 }
 
-// NewAgent 创建Agent（更新版）
+// NewAgent 创建Agent
 func NewAgent(cfg *Config) *Agent {
 	return &Agent{
 		config:     cfg,
 		runtime:    NewRuntime(cfg),
-		sessionMgr: NewSessionManager(),
+		sessionMgr: NewSessionManager(cfg.Store),
 		memory:     cfg.Memory,
 	}
 }
 
-// Process 处理用户消息（带记忆版本）
+// Process 处理用户消息
 func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (string, error) {
-	// 获取或创建会话
 	session := a.sessionMgr.GetOrCreate(sessionID)
 
-	// 1. 检索相关记忆（短期 + 长期）
 	var relevantMemories []string
 	if a.memory != nil {
 		results, err := a.memory.Retrieve(ctx, userMessage, sessionID, 5)
@@ -56,26 +57,21 @@ func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (str
 		}
 	}
 
-	// 2. 构建增强的提示词
 	enhancedMessage := userMessage
 	if len(relevantMemories) > 0 {
 		memoryContext := "相关记忆:\n" + strings.Join(relevantMemories, "\n")
 		enhancedMessage = memoryContext + "\n\n用户问题: " + userMessage
 	}
 
-	// 3. 添加用户消息到历史
 	session.AddMessage("user", enhancedMessage)
 
-	// 4. 执行思考-行动循环
 	finalResponse, err := a.runtime.Execute(ctx, session, a.config.Tools, a.config.MaxIterations)
 	if err != nil {
 		return "", err
 	}
 
-	// 5. 将交互存储为记忆
 	if a.memory != nil {
-		// 存储用户消息
-		userMemory := memory.MemoryEntry{
+		a.memory.Store(ctx, memory.MemoryEntry{
 			Content:    userMessage,
 			Type:       "short_term",
 			SessionID:  sessionID,
@@ -83,11 +79,8 @@ func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (str
 			Metadata:   map[string]interface{}{"role": "user"},
 			Importance: 0.5,
 			CreatedAt:  time.Now(),
-		}
-		a.memory.Store(ctx, userMemory)
-
-		// 存储助手响应
-		assistantMemory := memory.MemoryEntry{
+		})
+		a.memory.Store(ctx, memory.MemoryEntry{
 			Content:    finalResponse,
 			Type:       "short_term",
 			SessionID:  sessionID,
@@ -95,17 +88,15 @@ func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (str
 			Metadata:   map[string]interface{}{"role": "assistant"},
 			Importance: 0.6,
 			CreatedAt:  time.Now(),
-		}
-		a.memory.Store(ctx, assistantMemory)
+		})
 	}
 
-	// 6. 添加助手响应到历史
 	session.AddMessage("assistant", finalResponse)
 
 	return finalResponse, nil
 }
 
-// GetMemories 获取会话记忆（新增方法）
+// GetMemories 获取会话记忆
 func (a *Agent) GetMemories(ctx context.Context, sessionID string, limit int) ([]memory.MemoryEntry, error) {
 	if a.memory == nil {
 		return nil, fmt.Errorf("记忆组件未启用")
@@ -113,10 +104,71 @@ func (a *Agent) GetMemories(ctx context.Context, sessionID string, limit int) ([
 	return a.memory.GetRecent(ctx, sessionID, limit)
 }
 
-// ClearMemories 清除会话记忆（新增方法）
+// ClearMemories 清除会话记忆
 func (a *Agent) ClearMemories(ctx context.Context, sessionID string) error {
 	if a.memory == nil {
 		return fmt.Errorf("记忆组件未启用")
 	}
 	return a.memory.ClearSession(ctx, sessionID)
+}
+
+// CleanupExpiredSessions 清理过期会话
+func (a *Agent) CleanupExpiredSessions(ttlMinutes int) {
+	a.sessionMgr.CleanupExpired(ttlMinutes)
+}
+
+// ListSessions 列出所有会话
+func (a *Agent) ListSessions() []SessionSummary {
+	sessions := a.sessionMgr.ListSessions()
+	var summaries []SessionSummary
+	for i := range sessions {
+		summaries = append(summaries, SessionSummary{
+			ID:        sessions[i].ID,
+			Channel:   sessions[i].Channel,
+			User:      sessions[i].User,
+			CreatedAt: sessions[i].CreatedAt,
+			UpdatedAt: sessions[i].UpdatedAt,
+		})
+	}
+	return summaries
+}
+
+// GetSessionMessages 获取会话消息历史
+func (a *Agent) GetSessionMessages(sessionID string) ([]SessionMessage, bool) {
+	s, exists := a.sessionMgr.GetSession(sessionID)
+	if !exists {
+		return nil, false
+	}
+	msgs := make([]SessionMessage, 0, len(s.Messages))
+	s.mu.RLock()
+	for _, m := range s.Messages {
+		msgs = append(msgs, SessionMessage{
+			Role:      m.Role,
+			Content:   m.Content,
+			Timestamp: m.Timestamp,
+		})
+	}
+	s.mu.RUnlock()
+	return msgs, true
+}
+
+// DeleteSession 删除会话
+func (a *Agent) DeleteSession(id string) error {
+	return a.sessionMgr.DeleteSession(id)
+}
+
+// SessionMessage 会话消息
+type SessionMessage struct {
+	Role      string
+	Content   string
+	Timestamp time.Time
+}
+
+// SessionSummary 会话摘要
+type SessionSummary struct {
+	ID        string
+	Channel   string
+	User      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

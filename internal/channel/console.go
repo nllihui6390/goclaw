@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // ConsoleChannel 控制台渠道
 type ConsoleChannel struct {
-	name     string
-	msgChan  chan Message
-	stopChan chan struct{}
+	name       string
+	msgChan    chan Message
+	stopChan   chan struct{}
+	ctrlChan   chan ControlResponse // 控制响应通道
+	currentAgent string              // 当前选中的Agent
 }
 
 // NewConsoleChannel 创建控制台渠道
@@ -21,6 +24,7 @@ func NewConsoleChannel() *ConsoleChannel {
 		name:     "console",
 		msgChan:  make(chan Message, 100),
 		stopChan: make(chan struct{}),
+		ctrlChan: make(chan ControlResponse, 10),
 	}
 }
 
@@ -48,6 +52,12 @@ func (c *ConsoleChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendCtrl 发送控制响应
+func (c *ConsoleChannel) SendCtrl(msg string) {
+	fmt.Printf("\n[系统] %s\n", msg)
+	fmt.Print("> ")
+}
+
 func (c *ConsoleChannel) readLoop(ctx context.Context) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("> ")
@@ -61,19 +71,27 @@ func (c *ConsoleChannel) readLoop(ctx context.Context) {
 		default:
 			if scanner.Scan() {
 				text := scanner.Text()
+
+				if c.handleCommand(text) {
+					fmt.Print("> ")
+					continue
+				}
+
 				if text == "/exit" {
 					fmt.Println("再见！")
 					os.Exit(0)
 				}
 
 				if strings.TrimSpace(text) != "" {
-					c.msgChan <- Message{
+					msg := Message{
 						ID:        fmt.Sprintf("msg-%d", timeNow()),
 						Channel:   c.name,
 						From:      "user",
 						Content:   text,
+						Agent:     c.currentAgent, // 携带当前选中的Agent
 						Timestamp: timeNow(),
 					}
+					c.msgChan <- msg
 				}
 				fmt.Print("> ")
 			}
@@ -81,6 +99,51 @@ func (c *ConsoleChannel) readLoop(ctx context.Context) {
 	}
 }
 
+// handleCommand 处理控制台命令，返回true表示已处理
+func (c *ConsoleChannel) handleCommand(text string) bool {
+	if !strings.HasPrefix(text, "/") {
+		return false
+	}
+
+	parts := strings.Fields(text[1:])
+	if len(parts) == 0 {
+		return false
+	}
+
+	cmd := strings.ToLower(parts[0])
+	arg := ""
+	if len(parts) > 1 {
+		arg = strings.Join(parts[1:], " ")
+	}
+
+	switch cmd {
+	case "agent":
+		if arg == "" {
+			if c.currentAgent == "" {
+				c.SendCtrl("当前使用默认Agent (default)")
+			} else {
+				c.SendCtrl(fmt.Sprintf("当前Agent: %s", c.currentAgent))
+			}
+		} else {
+			c.currentAgent = arg
+			c.SendCtrl(fmt.Sprintf("已切换到Agent: %s", arg))
+		}
+	case "agents":
+		c.SendCtrl("可用Agent列表: default (当前只有一个Agent)")
+	case "help":
+		c.SendCtrl("可用命令:\n" +
+			"  /agent [name]   - 切换Agent（不加参数显示当前Agent）\n" +
+			"  /agents         - 列出可用Agent\n" +
+			"  /exit           - 退出\n" +
+			"  /help           - 显示帮助\n" +
+			"\n直接输入内容即可与当前Agent对话")
+	default:
+		c.SendCtrl(fmt.Sprintf("未知命令: /%s，输入 /help 查看帮助", cmd))
+	}
+
+	return true
+}
+
 func timeNow() int64 {
-	return 0 // 简化实现，实际应该用time.Now().Unix()
+	return time.Now().Unix()
 }

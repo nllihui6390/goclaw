@@ -8,8 +8,9 @@ type Message struct {
 	Channel   string
 	From      string
 	Content   string
+	Agent     string                 // 目标Agent名称（由用户指定，为空时使用默认）
 	Timestamp int64
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // Response 响应消息
@@ -21,14 +22,15 @@ type Response struct {
 
 // Channel 渠道接口
 type Channel interface {
-	// Send 发送消息
 	Send(ctx context.Context, resp Response) error
-	// Receive 接收消息（返回消息通道）
 	Receive(ctx context.Context) (<-chan Message, error)
-	// GetName 获取渠道名称
 	GetName() string
-	// Start 启动渠道
 	Start(ctx context.Context) error
-	// Stop 停止渠道
 	Stop() error
+}
+
+// ControlResponse 控制台控制响应
+type ControlResponse struct {
+	Message string
+	IsCtrl  bool // true表示这是控制响应，不是AI回复
 }

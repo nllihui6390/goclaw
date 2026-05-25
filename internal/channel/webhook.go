@@ -5,57 +5,71 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"go-claw/pkg/log"
 )
 
 // WebhookChannel HTTP Webhook渠道
 type WebhookChannel struct {
-	name      string
-	port      string
-	server    *http.Server
-	msgChan   chan Message
-	mu        sync.RWMutex
-	responses map[string]chan Response
+	name        string
+	port        string
+	server      *http.Server
+	msgChan     chan Message
+	mu          sync.RWMutex
+	responses   map[string]chan Response
+	streamResps map[string]chan string
+	authToken   string
+
+	// Metrics
+	reqCount   int64
+	errorCount int64
+	avgLatency time.Duration
+	metricsMu  sync.RWMutex
 }
 
 // NewWebhookChannel 创建Webhook渠道
-func NewWebhookChannel(port string) *WebhookChannel {
+func NewWebhookChannel(port, authToken string) *WebhookChannel {
 	return &WebhookChannel{
-		name:      "webhook",
-		port:      port,
-		msgChan:   make(chan Message, 100),
-		responses: make(map[string]chan Response),
+		name:        "webhook",
+		port:        port,
+		msgChan:     make(chan Message, 100),
+		responses:   make(map[string]chan Response),
+		streamResps: make(map[string]chan string),
+		authToken:   authToken,
 	}
 }
 
-func (w *WebhookChannel) GetName() string {
-	return w.name
-}
+func (w *WebhookChannel) GetName() string                                        { return w.name }
+func (w *WebhookChannel) Receive(ctx context.Context) (<-chan Message, error)    { return w.msgChan, nil }
 
 func (w *WebhookChannel) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 
-	// 接收消息端点
+	mux.HandleFunc("/api/v1/chat", w.handleChat)
+	mux.HandleFunc("/api/v1/sessions", w.handleSessions)
+	mux.HandleFunc("/api/v1/sessions/", w.handleSessionByID)
 	mux.HandleFunc("/webhook", w.handleWebhook)
-
-	// 健康检查
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+	mux.HandleFunc("/health", func(rw http.ResponseWriter, r *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+		rw.Write([]byte("OK"))
 	})
+	mux.HandleFunc("/metrics", w.handleMetrics)
 
 	w.server = &http.Server{
 		Addr:    ":" + w.port,
-		Handler: mux,
+		Handler: w.authMiddleware(mux),
 	}
 
 	go func() {
 		if err := w.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("Webhook服务器错误: %v\n", err)
+			log.Logger().Error("Webhook服务器错误", "err", err)
 		}
 	}()
 
+	log.Logger().Info("Webhook渠道已启动", "port", w.port)
 	return nil
 }
 
@@ -68,14 +82,10 @@ func (w *WebhookChannel) Stop() error {
 	return nil
 }
 
-func (w *WebhookChannel) Receive(ctx context.Context) (<-chan Message, error) {
-	return w.msgChan, nil
-}
-
 func (w *WebhookChannel) Send(ctx context.Context, resp Response) error {
-	// Webhook渠道发送响应（如果有关联的响应通道）
 	w.mu.RLock()
 	ch, exists := w.responses[resp.To]
+	streamCh := w.streamResps[resp.To]
 	w.mu.RUnlock()
 
 	if exists {
@@ -85,16 +95,214 @@ func (w *WebhookChannel) Send(ctx context.Context, resp Response) error {
 		}
 	}
 
+	if streamCh != nil {
+		select {
+		case streamCh <- resp.Content:
+		default:
+		}
+	}
+
 	return nil
+}
+
+func (w *WebhookChannel) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if w.authToken == "" {
+			next.ServeHTTP(rw, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != w.authToken {
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(rw).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(rw, r)
+	})
+}
+
+func (w *WebhookChannel) writeJSON(rw http.ResponseWriter, status int, data any) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(status)
+	json.NewEncoder(rw).Encode(data)
+}
+
+func (w *WebhookChannel) writeError(rw http.ResponseWriter, status int, msg string) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(status)
+	json.NewEncoder(rw).Encode(map[string]string{"error": msg})
+}
+
+// chatRequest 请求体
+type chatRequest struct {
+	Session string `json:"session"`
+	Content string `json:"content"`
+	Agent   string `json:"agent,omitempty"`  // 指定目标Agent
+	Stream  bool   `json:"stream"`
+}
+
+// handleChat POST /api/v1/chat
+func (w *WebhookChannel) handleChat(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req chatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.writeError(rw, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.Content == "" {
+		w.writeError(rw, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	// 也支持 X-Agent 请求头
+	if req.Agent == "" {
+		req.Agent = r.Header.Get("X-Agent")
+	}
+
+	msgID := fmt.Sprintf("rest-%d", time.Now().UnixNano())
+	if req.Session == "" {
+		req.Session = fmt.Sprintf("rest-user-%d", time.Now().UnixNano())
+	}
+
+	w.sendToAgent(msgID, req.Session, req.Content, req.Agent, req.Stream, rw, r)
+}
+
+func (w *WebhookChannel) sendToAgent(msgID, session, content, agentName string, stream bool, rw http.ResponseWriter, r *http.Request) {
+	if stream {
+		streamCh := make(chan string, 32)
+		w.mu.Lock()
+		w.streamResps[msgID] = streamCh
+		w.mu.Unlock()
+
+		go func() {
+			w.msgChan <- Message{
+				ID: msgID, Channel: w.name, From: session,
+				Content: content, Agent: agentName, Timestamp: time.Now().Unix(),
+			}
+		}()
+
+		rw.Header().Set("Content-Type", "text/event-stream")
+		rw.Header().Set("Cache-Control", "no-cache")
+		rw.Header().Set("Connection", "keep-alive")
+		rw.WriteHeader(http.StatusOK)
+		flusher := rw.(http.Flusher)
+
+		fmt.Fprintf(rw, "event: start\ndata: {\"session\":\"%s\",\"id\":\"%s\"}\n\n", session, msgID)
+		flusher.Flush()
+
+		timeout := time.After(120 * time.Second)
+		for {
+			select {
+			case content, ok := <-streamCh:
+				if !ok {
+					fmt.Fprintf(rw, "event: done\ndata: {}\n\n")
+					flusher.Flush()
+					return
+				}
+				data, _ := json.Marshal(map[string]string{"content": content})
+				fmt.Fprintf(rw, "event: chunk\ndata: %s\n\n", data)
+				flusher.Flush()
+			case <-timeout:
+				fmt.Fprintf(rw, "event: error\ndata: {\"error\":\"timeout\"}\n\n")
+				flusher.Flush()
+				return
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}
+
+	// 阻塞模式
+	respChan := make(chan Response, 1)
+	w.mu.Lock()
+	w.responses[msgID] = respChan
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		delete(w.responses, msgID)
+		w.mu.Unlock()
+	}()
+
+	w.msgChan <- Message{
+		ID: msgID, Channel: w.name, From: session,
+		Content: content, Agent: agentName, Timestamp: time.Now().Unix(),
+	}
+
+	select {
+	case resp := <-respChan:
+		w.writeJSON(rw, http.StatusOK, map[string]string{"response": resp.Content})
+	case <-time.After(120 * time.Second):
+		w.writeError(rw, http.StatusGatewayTimeout, "timeout")
+	}
+}
+
+// handleMetrics GET /metrics
+func (w *WebhookChannel) handleMetrics(rw http.ResponseWriter, r *http.Request) {
+	w.metricsMu.RLock()
+	defer w.metricsMu.RUnlock()
+
+	rw.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(rw, "# HELP go_claw_requests_total Total HTTP requests\n")
+	fmt.Fprintf(rw, "# TYPE go_claw_requests_total counter\n")
+	fmt.Fprintf(rw, "go_claw_requests_total %d\n", w.reqCount)
+	fmt.Fprintf(rw, "# HELP go_claw_errors_total Total errors\n")
+	fmt.Fprintf(rw, "# TYPE go_claw_errors_total counter\n")
+	fmt.Fprintf(rw, "go_claw_errors_total %d\n", w.errorCount)
+}
+
+func (w *WebhookChannel) RecordRequest(ok bool, latency time.Duration) {
+	w.metricsMu.Lock()
+	defer w.metricsMu.Unlock()
+	w.reqCount++
+	if !ok {
+		w.errorCount++
+	}
+	w.avgLatency = (w.avgLatency*time.Duration(w.reqCount-1) + latency) / time.Duration(w.reqCount)
+}
+
+// handleSessions GET /api/v1/sessions
+func (w *WebhookChannel) handleSessions(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	w.writeJSON(rw, http.StatusOK, map[string]any{
+		"sessions": []string{},
+		"note":     "use GET /api/v1/sessions/{id} for details",
+	})
+}
+
+// handleSessionByID GET/DELETE /api/v1/sessions/{id}
+func (w *WebhookChannel) handleSessionByID(rw http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/"), "/")
+	sessionID := parts[0]
+	if sessionID == "" {
+		w.writeError(rw, http.StatusBadRequest, "session id is required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		w.writeJSON(rw, http.StatusOK, map[string]string{"session": sessionID})
+	case http.MethodDelete:
+		w.writeJSON(rw, http.StatusOK, map[string]string{"deleted": sessionID})
+	default:
+		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 func (w *WebhookChannel) handleWebhook(rw http.ResponseWriter, r *http.Request) {
 	var req struct {
 		User    string `json:"user"`
 		Message string `json:"message"`
+		Agent   string `json:"agent,omitempty"`
 		ID      string `json:"id,omitempty"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(rw, "Invalid request", http.StatusBadRequest)
 		return
@@ -105,35 +313,26 @@ func (w *WebhookChannel) handleWebhook(rw http.ResponseWriter, r *http.Request) 
 		msgID = fmt.Sprintf("webhook-%d", time.Now().UnixNano())
 	}
 
-	// 创建响应通道
 	respChan := make(chan Response, 1)
 	w.mu.Lock()
 	w.responses[msgID] = respChan
 	w.mu.Unlock()
-
 	defer func() {
 		w.mu.Lock()
 		delete(w.responses, msgID)
 		w.mu.Unlock()
 	}()
 
-	// 发送消息到Agent
 	w.msgChan <- Message{
-		ID:        msgID,
-		Channel:   w.name,
-		From:      req.User,
-		Content:   req.Message,
-		Timestamp: time.Now().Unix(),
+		ID: msgID, Channel: w.name, From: req.User,
+		Content: req.Message, Agent: req.Agent, Timestamp: time.Now().Unix(),
 	}
 
-	// 等待响应
 	select {
 	case resp := <-respChan:
 		rw.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(rw).Encode(map[string]string{
-			"response": resp.Content,
-		})
-	case <-time.After(30 * time.Second):
+		json.NewEncoder(rw).Encode(map[string]string{"response": resp.Content})
+	case <-time.After(60 * time.Second):
 		http.Error(rw, "Timeout", http.StatusGatewayTimeout)
 	}
 }

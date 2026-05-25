@@ -1,0 +1,81 @@
+{
+  "memories": {
+    "mem-1779664795980600300-1": {
+      "id": "mem-1779664795980600300-1",
+      "content": "你好",
+      "type": "short_term",
+      "session_id": "console:user",
+      "user_id": "user",
+      "metadata": {
+        "role": "user"
+      },
+      "created_at": "2026-05-25T07:19:55+08:00",
+      "updated_at": "2026-05-25T07:19:55+08:00",
+      "access_count": 0,
+      "importance": 0.5
+    },
+    "mem-1779664795981657200-2": {
+      "id": "mem-1779664795981657200-2",
+      "content": "你好！很高兴为你服务！😊 有什么我可以帮助你的吗？",
+      "type": "short_term",
+      "session_id": "console:user",
+      "user_id": "user",
+      "metadata": {
+        "role": "assistant"
+      },
+      "created_at": "2026-05-25T07:19:55+08:00",
+      "updated_at": "2026-05-25T07:19:55+08:00",
+      "access_count": 0,
+      "importance": 0.6
+    },
+    "mem-1779665279426153000-1": {
+      "id": "mem-1779665279426153000-1",
+      "content": "今天上海天气怎么样",
+      "type": "short_term",
+      "session_id": "console:user",
+      "user_id": "user",
+      "metadata": {
+        "role": "user"
+      },
+      "created_at": "2026-05-25T07:27:59+08:00",
+      "updated_at": "2026-05-25T07:27:59+08:00",
+      "access_count": 0,
+      "importance": 0.5
+    },
+    "mem-1779665279427215500-2": {
+      "id": "mem-1779665279427215500-2",
+      "content": "今天上海的天气情况如下：\n\n- 🌤 **天气状况**：多云\n- 🌡 **温度**：22°C\n- 💧 **湿度**：65%\n- 🌬 **风力**：东风3级\n\n总体来说是舒适宜人的一天，适合外出活动，不过多云天气建议带件外套哦！",
+      "type": "short_term",
+      "session_id": "console:user",
+      "user_id": "user",
+      "metadata": {
+        "role": "assistant"
+      },
+      "created_at": "2026-05-25T07:27:59+08:00",
+      "updated_at": "2026-05-25T07:27:59+08:00",
+      "access_count": 0,
+      "importance": 0.6
+    }
+  },
+  "sessions": {
+    "console:user": {
+      "id": "console:user",
+      "channel": "console",
+      "user": "user",
+      "messages": [
+        {
+          "role": "user",
+          "content": "今天上海天气怎么样",
+          "timestamp": "2026-05-25T07:27:55+08:00"
+        },
+        {
+          "role": "assistant",
+          "content": "今天上海的天气情况如下：\n\n- 🌤 **天气状况**：多云\n- 🌡 **温度**：22°C\n- 💧 **湿度**：65%\n- 🌬 **风力**：东风3级\n\n总体来说是舒适宜人的一天，适合外出活动，不过多云天气建议带件外套哦！",
+          "timestamp": "2026-05-25T07:27:59+08:00"
+        }
+      ],
+      "created_at": "2026-05-25T07:27:55+08:00",
+      "updated_at": "2026-05-25T07:27:59+08:00"
+    }
+  }
+}
