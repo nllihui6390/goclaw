@@ -28,7 +28,7 @@
       "provider": "deepseek",
       "system_prompt": "你是一个有用的AI助手。你可以使用工具来帮助用户。",
       "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use"],
-      "max_iterations": 50
+      "max_iterations": 10
     },
     {
       "name": "local",
@@ -36,7 +36,7 @@
       "model": "qwen2.5:7b",
       "system_prompt": "你是一个本地AI助手，运行在Ollama上。",
       "tools": [],
-      "max_iterations": 50
+      "max_iterations": 10
     }
   ],
   "channels": {
@@ -62,9 +62,9 @@
       "client_secret": ""
     },
     "wecom": {
-      "enabled": false,
-      "bot_id": "",
-      "secret": ""
+      "enabled": true,
+      "bot_id": "aibuzW2brot2Dm0D7_7cCDulznfLbppvErq",
+      "secret": "LGSYO230IPJ75ipnxZPwOfQHWOb78SNArbOQBsgjflw"
     }
   },
   "logging": {
