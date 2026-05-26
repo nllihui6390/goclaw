@@ -81,8 +81,7 @@ func (t *WeatherTool) Execute(ctx context.Context, params map[string]interface{}
 	// 调用真实API获取天气
 	weather, err := t.fetchWeather(ctx, city)
 	if err != nil {
-		// 如果API调用失败，返回模拟数据作为降级方案
-		return t.getFallbackWeather(city), nil
+		return "", fmt.Errorf("天气查询失败: %w", err)
 	}
 
 	return weather, nil
@@ -384,25 +383,4 @@ func getWindDirection(deg int) string {
 	directions := []string{"北", "东北", "东", "东南", "南", "西南", "西", "西北"}
 	idx := (deg + 22) / 45 % 8
 	return directions[idx]
-}
-
-// getFallbackWeather 降级方案：返回模拟数据
-func (t *WeatherTool) getFallbackWeather(city string) string {
-	// 常见城市的模拟数据
-	weatherDB := map[string]string{
-		"北京": "北京 晴 25°C 湿度45% 南风2级",
-		"上海": "上海 多云 22°C 湿度65% 东风3级",
-		"广州": "广州 阵雨 28°C 湿度80% 南风2级",
-		"深圳": "深圳 晴 26°C 湿度70% 微风",
-		"杭州": "杭州 阴 20°C 湿度75% 东北风2级",
-		"成都": "成都 多云 23°C 湿度70% 北风1级",
-		"武汉": "武汉 晴 24°C 湿度60% 东风2级",
-		"西安": "西安 晴 22°C 湿度50% 东北风2级",
-	}
-
-	if weather, exists := weatherDB[city]; exists {
-		return weather
-	}
-
-	return fmt.Sprintf("%s 天气查询服务暂时不可用，但根据历史数据，今日天气良好，温度适中。", city)
 }
