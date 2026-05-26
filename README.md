@@ -13,6 +13,8 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索 (Embedding + 余弦相似度)、JSON 文件持久化
 - **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化、技能调用；控制台实时输出工具调用过程
+- **智能运行时**: Auto-continue（模型暗示工具时自动注入提示继续）、Summarizing（迭代上限时优雅总结而非硬中断）、API 重试（429/5xx 自动重试+指数退避）、Token 预算管理
+- **Skill 动态创建**: 用户对话中要求创建技能时，自动注入 SKILL.md 标准模板，AI 使用 write_file 工具按规范创建技能文件
 - **多 Agent 协作**: 事件总线 (AgentBus)、监督者模式 (SupervisorAgent)
 - **安全**: Bearer Token 鉴权、令牌桶限流、命令执行安全过滤
 - **运维**: Docker 化部署、配置热加载 (fsnotify)、Prometheus 指标、结构化日志
@@ -146,6 +148,14 @@ metadata:
 - **变量替换**: 正文中 `{{city}}` 等占位符会被调用参数替换
 - **依赖检查**: `metadata.openclaw.requires.bins` 检查所需命令是否存在，缺失则跳过加载
 
+### 动态创建技能
+
+用户在对话中发送包含"创建技能""做成技能""封装成skill"等关键词的消息时，系统会自动注入 SKILL.md 标准模板到 system prompt，AI 将使用 `write_file` 工具按规范创建技能文件。
+
+触发关键词：创建技能、新建skill、做成技能、保存为技能、封装成skill、create skill、make a skill 等。
+
+创建完成后，技能会持久保存在 `skills/` 目录，后续可通过 `skill_use` 工具直接调用。
+
 ### 配置
 
 ```json
@@ -158,8 +168,40 @@ metadata:
 将 `"skill_use"` 加入 agent 的 `tools` 列表即可让 AI 调用技能：
 
 ```json
-"tools": ["weather", "exec", "write_file", "read_file", "edit_file", "skill_use"]
+"tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use", "skill_use"]
 ```
+
+## Agent 运行时优化
+
+基于 CoPaw/QwenPaw 设计模式，Agent 运行时实现了以下智能优化：
+
+### Auto-continue 机制
+
+当模型返回纯文本（无 tool_calls）但内容暗示要使用工具时（如"我来查询天气"），自动注入提示"请直接调用工具来完成任务"并继续循环，最多 3 次。避免模型只描述意图而不实际执行。
+
+### Summarizing 机制
+
+达到配置的 `max_iterations` 上限时，不硬性报错退出，而是调用模型不带 tools（等效 `tool_choice: "none"`），让模型优雅总结当前进度并返回。
+
+### API 重试
+
+`callLLMWithRetry` 包装器处理 429/500-504 错误，自动重试 3 次，指数退避（1s → 2s → 4s，上限 30s）。
+
+### Token 预算管理
+
+`buildMessages` 中根据 `max_tokens` 配置估算上下文长度，超限时截断旧消息保留 system prompt + 最近 N 条消息。
+
+### 智能终止
+
+循环不再硬性限制次数，而是根据以下条件智能退出：
+- 安全上限 100 次迭代
+- 同一工具连续失败 3 次
+- 总失败次数 ≥ 8 且 > 3× 成功次数
+- 模型返回无 tool_calls 的最终响应
+
+### 推理标签剥离
+
+自动剥离 DeepSeek 等模型的内部推理标签 `ellites`...`ellites`，用户只看到实际回答内容，不暴露思考过程。
 
 ## API 端点
 
@@ -218,8 +260,9 @@ go-claw/
 │   │   └── config_watcher.go        # 配置热加载
 │   ├── agent/
 │   │   ├── agent.go                 # Agent 核心
-│   │   ├── runtime.go               # 运行时（阻塞 + 流式）
+│   │   ├── runtime.go               # 运行时（阻塞 + 流式 + 智能循环）
 │   │   ├── context.go               # 会话管理（持久化）
+│   │   ├── skill_template.go        # 技能创建模板（动态注入）
 │   │   └── supervisor.go            # 监督者 Agent
 │   ├── channel/
 │   │   ├── channel.go               # 渠道接口 + Message 结构体
@@ -286,8 +329,9 @@ go-claw/
       "provider": "deepseek",
       "model": "deepseek-v4-oc",
       "system_prompt": "你是一个有用的AI助手。",
-      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "skill_use"],
-      "max_iterations": 5
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use", "skill_use"],
+      "max_iterations": 20,
+      "max_tokens": 32000
     },
     {
       "name": "local",
@@ -295,7 +339,7 @@ go-claw/
       "model": "qwen2.5:7b",
       "system_prompt": "你是一个本地AI助手。",
       "tools": [],
-      "max_iterations": 3
+      "max_iterations": 20
     }
   ],
   "channels": {
