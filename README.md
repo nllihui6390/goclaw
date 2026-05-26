@@ -9,7 +9,7 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **三层架构**: Gateway（路由协调）→ Agent（LLM 交互）→ Session（会话管理）
 - **多模型供应商**: 支持 OpenAI/DeepSeek 等云 API + 本地 Ollama，一个配置多个供应商
 - **手动 Agent 路由**: `/agent <name>` 切换、API `agent` 字段指定，无自动关键词匹配
-- **多渠道接入**: 控制台 (stdin/stdout)、REST API (HTTP)、WebSocket (实时双向)、Webhook (旧版兼容)
+- **多渠道接入**: 控制台 (stdin/stdout)、REST API (HTTP)、WebSocket (实时双向)、飞书机器人、钉钉机器人、企业微信机器人（均为 WebSocket 客户端模式，无需开端口）
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索 (Embedding + 余弦相似度)、JSON 文件持久化
 - **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化；控制台实时输出工具调用过程
@@ -69,6 +69,28 @@ docker compose up -d
   /exit           - 退出
   /help           - 显示帮助
 ```
+
+## 机器人渠道
+
+go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主动连接对方服务器，无需本地开端口，无需消息加解密：
+
+| 渠道 | 连接地址 | 配置字段 |
+|------|---------|----------|
+| 飞书 | `wss://open.feishu.cn/open-apis/event/v2/stream/` | `app_id`, `app_secret` |
+| 钉钉 | `wss://stream.dingtalk.com` | `client_id`, `client_secret` |
+| 企业微信 | `wss://openws.work.weixin.qq.com` | `bot_id`, `secret` |
+
+配置示例：
+
+```json
+"channels": {
+  "lark":      { "enabled": true, "app_id": "cli_xxx", "app_secret": "xxx" },
+  "dingtalk":  { "enabled": true, "client_id": "xxx", "client_secret": "xxx" },
+  "wecom":     { "enabled": true, "bot_id": "xxx", "secret": "xxx" }
+}
+```
+
+所有 Bot 渠道自动心跳保活（30秒 ping）、断线自动重连。
 
 ## API 端点
 
@@ -134,14 +156,18 @@ go-claw/
 │   │   ├── channel.go               # 渠道接口 + Message 结构体
 │   │   ├── console.go               # 控制台渠道（/agent 命令）
 │   │   ├── webhook.go               # REST API + SSE + 指标
-│   │   └── websocket.go             # WebSocket 渠道
+│   │   ├── websocket.go             # WebSocket 渠道
+│   │   ├── bot_base.go              # Bot 渠道共享基础
+│   │   ├── lark.go                  # 飞书机器人 (WebSocket 客户端)
+│   │   ├── dingtalk.go              # 钉钉机器人 (Stream 模式)
+│   │   └── wecom.go                 # 企业微信机器人 (WebSocket 长连接)
 │   ├── tool/
 │   │   ├── tool.go                  # 工具接口
 │   │   ├── registry.go              # 工具注册表 + Skill 分组
 │   │   ├── weather.go               # 天气工具
 │   │   └── exec.go                  # 命令执行
 │   │   └── file.go                  # 文件读写编辑工具
-│   │   └── browser.go               # 浏览器自动化工具 (chromedp)
+│   │   └── browser.go               # 浏览器自动化工具 (rod)
 │   ├── memory/
 │   │   ├── memory.go                # 记忆接口
 │   │   ├── simple.go                # 关键词检索 + 持久化
@@ -198,7 +224,10 @@ go-claw/
   "channels": {
     "console":   { "enabled": true },
     "webhook":   { "enabled": true, "port": "8080" },
-    "websocket": { "enabled": false, "port": "8081" }
+    "websocket": { "enabled": false, "port": "8081" },
+    "lark":      { "enabled": false, "app_id": "", "app_secret": "" },
+    "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "" },
+    "wecom":     { "enabled": false, "bot_id": "", "secret": "" }
   },
   "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": false },
   "auth": { "enabled": false, "token": "" }

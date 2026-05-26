@@ -30,13 +30,17 @@ internal/channel/
   console.go                     → stdin/stdout channel with /agent, /agents, /help commands
   webhook.go                     → HTTP REST API + SSE streaming + Prometheus metrics (agent field + X-Agent header)
   websocket.go                   → WebSocket real-time bidirectional channel
+  bot_base.go                    → Shared HTTP server base for bot channels
+  lark.go                        → 飞书机器人 (WebSocket client mode, no port needed)
+  dingtalk.go                    → 钉钉机器人 (Stream mode, no port needed)
+  wecom.go                       → 企业微信机器人 (WebSocket long connection mode, no port needed)
 internal/tool/
   tool.go                        → Tool interface (Name/Description/Parameters/Execute)
   registry.go                    → ToolRegistry + Skill groups + GlobalRegistry (plugin pattern)
   weather.go                     → Weather tool (HeFeng, OpenWeather, Seniverse APIs)
   exec.go                        → Shell command execution with safety guards
   file.go                        → File operations (read_file, write_file, edit_file)
-  browser.go                     → Browser automation (chromedp: navigate, click, type, extract, screenshot, evaluate, scroll, wait)
+  browser.go                     → Browser automation (rod: navigate, click, type, extract, screenshot, scroll, wait)
 internal/memory/
   memory.go                      → Memory interface (Store/Retrieve/Consolidate/Forget)
   simple.go                      → In-memory keyword retrieval + persistence backend
@@ -101,7 +105,7 @@ If neither is set, the message routes to the default agent.
 - **Gateway**: Central coordinator — manages agent/channel registration, **manual agent routing** (msg.Agent field), session TTL cleanup, and inter-agent event bus. No automatic keyword/channel pattern routing.
 - **Agent**: Encapsulates LLM interaction loop with two execution modes — blocking (`Execute`) and streaming (`ExecuteStream` with SSE parsing). Supports multiple provider types via `ProviderType` field: `openai` (OpenAI-compatible) and `ollama` (local Ollama)
 - **Provider**: Decoupled model configuration — agents reference providers by name, providers define type/base_url/api_key/default_model. Enables mixing cloud APIs (DeepSeek, OpenAI) with local models (Ollama)
-- **Channel**: Pluggable message interface — `channel.go` defines the contract, implemented by console (with `/agent` command), webhook (HTTP REST + SSE + agent field), and websocket
+- **Channel**: Pluggable message interface — `channel.go` defines the contract, implemented by console (with `/agent` command), webhook (HTTP REST + SSE + agent field), websocket, and three bot channels: 飞书 (Lark WebSocket client), 钉钉 (DingTalk Stream), 企业微信 (WeCom WebSocket long connection). All bot channels use WebSocket client mode — actively connect to platform servers, no local port needed, no encryption required.
 - **Tool**: Plugin pattern — `tool.go` defines the interface, `registry.go` provides dynamic registration + skill grouping. Built-in tools: weather, exec, write_file, read_file, edit_file, browser_use
 - **Memory**: Cross-cutting concern with two implementations — `SimpleMemory` (keyword + importance scoring) and `VectorMemory` (embedding + cosine similarity), both backed by `store.FileStore` for JSON persistence
 - **Supervisor**: Multi-agent orchestration — LLM-based intent classification routes user messages to specialized sub-agents
