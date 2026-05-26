@@ -12,6 +12,7 @@ import (
 	"go-claw/internal/channel"
 	"go-claw/internal/gateway"
 	"go-claw/internal/memory"
+	"go-claw/internal/skill"
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
@@ -53,6 +54,24 @@ func main() {
 
 	// 创建网关
 	gw := gateway.NewGateway()
+
+	// 初始化 Skill 系统（必须在 agent 注册前，否则 skill_use 工具无法加载）
+	if cfg.Skills.Enabled {
+		skillDir := cfg.Skills.SkillDir
+		if skillDir == "" {
+			skillDir = "skills"
+		}
+		skillReg := skill.NewRegistry(skillDir)
+		if err := skillReg.LoadAll(); err != nil {
+			logger.Warn("加载 Skill 目录失败", "err", err)
+		}
+		skillExecutor := skill.NewExecutor(skillReg)
+		skillTool := skill.NewSkillUseTool(skillExecutor)
+		tool.GlobalRegistry.Register("skill_use", func() tool.Tool {
+			return skillTool
+		})
+		logger.Info("Skill 系统已启用", "skill_dir", skillDir, "count", len(skillReg.List()))
+	}
 
 	// 注册Agents
 	for _, agentCfg := range cfg.Agents {
@@ -222,6 +241,10 @@ func getDefaultConfig() *config.Config {
 		Auth: config.AuthConfig{
 			Enabled: false,
 			Token:   "",
+		},
+		Skills: config.SkillsConfig{
+			Enabled:  false,
+			SkillDir: "skills",
 		},
 	}
 }

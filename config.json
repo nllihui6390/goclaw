@@ -27,7 +27,7 @@
       "name": "default",
       "provider": "deepseek",
       "system_prompt": "你是一个有用的AI助手。你可以使用工具来帮助用户。",
-      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use"],
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "skill_use"],
       "max_iterations": 5
     },
     {
@@ -76,5 +76,9 @@
   "auth": {
     "enabled": false,
     "token": ""
+  },
+  "skills": {
+    "enabled": true,
+    "skill_dir": "skills"
   }
 }

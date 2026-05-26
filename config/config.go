@@ -7,12 +7,13 @@ import (
 
 // Config 全局配置
 type Config struct {
-	Gateway  GatewayConfig         `json:"gateway"`
+	Gateway   GatewayConfig           `json:"gateway"`
 	Providers map[string]ProviderConfig `json:"providers"` // 模型供应商配置
-	Agents   []AgentConfig         `json:"agents"`
-	Channels ChannelsConfig        `json:"channels"`
-	Logging  LoggingConfig         `json:"logging"`
-	Auth     AuthConfig            `json:"auth"`
+	Agents    []AgentConfig           `json:"agents"`
+	Channels  ChannelsConfig          `json:"channels"`
+	Skills    SkillsConfig            `json:"skills"`
+	Logging   LoggingConfig           `json:"logging"`
+	Auth      AuthConfig              `json:"auth"`
 }
 
 type GatewayConfig struct {
@@ -56,6 +57,12 @@ type ChannelsConfig struct {
 	Lark      LarkConfig      `json:"lark"`
 	DingTalk  DingTalkConfig  `json:"dingtalk"`
 	WeCom     WeComConfig     `json:"wecom"`
+}
+
+// SkillsConfig Skill 系统配置
+type SkillsConfig struct {
+	Enabled  bool   `json:"enabled"`
+	SkillDir string `json:"skill_dir"` // Skill 目录路径，默认 ~/.goclaw/skills
 }
 
 type ConsoleConfig struct {
