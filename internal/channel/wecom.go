@@ -533,9 +533,8 @@ func (w *WeComChannel) clearPendingMessages(reason string) {
 	w.pendingAcksMu.Unlock()
 }
 
-// Send 发送响应 (使用 stream 流式消息格式，不显示思考过程)
+// Send 发送最终响应 (stream finish=true)
 func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
-	// 从 sessionInfo 获取会话信息
 	w.sessionInfoMu.RLock()
 	session, ok := w.sessionInfo[resp.To]
 	w.sessionInfoMu.RUnlock()
@@ -545,9 +544,11 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 	}
 
 	reqID := session.reqID
-	streamID := w.generateReqID("stream")
+	streamID := session.streamID
+	if streamID == "" {
+		streamID = w.generateReqID("stream")
+	}
 
-	// 直接发送最终内容，不发送中间思考消息
 	frame := map[string]any{
 		"cmd": WsCmdResponse,
 		"headers": map[string]string{
@@ -563,7 +564,68 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 		},
 	}
 
+	log.Logger().Info("[WeCom] 发送最终响应", "user", resp.To, "content_len", len(resp.Content))
 	return w.sendAndWaitAck(reqID, frame)
+}
+
+// SendToolEvent 发送工具事件（流式中间帧）
+func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
+	if event.To == "" {
+		return nil
+	}
+
+	w.sessionInfoMu.RLock()
+	session, ok := w.sessionInfo[event.To]
+	w.sessionInfoMu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	reqID := session.reqID
+	// 首次事件时生成 streamID 并存储
+	if session.streamID == "" {
+		streamID := w.generateReqID("stream")
+		session.streamID = streamID
+		w.sessionInfoMu.Lock()
+		w.sessionInfo[event.To] = session
+		w.sessionInfoMu.Unlock()
+	}
+
+	streamID := session.streamID
+
+	var content string
+	switch event.Type {
+	case ToolEventThinking:
+		content = "💭 思考中..."
+	case ToolEventCalling:
+		content = fmt.Sprintf("🔧 调用工具: %s", event.ToolName)
+	case ToolEventResult:
+		// 工具结果不发送中间帧，避免过长
+		return nil
+	case ToolEventError:
+		content = fmt.Sprintf("❌ %s: %s", event.ToolName, event.Error)
+	default:
+		return nil
+	}
+
+	frame := map[string]any{
+		"cmd": WsCmdResponse,
+		"headers": map[string]string{
+			"req_id": reqID,
+		},
+		"body": map[string]any{
+			"msgtype": "stream",
+			"stream": map[string]any{
+				"id":      streamID,
+				"finish":  false,
+				"content": content,
+			},
+		},
+	}
+
+	log.Logger().Debug("[WeCom] 发送中间帧", "type", event.Type, "content", content)
+	return w.sendFrame(frame) // 中间帧不等 ack
 }
 
 // sendAndWaitAck 发送消息并等待回执
@@ -592,10 +654,6 @@ func (w *WeComChannel) sendAndWaitAck(reqID string, frame map[string]any) error 
 	}
 }
 
-// SendToolEvent 发送工具事件 (暂不实现)
-func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
-	return nil
-}
 
 func truncateJSON(v any) string {
 	data, _ := json.Marshal(v)

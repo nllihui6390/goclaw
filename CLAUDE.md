@@ -41,6 +41,11 @@ internal/tool/
   exec.go                        → Shell command execution with safety guards
   file.go                        → File operations (read_file, write_file, edit_file)
   browser.go                     → Browser automation (rod: navigate, click, type, extract, screenshot, scroll, wait)
+internal/skill/
+  skill.go                       → Skill struct + SKILL.md parsing (YAML frontmatter + Markdown sections)
+  registry.go                    → Skill Registry (LoadAll/Get/List/Match/SkillSummary)
+  executor.go                    → Skill Executor (script execution + AI guidance generation)
+  tool.go                        → skill_use tool (AI → SkillUseTool → Executor → Skill)
 internal/memory/
   memory.go                      → Memory interface (Store/Retrieve/Consolidate/Forget)
   simple.go                      → In-memory keyword retrieval + persistence backend
@@ -99,6 +104,29 @@ If neither is set, the message routes to the default agent.
 - Legacy env vars: `OPENAI_API_KEY`, `OPENAI_BASE_URL` still work (override agent-level api_key/base_url)
 - Set `GOCLAW_HOT_RELOAD=true` to enable config.json hot-reload
 - `.env.example` provides template for environment variables
+- **Skills**: `skills` section configures skill system — `enabled` toggles feature, `skill_dir` sets skill directory (default: `skills`). Skills are loaded at startup before agent registration.
+
+## Skills
+
+Skills are defined in `SKILL.md` files (OpenClaw-compatible format):
+
+```
+skills/
+└── weather-query/
+    ├── SKILL.md          # Skill definition
+    └── scripts/          # Optional scripts (.sh/.py/.js)
+        └── query.sh
+```
+
+SKILL.md format:
+- YAML frontmatter (between `---`): `name`, `description`, `metadata.openclaw.emoji`, `metadata.openclaw.requires.bins`
+- Markdown body with sections: `## 核心能力`, `## 执行步骤`, `## 输入要求`, `## 输出格式`, `## 异常处理`
+- Variable placeholders: `{{city}}` in steps get replaced by args
+
+Execution:
+- **With scripts**: Execute `.sh` (env vars `SKILL_*`), `.py`/`.js` (args `--key=value`)
+- **Without scripts**: Generate structured guidance for AI to follow
+- **Dependency check**: `requires.bins` verified at load time
 
 ## Key Architectural Patterns
 
@@ -106,6 +134,7 @@ If neither is set, the message routes to the default agent.
 - **Agent**: Encapsulates LLM interaction loop with two execution modes — blocking (`Execute`) and streaming (`ExecuteStream` with SSE parsing). Supports multiple provider types via `ProviderType` field: `openai` (OpenAI-compatible) and `ollama` (local Ollama)
 - **Provider**: Decoupled model configuration — agents reference providers by name, providers define type/base_url/api_key/default_model. Enables mixing cloud APIs (DeepSeek, OpenAI) with local models (Ollama)
 - **Channel**: Pluggable message interface — `channel.go` defines the contract, implemented by console (with `/agent` command), webhook (HTTP REST + SSE + agent field), websocket, and three bot channels: 飞书 (Lark WebSocket client), 钉钉 (DingTalk Stream), 企业微信 (WeCom WebSocket long connection). All bot channels use WebSocket client mode — actively connect to platform servers, no local port needed, no encryption required.
-- **Tool**: Plugin pattern — `tool.go` defines the interface, `registry.go` provides dynamic registration + skill grouping. Built-in tools: weather, exec, write_file, read_file, edit_file, browser_use
+- **Tool**: Plugin pattern — `tool.go` defines the interface, `registry.go` provides dynamic registration + skill grouping. Built-in tools: weather, exec, write_file, read_file, edit_file, browser_use, skill_use
+- **Skill**: OpenClaw-compatible skill system — `SKILL.md` defines skills with YAML frontmatter (name, description, emoji, requires.bins) + Markdown body (Core Capabilities, Execution Workflow, Input/Output, Error Handling). Skills loaded from `skill_dir`, matched by keywords, executed via scripts (.sh/.py/.js) or AI guidance. Integrated as `skill_use` tool for AI to call.
 - **Memory**: Cross-cutting concern with two implementations — `SimpleMemory` (keyword + importance scoring) and `VectorMemory` (embedding + cosine similarity), both backed by `store.FileStore` for JSON persistence
 - **Supervisor**: Multi-agent orchestration — LLM-based intent classification routes user messages to specialized sub-agents

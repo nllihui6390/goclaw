@@ -89,14 +89,117 @@ func (t *WeatherTool) Execute(ctx context.Context, params map[string]interface{}
 
 // fetchWeather 调用真实天气API
 func (t *WeatherTool) fetchWeather(ctx context.Context, city string) (string, error) {
+	// 首先尝试配置的API
 	switch t.apiType {
 	case "openweather":
-		return t.fetchOpenWeather(ctx, city)
+		result, err := t.fetchOpenWeather(ctx, city)
+		if err == nil {
+			return result, nil
+		}
 	case "seniverse":
-		return t.fetchSeniverse(ctx, city)
+		result, err := t.fetchSeniverse(ctx, city)
+		if err == nil {
+			return result, nil
+		}
 	default:
-		return t.fetchHefeng(ctx, city)
+		result, err := t.fetchHefeng(ctx, city)
+		if err == nil {
+			return result, nil
+		}
 	}
+
+	// API失败时，使用 wttr.in 作为后备（无需API key）
+	return t.fetchWttr(ctx, city)
+}
+
+// fetchWttr 使用 wttr.in 获取天气（免费，无需API key）
+func (t *WeatherTool) fetchWttr(ctx context.Context, city string) (string, error) {
+	// wttr.in 支持中文城市名，format=j1 返回JSON
+	url := fmt.Sprintf("https://wttr.in/%s?format=j1", url.QueryEscape(city))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	// 设置中文语言
+	req.Header.Set("Accept-Language", "zh-CN")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("wttr.in请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var data struct {
+		CurrentCondition []struct {
+			TempC        string `json:"temp_C"`
+			FeelsLikeC   string `json:"FeelsLikeC"`
+			Humidity     string `json:"humidity"`
+			WindDir16Point string `json:"winddir16Point"`
+			WindSpeedKmph string `json:"windspeedKmph"`
+			WeatherDesc  []struct {
+				Value string `json:"value"`
+			} `json:"weatherDesc"`
+		} `json:"current_condition"`
+		Weather []struct {
+			Date      string `json:"date"`
+			MaxTempC  string `json:"maxtempC"`
+			MinTempC  string `json:"mintempC"`
+			WeatherDesc []struct {
+				Value string `json:"value"`
+			} `json:"weatherDesc"`
+		} `json:"weather"`
+		NearestArea []struct {
+			AreaName []struct {
+				Value string `json:"value"`
+			} `json:"areaName"`
+		} `json:"nearest_area"`
+	}
+
+	if err := json.Unmarshal(body, &data); err != nil {
+		return "", fmt.Errorf("wttr.in响应解析失败: %w", err)
+	}
+
+	if len(data.CurrentCondition) == 0 {
+		return "", fmt.Errorf("未找到天气数据")
+	}
+
+	current := data.CurrentCondition[0]
+	location := city
+	if len(data.NearestArea) > 0 && len(data.NearestArea[0].AreaName) > 0 {
+		location = data.NearestArea[0].AreaName[0].Value
+	}
+
+	weatherDesc := "未知"
+	if len(current.WeatherDesc) > 0 {
+		weatherDesc = current.WeatherDesc[0].Value
+	}
+
+	result := fmt.Sprintf(`📍 %s
+🌡️ 温度: %s°C (体感: %s°C)
+☁️ 天气: %s
+💨 风向: %s, %s km/h
+💧 湿度: %s%%`, location, current.TempC, current.FeelsLikeC, weatherDesc, current.WindDir16Point, current.WindSpeedKmph, current.Humidity)
+
+	// 添加未来2天预报
+	if len(data.Weather) >= 3 {
+		result += "\n\n📅 未来天气:\n"
+		for i := 1; i < 3 && i < len(data.Weather); i++ {
+			w := data.Weather[i]
+			desc := "未知"
+			if len(w.WeatherDesc) > 0 {
+				desc = w.WeatherDesc[0].Value
+			}
+			result += fmt.Sprintf("- %s: %s°C~%s°C, %s\n", w.Date, w.MinTempC, w.MaxTempC, desc)
+		}
+	}
+
+	return result, nil
 }
 
 // fetchHefeng 和风天气API（推荐，对中国城市支持好）

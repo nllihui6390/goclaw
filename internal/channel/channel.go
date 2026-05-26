@@ -38,6 +38,7 @@ type ToolEvent struct {
 	Result   string        // 工具返回结果
 	Error    string        // 错误信息
 	Thinking string        // 思考内容
+	To       string        // 目标用户ID（用于指定发送对象）
 }
 
 // ToolEventHandler 工具事件回调函数

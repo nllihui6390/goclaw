@@ -26,9 +26,9 @@
     {
       "name": "default",
       "provider": "deepseek",
-      "system_prompt": "你是一个有用的AI助手。你可以使用工具来帮助用户。",
-      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "skill_use"],
-      "max_iterations": 5
+      "system_prompt": "你是一个智能AI助手，可以使用工具帮助用户完成任务。",
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use","skill_use"],
+      "max_iterations": 20
     },
     {
       "name": "local",
@@ -36,7 +36,7 @@
       "model": "qwen2.5:7b",
       "system_prompt": "你是一个本地AI助手，运行在Ollama上。",
       "tools": [],
-      "max_iterations": 5
+      "max_iterations": 20
     }
   ],
   "channels": {
@@ -68,7 +68,7 @@
     }
   },
   "logging": {
-    "level": "info",
+    "level": "debug",
     "json_mode": false,
     "file_path": "logs/app.log",
     "console": false

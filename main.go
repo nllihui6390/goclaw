@@ -89,6 +89,7 @@ func main() {
 			ProviderType:  providerType,
 			Tools:         tools,
 			MaxIterations: agentCfg.MaxIterations,
+			MaxTokens:     agentCfg.MaxTokens,
 			Memory:        mem,
 			Store:         st,
 		})
@@ -221,7 +222,7 @@ func getDefaultConfig() *config.Config {
 				Provider:      "openai",
 				SystemPrompt:  `你是一个有用的AI助手。你可以使用工具来帮助用户。`,
 				Tools:         []string{"weather", "exec", "write_file", "read_file", "edit_file"},
-				MaxIterations: 5,
+				MaxIterations: 20,
 			},
 		},
 		Channels: config.ChannelsConfig{

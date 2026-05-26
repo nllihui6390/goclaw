@@ -12,7 +12,7 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **多渠道接入**: 控制台 (stdin/stdout)、REST API (HTTP)、WebSocket (实时双向)、飞书机器人、钉钉机器人、企业微信机器人（均为 WebSocket 客户端模式，无需开端口）
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索 (Embedding + 余弦相似度)、JSON 文件持久化
-- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化；控制台实时输出工具调用过程
+- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化、技能调用；控制台实时输出工具调用过程
 - **多 Agent 协作**: 事件总线 (AgentBus)、监督者模式 (SupervisorAgent)
 - **安全**: Bearer Token 鉴权、令牌桶限流、命令执行安全过滤
 - **运维**: Docker 化部署、配置热加载 (fsnotify)、Prometheus 指标、结构化日志
@@ -92,6 +92,75 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
 
 所有 Bot 渠道自动心跳保活（30秒 ping）、断线自动重连。
 
+## Skill 技能系统
+
+go-claw 支持兼容 OpenClaw 规范的 Skill 系统，通过 `SKILL.md` 文件定义技能，AI 可通过 `skill_use` 工具主动调用。
+
+### SKILL.md 格式
+
+每个 Skill 位于独立子目录，包含 `SKILL.md`（YAML frontmatter + Markdown 正文）和可选的 `scripts/` 脚本目录：
+
+```
+skills/
+└── weather-query/
+    ├── SKILL.md          # 技能定义
+    └── scripts/          # 可选脚本 (.sh/.py/.js)
+        └── query.sh
+```
+
+SKILL.md 示例：
+
+```markdown
+---
+name: weather-query
+description: 查询指定城市的实时天气信息和天气预报
+metadata:
+  openclaw:
+    emoji: "🌤️"
+    requires:
+      bins:
+        - curl
+---
+
+## 核心能力
+- 查询任意城市的当前天气状况
+- 获取未来几天的天气预报
+
+## 执行步骤
+1. 确认用户要查询的城市名称 {{city}}
+2. 如果有天气 API 工具可用，直接调用 weather 工具查询
+3. 如果没有，使用 curl 调用 wttr.in 服务
+
+## 输出格式
+返回城市的天气信息，包括温度、体感温度、风速、湿度
+
+## 异常处理
+- 如果城市名无法识别，提示用户确认
+- 如果 API 调用失败，返回错误信息并建议稍后重试
+```
+
+### 运行机制
+
+- **有脚本时**: 执行 `scripts/` 目录下的脚本，参数通过环境变量 (`SKILL_*`) 或命令行参数 (`--key=value`) 传递
+- **无脚本时**: 将 Skill 的核心能力、执行步骤、输出格式等生成结构化指导信息，交给 AI 自行完成
+- **变量替换**: 正文中 `{{city}}` 等占位符会被调用参数替换
+- **依赖检查**: `metadata.openclaw.requires.bins` 检查所需命令是否存在，缺失则跳过加载
+
+### 配置
+
+```json
+"skills": {
+  "enabled": true,
+  "skill_dir": "skills"
+}
+```
+
+将 `"skill_use"` 加入 agent 的 `tools` 列表即可让 AI 调用技能：
+
+```json
+"tools": ["weather", "exec", "write_file", "read_file", "edit_file", "skill_use"]
+```
+
 ## API 端点
 
 | 方法 | 路径 | 说明 |
@@ -165,9 +234,14 @@ go-claw/
 │   │   ├── tool.go                  # 工具接口
 │   │   ├── registry.go              # 工具注册表 + Skill 分组
 │   │   ├── weather.go               # 天气工具
-│   │   └── exec.go                  # 命令执行
-│   │   └── file.go                  # 文件读写编辑工具
+│   │   ├── exec.go                  # 命令执行
+│   │   ├── file.go                  # 文件读写编辑工具
 │   │   └── browser.go               # 浏览器自动化工具 (rod)
+│   ├── skill/
+│   │   ├── skill.go                 # Skill 结构体 + SKILL.md 解析
+│   │   ├── registry.go              # Skill 注册中心（加载/匹配）
+│   │   ├── executor.go              # Skill 执行器（脚本/AI指导）
+│   │   └── tool.go                  # skill_use 工具（AI调用入口）
 │   ├── memory/
 │   │   ├── memory.go                # 记忆接口
 │   │   ├── simple.go                # 关键词检索 + 持久化
@@ -181,6 +255,9 @@ go-claw/
 ├── Dockerfile                       # Docker 多阶段构建
 ├── docker-compose.yml               # Docker Compose
 ├── .env.example                     # 环境变量模板
+├── skills/                          # Skill 技能目录
+│   └── weather-query/
+│       └── SKILL.md                 # Skill 定义示例
 ├── go.mod
 └── go.sum
 ```
@@ -209,7 +286,7 @@ go-claw/
       "provider": "deepseek",
       "model": "deepseek-v4-oc",
       "system_prompt": "你是一个有用的AI助手。",
-      "tools": ["weather", "exec", "write_file", "read_file", "edit_file"],
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "skill_use"],
       "max_iterations": 5
     },
     {
@@ -230,7 +307,8 @@ go-claw/
     "wecom":     { "enabled": false, "bot_id": "", "secret": "" }
   },
   "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": false },
-  "auth": { "enabled": false, "token": "" }
+  "auth": { "enabled": false, "token": "" },
+  "skills": { "enabled": true, "skill_dir": "skills" }
 }
 ```
 

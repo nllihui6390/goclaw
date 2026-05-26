@@ -14,9 +14,11 @@ type SessionData struct {
 
 // SessionMessage 持久化消息
 type SessionMessage struct {
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	ToolCallID string `json:"tool_call_id,omitempty"` // 工具调用ID（tool角色消息专用）
+	Name       string `json:"name,omitempty"`         // 工具名称（tool角色消息专用）
+	Timestamp  string `json:"timestamp"`
 }
 
 // MemoryEntry 记忆条目 (copy to avoid import cycle)

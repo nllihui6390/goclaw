@@ -12,9 +12,11 @@ import (
 
 // Message 历史消息
 type Message struct {
-	Role      string
-	Content   string
-	Timestamp time.Time
+	Role       string    // "user", "assistant", "system", "tool"
+	Content    string
+	ToolCallID string    // 工具调用ID（tool角色消息专用）
+	Name       string    // 工具名称（tool角色消息专用）
+	Timestamp  time.Time
 }
 
 // Session 会话
@@ -36,7 +38,7 @@ func (s *Session) AddMessage(role, content string) {
 
 	s.Messages = append(s.Messages, Message{
 		Role:      role,
-		Content:   content,
+		Content:  content,
 		Timestamp: time.Now(),
 	})
 	s.UpdatedAt = time.Now()
@@ -57,9 +59,11 @@ func (s *Session) persistLocked() {
 	msgs := make([]store.SessionMessage, 0, len(s.Messages))
 	for _, m := range s.Messages {
 		msgs = append(msgs, store.SessionMessage{
-			Role:      m.Role,
-			Content:   m.Content,
-			Timestamp: m.Timestamp.Format(time.RFC3339),
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+			Timestamp:  m.Timestamp.Format(time.RFC3339),
 		})
 	}
 	data := store.SessionData{

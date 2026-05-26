@@ -48,6 +48,7 @@ type AgentConfig struct {
 	SystemPrompt  string   `json:"system_prompt"`
 	Tools         []string `json:"tools"`
 	MaxIterations int      `json:"max_iterations"`
+	MaxTokens     int      `json:"max_tokens"`     // 最大上下文 Token 数，0=不限（默认32000）
 }
 
 type ChannelsConfig struct {

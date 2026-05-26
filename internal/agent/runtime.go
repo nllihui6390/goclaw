@@ -34,6 +34,7 @@ type ChatMessage struct {
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"` // tool 角色消息的工具名称
 }
 
 // ToolCall 工具调用
@@ -44,6 +45,60 @@ type ToolCall struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
+}
+
+// stripThinkTags 剥离 DeepSeek 等模型的内部推理标签
+// DeepSeek 使用 <think>...</think> 或 ellites 标签做内部推理
+func stripThinkTags(content string) string {
+	// 剥离 <think>...</think>
+	result := content
+	for {
+		start := strings.Index(result, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result, "</think>")
+		if end == -1 || end <= start {
+			break
+		}
+		result = result[:start] + result[end+8:]
+	}
+
+	return strings.TrimSpace(result)
+}
+
+// suggestsToolUse 检测响应内容是否暗示要使用工具但没实际调用
+// 注意：先剥离内部推理标签，只检测用户可见的实际响应内容
+func suggestsToolUse(content string) bool {
+	// 先剥离 DeepSeek 的内部推理标签
+	visibleContent := stripThinkTags(content)
+	if visibleContent == "" {
+		// 剥离后内容为空，说明模型只做了内部推理，没有实际响应
+		// 这种情况不应触发 auto-continue，而是让模型自然返回
+		return false
+	}
+	hints := []string{"我来", "我将", "让我", "我可以使用", "我会调用", "我将使用", "我来查询", "我来执行"}
+	for _, h := range hints {
+		if strings.Contains(visibleContent, h) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRetryableError 检查错误是否可重试
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "429") ||
+		strings.Contains(errStr, "500") ||
+		strings.Contains(errStr, "502") ||
+		strings.Contains(errStr, "503") ||
+		strings.Contains(errStr, "504") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "connection reset")
 }
 
 // StreamCallback 流式回调
@@ -65,7 +120,7 @@ type ToolEvent struct {
 // Execute 执行Agent循环（阻塞版）
 func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int, handler ToolEventHandler) (string, error) {
 	logger := glog.Logger()
-	messages := r.buildMessages(session)
+	messages := r.buildMessages(session, tools)
 	logger.Info("[Runtime] 开始执行循环",
 		"model", r.config.Model,
 		"provider", r.config.ProviderType,
@@ -73,14 +128,38 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 		"tools_count", len(tools),
 		"max_iterations", maxIterations)
 
-	// 跟踪失败情况，用于提前退出
+	// 跟踪失败情况，用于智能退出
 	consecutiveFailures := 0
 	maxConsecutiveFailures := 3
-	lastErrorType := ""
+	lastFailedTool := ""
 	totalFailures := 0
 	totalSuccess := 0
+	// auto-continue 跟踪
+	autoContinueCount := 0
+	maxAutoContinue := 3
+	// summarizing 标记
+	summarizing := false
 
-	for i := 0; i < maxIterations; i++ {
+	for i := 0; ; i++ {
+		// 安全上限：防止无限循环（但远高于正常需求）
+		if i >= 100 {
+			logger.Warn("[Runtime] 达到安全上限100次迭代，强制退出")
+			return "已达到最大处理次数，请简化您的请求或稍后重试。", nil
+		}
+
+		// 用户配置的软上限：触发 summarizing 模式
+		if maxIterations > 0 && i >= maxIterations && !summarizing {
+			logger.Warn("[Runtime] 达到配置的迭代上限，请求模型总结", "max_iterations", maxIterations)
+			summarizing = true
+			// 强制模型返回纯文本总结（不传 tools = tool_choice none）
+			summaryResp, err := r.callLLMWithRetry(ctx, messages, nil)
+			if err != nil {
+				logger.Error("[Runtime] 总结调用失败", "err", err)
+				return "已完成处理，但总结时出错。", nil
+			}
+			return summaryResp.Content, nil
+		}
+
 		logger.Info("[Runtime] 迭代开始", "iteration", i+1, "messages_count", len(messages))
 
 		// 每次迭代开始时通知用户正在思考
@@ -91,7 +170,7 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 			})
 		}
 
-		resp, err := r.callLLM(ctx, messages, tools)
+		resp, err := r.callLLMWithRetry(ctx, messages, tools)
 		if err != nil {
 			logger.Error("[Runtime] LLM调用失败", "iteration", i+1, "err", err)
 			return "", err
@@ -111,8 +190,47 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 		}
 
 		if len(resp.ToolCalls) == 0 {
-			logger.Info("[Runtime] 无工具调用，返回最终响应", "iteration", i+1)
-			return resp.Content, nil
+			// Auto-continue: 检测是否暗示要使用工具但没实际调用
+			if suggestsToolUse(resp.Content) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
+				autoContinueCount++
+				logger.Info("[Runtime] 检测到暗示工具使用，注入提示继续",
+					"auto_continue_count", autoContinueCount,
+					"content_preview", truncate(resp.Content, 100))
+				messages = append(messages, ChatMessage{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+				messages = append(messages, ChatMessage{
+					Role:    "user",
+					Content: "请直接调用工具来完成任务，不要只是描述你打算做什么。",
+				})
+				continue
+			}
+
+			// 剥离内部推理标签后：如果可见内容为空，注入提示让模型输出实际回答
+			visibleContent := stripThinkTags(resp.Content)
+			if visibleContent == "" && autoContinueCount < maxAutoContinue {
+				autoContinueCount++
+				logger.Info("[Runtime] 模型只返回内部推理（无可见内容），注入提示",
+					"auto_continue_count", autoContinueCount)
+				messages = append(messages, ChatMessage{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+				messages = append(messages, ChatMessage{
+					Role:    "user",
+					Content: "请直接给出你的回答。",
+				})
+				continue
+			}
+
+			// 返回前剥离内部推理标签，用户不需要思考内容
+			finalContent := stripThinkTags(resp.Content)
+			if finalContent == "" {
+				finalContent = resp.Content
+			}
+			logger.Info("[Runtime] 无工具调用，返回最终响应", "iteration", i+1, "visible_len", len(finalContent))
+			return finalContent, nil
 		}
 
 		logger.Info("[Runtime] 检测到工具调用", "count", len(resp.ToolCalls))
@@ -154,33 +272,32 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 					})
 				}
 
-				// 检查是否是重复类型的错误
-					errorType := classifyError(err.Error())
+				// 检查是否是重复工具失败
 					totalFailures++
-					if errorType != "" && errorType == lastErrorType {
+					if tc.Function.Name == lastFailedTool {
 						consecutiveFailures++
 						if consecutiveFailures >= maxConsecutiveFailures {
-							logger.Warn("[Runtime] 连续多次同类型失败，提前退出",
-								"consecutive_failures", consecutiveFailures,
-								"error_type", errorType)
-							return fmt.Sprintf("抱歉，无法完成您的请求：%s", err.Error()), nil
+							logger.Warn("[Runtime] 同一工具连续失败，智能退出",
+								"tool", tc.Function.Name,
+								"consecutive_failures", consecutiveFailures)
+							return fmt.Sprintf("抱歉，工具 %s 连续失败%d次：%s", tc.Function.Name, consecutiveFailures, err.Error()), nil
 						}
-					} else if errorType != "" {
+					} else {
 						consecutiveFailures = 1
-						lastErrorType = errorType
+						lastFailedTool = tc.Function.Name
 					}
 
-					// 总失败次数过多时提前退出
-					if totalFailures >= 5 && totalFailures > totalSuccess*2 {
-						logger.Warn("[Runtime] 失败次数过多，提前退出",
+					// 失败次数远超成功次数时退出
+					if totalFailures >= 8 && totalFailures > totalSuccess*3 {
+						logger.Warn("[Runtime] 失败次数远超成功次数，智能退出",
 							"total_failures", totalFailures,
 							"total_success", totalSuccess)
-						return "抱歉，多次尝试后仍无法完成您的请求，请确认您的请求是否可行。", nil
+						return "抱歉，多次尝试后仍无法完成您的请求。", nil
 					}
 			} else {
-				consecutiveFailures = 0 // 成功后重置计数
-				lastErrorType = ""
-					totalSuccess++
+				consecutiveFailures = 0
+				lastFailedTool = ""
+				totalSuccess++
 				logger.Info("[Runtime] 工具执行成功",
 					"tool_name", tc.Function.Name,
 					"result_len", len(result))
@@ -203,39 +320,12 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 		}
 	}
 
-	logger.Warn("[Runtime] 达到最大迭代次数", "max_iterations", maxIterations)
-	return "达到最大迭代次数，无法完成任务", nil
-}
-
-// classifyError 分类错误类型，用于检测重复失败
-func classifyError(errMsg string) string {
-	if strings.Contains(errMsg, "禁止执行危险命令") {
-		return "dangerous_command"
-	}
-	if strings.Contains(errMsg, "找不到文件") || strings.Contains(errMsg, "找不到") || strings.Contains(errMsg, "The system cannot find") {
-		return "file_not_found"
-	}
-	if strings.Contains(errMsg, "权限") || strings.Contains(errMsg, "禁止") {
-		return "permission_denied"
-	}
-	if strings.Contains(errMsg, "不存在") {
-		return "not_found"
-	}
-	if strings.Contains(errMsg, "命令执行超时") {
-		return "command_timeout"
-	}
-	if strings.Contains(errMsg, "命令执行失败") {
-		return "command_failed"
-	}
-	if strings.Contains(errMsg, "读取文件失败") {
-		return "read_failed"
-	}
-	return ""
+	// unreachable: loop has internal returns
 }
 
 // ExecuteStream 执行Agent循环（流式版）
 func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int, cb StreamCallback, handler ToolEventHandler) (string, error) {
-	messages := r.buildMessages(session)
+	messages := r.buildMessages(session, tools)
 
 	for i := 0; i < maxIterations; i++ {
 		var fullContent strings.Builder
@@ -244,7 +334,7 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 
 		// 如果有工具，先用非流式调用判断是否需要工具调用
 		if len(tools) > 0 {
-			resp, err := r.callLLM(ctx, messages, tools)
+			resp, err := r.callLLMWithRetry(ctx, messages, tools)
 			if err != nil {
 				return "", err
 			}
@@ -317,7 +407,7 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 		}
 	}
 
-	return "达到最大迭代次数", nil
+	return "", nil
 }
 
 // callLLM 调用大模型API（阻塞版）
@@ -332,6 +422,34 @@ func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []t
 	}
 }
 
+// callLLMWithRetry 带重试的LLM调用（429/5xx自动重试 + 指数退避）
+func (r *Runtime) callLLMWithRetry(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
+	logger := glog.Logger()
+	maxRetries := 3
+	baseDelay := 1 * time.Second
+	maxDelay := 30 * time.Second
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		resp, err := r.callLLM(ctx, messages, tools)
+		if err == nil {
+			return resp, nil
+		}
+
+		if !isRetryableError(err) || attempt == maxRetries {
+			return nil, err
+		}
+
+		delay := baseDelay * time.Duration(1<<uint(attempt))
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		logger.Warn("[Runtime] API调用失败，准备重试",
+			"attempt", attempt+1, "max", maxRetries, "delay", delay, "err", err)
+		time.Sleep(delay)
+	}
+	return nil, fmt.Errorf("重试次数耗尽")
+}
+
 // callOpenAI OpenAI兼容API调用
 func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
 	logger := glog.Logger()
@@ -343,7 +461,8 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	}
 
 	url := r.config.BaseURL + "/chat/completions"
-	logger.Debug("[Runtime] 发送OpenAI请求", "url", url, "model", r.config.Model, "request_len", len(jsonData))
+	logger.Info("[Runtime] 发送OpenAI请求", "url", url, "model", r.config.Model, "request_len", len(jsonData))
+	logger.Debug("[Runtime] 请求体", "body", string(jsonData))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -365,13 +484,15 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	defer resp.Body.Close()
 
 	elapsed := time.Since(startTime)
-	logger.Debug("[Runtime] HTTP响应收到", "status", resp.StatusCode, "elapsed_ms", elapsed.Milliseconds())
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error("[Runtime] 读取响应体失败", "err", err)
 		return nil, err
 	}
+
+	logger.Info("[Runtime] HTTP响应收到", "status", resp.StatusCode, "elapsed_ms", elapsed.Milliseconds())
+	logger.Debug("[Runtime] 响应体原始", "body", string(body))
 
 	if resp.StatusCode != 200 {
 		logger.Error("[Runtime] API返回非200状态码",
@@ -406,10 +527,21 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 		ToolCalls: llmResp.Choices[0].Message.ToolCalls,
 	}
 
-	logger.Debug("[Runtime] OpenAI响应解析成功",
+	logger.Info("[Runtime] OpenAI响应解析",
 		"content_len", len(msg.Content),
-		"tool_calls", len(msg.ToolCalls),
+		"tool_calls_count", len(msg.ToolCalls),
+		"content_preview", truncate(msg.Content, 200),
 		"elapsed_ms", elapsed.Milliseconds())
+
+	if len(msg.ToolCalls) > 0 {
+		for i, tc := range msg.ToolCalls {
+			logger.Info("[Runtime] tool_call详情",
+				"idx", i+1,
+				"id", tc.ID,
+				"name", tc.Function.Name,
+				"args_preview", truncate(tc.Function.Arguments, 200))
+		}
+	}
 
 	return msg, nil
 }
@@ -707,16 +839,56 @@ func (r *Runtime) convertTools(tools []tool.Tool) []map[string]interface{} {
 }
 
 // buildMessages 构建消息列表
-func (r *Runtime) buildMessages(session *Session) []ChatMessage {
-	messages := []ChatMessage{
-		{Role: "system", Content: r.config.SystemPrompt},
+func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessage {
+	logger := glog.Logger()
+	systemContent := r.config.SystemPrompt
+
+	// 检查用户是否要创建技能，动态注入技能创建模板
+	if len(session.Messages) > 0 {
+		lastMsg := session.Messages[len(session.Messages)-1]
+		if lastMsg.Role == "user" && wantsCreateSkill(lastMsg.Content) {
+			systemContent += "\n\n" + getSkillCreationTemplate()
+			logger.Info("[Runtime] 检测到技能创建意图，注入模板")
+		}
 	}
 
+	if len(tools) > 0 {
+		systemContent += "\n\n## 可用工具\n你必须通过调用工具来完成用户的请求，不要直接猜测或仅描述打算使用什么工具。\n"
+		for _, t := range tools {
+			systemContent += fmt.Sprintf("- **%s**: %s\n", t.Name(), t.Description())
+		}
+		systemContent += "\n重要：当用户提出需要查询天气、执行命令、读写文件等具体请求时，你必须实际调用对应的工具（通过tool_calls），而不是仅在文本中说明你打算使用工具。"
+	}
+
+	messages := []ChatMessage{
+		{Role: "system", Content: systemContent},
+	}
+
+	// 包含所有角色的消息（user, assistant, tool）
 	for _, msg := range session.Messages {
-		messages = append(messages, ChatMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+		chatMsg := ChatMessage{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+		}
+		// tool 角色消息需要 name 字段（OpenAI 格式）
+		if msg.Role == "tool" && msg.Name != "" {
+			chatMsg.Name = msg.Name
+		}
+		messages = append(messages, chatMsg)
+	}
+
+	// Token 预算管理：估算每消息约 500 tokens，超限截断旧消息
+	maxContextTokens := 32000
+	if r.config.MaxTokens > 0 {
+		maxContextTokens = r.config.MaxTokens
+	}
+	maxMessages := maxContextTokens / 500
+	if len(messages) > maxMessages {
+		systemMsg := messages[0]
+		recentMsgs := messages[len(messages)-maxMessages+1:]
+		messages = append([]ChatMessage{systemMsg}, recentMsgs...)
+		logger.Info("[Runtime] 上下文已截断", "original", len(session.Messages)+1, "kept", len(messages))
 	}
 
 	return messages

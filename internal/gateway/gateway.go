@@ -134,6 +134,7 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 					Result:   event.Result,
 					Error:    event.Error,
 					Thinking: event.Thinking,
+					To:       msg.From,
 				})
 			}
 

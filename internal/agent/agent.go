@@ -22,6 +22,7 @@ type Config struct {
 	ProviderType  string            // 供应商类型: openai, ollama, anthropic, azure
 	Tools         []tool.Tool
 	MaxIterations int
+	MaxTokens     int               // 最大上下文 Token 数，0=不限（默认32000）
 	Memory        memory.Memory
 	Store         store.Store
 }
