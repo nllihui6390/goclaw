@@ -47,9 +47,6 @@ type AgentConfig struct {
 	SystemPrompt  string   `json:"system_prompt"`
 	Tools         []string `json:"tools"`
 	MaxIterations int      `json:"max_iterations"`
-	// 兼容旧配置（如果未设置provider，使用这些字段）
-	APIKey  string `json:"api_key,omitempty"`  // 已废弃，建议使用provider
-	BaseURL string `json:"base_url,omitempty"` // 已废弃，建议使用provider
 }
 
 type ChannelsConfig struct {
@@ -135,25 +132,29 @@ func (c *Config) GetProviderConfig(providerName string) *ProviderConfig {
 
 // ResolveAgentConfig 解析Agent配置，合并供应商配置
 func (c *Config) ResolveAgentConfig(agentCfg *AgentConfig) (model, baseURL, apiKey, providerType string) {
-	// 如果设置了provider，从providers获取配置
-	if agentCfg.Provider != "" && c.Providers != nil {
-		provider := c.GetProviderConfig(agentCfg.Provider)
-		if provider != nil {
-			model = agentCfg.Model
-			if model == "" {
-				model = provider.DefaultModel
-			}
-			baseURL = provider.BaseURL
-			apiKey = provider.APIKey
-			providerType = provider.Type
-			return
-		}
+	// 必须配置provider
+	if agentCfg.Provider == "" {
+		// 没有配置provider，返回空值
+		return "", "", "", ""
 	}
 
-	// 兼容旧配置：直接使用AgentConfig中的字段
+	if c.Providers == nil {
+		// 没有providers配置，返回空值
+		return "", "", "", ""
+	}
+
+	provider := c.GetProviderConfig(agentCfg.Provider)
+	if provider == nil {
+		// provider不存在，返回空值
+		return "", "", "", ""
+	}
+
 	model = agentCfg.Model
-	baseURL = agentCfg.BaseURL
-	apiKey = agentCfg.APIKey
-	providerType = "openai" // 默认OpenAI兼容
+	if model == "" {
+		model = provider.DefaultModel
+	}
+	baseURL = provider.BaseURL
+	apiKey = provider.APIKey
+	providerType = provider.Type
 	return
 }

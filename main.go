@@ -35,18 +35,7 @@ func main() {
 		fmt.Printf("加载配置文件失败，使用默认配置: %v\n", err)
 	}
 
-	// 从环境变量覆盖API配置（兼容旧配置方式）
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		for i := range cfg.Agents {
-			cfg.Agents[i].APIKey = apiKey
-		}
-	}
-	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
-		for i := range cfg.Agents {
-			cfg.Agents[i].BaseURL = baseURL
-		}
-	}
-
+	
 	// 初始化日志
 	glog.Init(cfg.Logging.Level, cfg.Logging.JSONMode, cfg.Logging.FilePath, cfg.Logging.Console)
 	logger := glog.Logger()
@@ -69,7 +58,7 @@ func main() {
 	for _, agentCfg := range cfg.Agents {
 		tools := loadTools(agentCfg.Tools)
 
-		// 解析配置：优先使用provider，否则使用旧配置方式
+		// 解析配置：从provider获取
 		model, baseURL, apiKey, providerType := cfg.ResolveAgentConfig(&agentCfg)
 
 		ag := agent.NewAgent(&agent.Config{

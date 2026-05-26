@@ -44,7 +44,7 @@
       "enabled": true
     },
     "webhook": {
-      "enabled": true,
+      "enabled": false,
       "port": "8080"
     },
     "websocket": {
@@ -68,7 +68,7 @@
     }
   },
   "logging": {
-    "level": "debug",
+    "level": "info",
     "json_mode": false,
     "file_path": "logs/app.log",
     "console": false
