@@ -110,6 +110,39 @@ func main() {
 		}
 	}
 
+	// 飞书机器人（WebSocket 客户端模式，无需端口）
+	if cfg.Channels.Lark.Enabled {
+		larkChan := channel.NewLarkChannel(
+			cfg.Channels.Lark.AppID,
+			cfg.Channels.Lark.AppSecret,
+		)
+		if err := gw.RegisterChannel(larkChan); err != nil {
+			logger.Error("注册飞书渠道失败", "err", err)
+		}
+	}
+
+	// 钉钉机器人（Stream 模式，无需端口）
+	if cfg.Channels.DingTalk.Enabled {
+		dingtalkChan := channel.NewDingTalkChannel(
+			cfg.Channels.DingTalk.ClientID,
+			cfg.Channels.DingTalk.ClientSecret,
+		)
+		if err := gw.RegisterChannel(dingtalkChan); err != nil {
+			logger.Error("注册钉钉渠道失败", "err", err)
+		}
+	}
+
+	// 企业微信机器人（WebSocket 长连接模式，无需端口）
+	if cfg.Channels.WeCom.Enabled {
+		wecomChan := channel.NewWeComChannel(
+			cfg.Channels.WeCom.BotID,
+			cfg.Channels.WeCom.Secret,
+		)
+		if err := gw.RegisterChannel(wecomChan); err != nil {
+			logger.Error("注册企业微信渠道失败", "err", err)
+		}
+	}
+
 	// 设置默认Agent
 	gw.SetDefaultAgent("default")
 
@@ -187,6 +220,9 @@ func getDefaultConfig() *config.Config {
 			Console:   config.ConsoleConfig{Enabled: true},
 			Webhook:   config.WebhookConfig{Enabled: true, Port: "8080"},
 			WebSocket: config.WebSocketConfig{Enabled: false, Port: "8081"},
+			Lark:      config.LarkConfig{Enabled: false},
+			DingTalk:  config.DingTalkConfig{Enabled: false},
+			WeCom:     config.WeComConfig{Enabled: false},
 		},
 		Logging: config.LoggingConfig{
 			Level:    "info",

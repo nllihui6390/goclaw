@@ -46,6 +46,25 @@
     "webhook": {
       "enabled": true,
       "port": "8080"
+    },
+    "websocket": {
+      "enabled": false,
+      "port": "8081"
+    },
+    "lark": {
+      "enabled": false,
+      "app_id": "",
+      "app_secret": ""
+    },
+    "dingtalk": {
+      "enabled": false,
+      "client_id": "",
+      "client_secret": ""
+    },
+    "wecom": {
+      "enabled": false,
+      "bot_id": "",
+      "secret": ""
     }
   },
   "logging": {

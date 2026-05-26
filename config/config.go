@@ -53,9 +53,12 @@ type AgentConfig struct {
 }
 
 type ChannelsConfig struct {
-	Console     ConsoleConfig     `json:"console"`
-	Webhook     WebhookConfig     `json:"webhook"`
-	WebSocket   WebSocketConfig   `json:"websocket"`
+	Console   ConsoleConfig   `json:"console"`
+	Webhook   WebhookConfig   `json:"webhook"`
+	WebSocket WebSocketConfig `json:"websocket"`
+	Lark      LarkConfig      `json:"lark"`
+	DingTalk  DingTalkConfig  `json:"dingtalk"`
+	WeCom     WeComConfig     `json:"wecom"`
 }
 
 type ConsoleConfig struct {
@@ -70,6 +73,27 @@ type WebhookConfig struct {
 type WebSocketConfig struct {
 	Enabled bool   `json:"enabled"`
 	Port    string `json:"port"`
+}
+
+// LarkConfig 飞书机器人配置（WebSocket 客户端模式，无需开端口）
+type LarkConfig struct {
+	Enabled   bool   `json:"enabled"`
+	AppID     string `json:"app_id"`
+	AppSecret string `json:"app_secret"`
+}
+
+// DingTalkConfig 钉钉机器人配置（Stream 模式，无需开端口）
+type DingTalkConfig struct {
+	Enabled      bool   `json:"enabled"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+// WeComConfig 企业微信机器人配置（WebSocket 长连接模式，无需开端口）
+type WeComConfig struct {
+	Enabled bool   `json:"enabled"`
+	BotID   string `json:"bot_id"`   // 智能机器人 BotID
+	Secret  string `json:"secret"`   // 长连接专用密钥
 }
 
 // LoadConfig 加载配置
