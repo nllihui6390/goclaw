@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // ExecTool 执行命令工具（跨平台版本）
@@ -16,7 +17,7 @@ func (t *ExecTool) Name() string {
 }
 
 func (t *ExecTool) Description() string {
-	return "在系统上执行shell命令（仅限只读操作）"
+	return "执行shell命令查看系统信息（如ls/dir、ps/tasklist）。注意：读取文件内容请用read_file工具，不要用cat/type命令。"
 }
 
 func (t *ExecTool) Parameters() map[string]interface{} {
@@ -38,13 +39,40 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 		return "", fmt.Errorf("缺少命令参数")
 	}
 
-	// 安全检查：禁止危险命令
-	dangerous := []string{"rm", "dd", "mkfs", "sudo", "chmod", "chown", "del /f", "format", "rd /s", "rmdir", "del"}
-	for _, d := range dangerous {
-		if strings.Contains(strings.ToLower(command), d) {
+	// 安全检查：禁止危险命令（只匹配独立命令，不匹配路径中的子串）
+	commandLower := strings.ToLower(command)
+	// 提取第一个词作为命令名
+	firstWord := ""
+	if parts := strings.Fields(commandLower); len(parts) > 0 {
+		// 廻除路径部分，只取最后的命令名
+		base := parts[0]
+		if idx := strings.LastIndex(base, "/"); idx >= 0 {
+			base = base[idx+1:]
+		}
+		if idx := strings.LastIndex(base, "\\"); idx >= 0 {
+			base = base[idx+1:]
+		}
+		firstWord = base
+	}
+
+	dangerousCommands := []string{"rm", "dd", "mkfs", "sudo", "chmod", "chown", "format", "rmdir"}
+	for _, d := range dangerousCommands {
+		if firstWord == d {
 			return "", fmt.Errorf("禁止执行危险命令: %s", d)
 		}
 	}
+
+	// 額外检查 Windows 特有的危险命令模式
+	dangerousPatterns := []string{"del /f", "del /q", "rd /s"}
+	for _, p := range dangerousPatterns {
+		if strings.Contains(commandLower, p) {
+			return "", fmt.Errorf("禁止执行危险命令模式: %s", p)
+		}
+	}
+
+	// 命令执行超时：最多10秒
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	// 根据操作系统转换命令
 	if runtime.GOOS == "windows" {
@@ -55,14 +83,15 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	// 根据操作系统选择正确的shell
 	if runtime.GOOS == "windows" {
-		// Windows 使用 cmd
-		cmd = exec.CommandContext(ctx, "cmd", "/c", command)
+		cmd = exec.CommandContext(timeoutCtx, "cmd", "/c", command)
 	} else {
-		// Linux/Mac 使用 sh
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		cmd = exec.CommandContext(timeoutCtx, "sh", "-c", command)
 	}
 
 	output, err := cmd.CombinedOutput()
+	if timeoutCtx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("命令执行超时（10秒）: %s", command)
+	}
 	if err != nil {
 		return "", fmt.Errorf("命令执行失败: %v, 输出: %s", err, string(output))
 	}

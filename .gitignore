@@ -3,4 +3,5 @@ logs
 *.log
 *.exe
 .env
+.claude
 data.json

@@ -73,6 +73,13 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 		"tools_count", len(tools),
 		"max_iterations", maxIterations)
 
+	// 跟踪失败情况，用于提前退出
+	consecutiveFailures := 0
+	maxConsecutiveFailures := 3
+	lastErrorType := ""
+	totalFailures := 0
+	totalSuccess := 0
+
 	for i := 0; i < maxIterations; i++ {
 		logger.Info("[Runtime] 迭代开始", "iteration", i+1, "messages_count", len(messages))
 
@@ -146,7 +153,34 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 						Error:    err.Error(),
 					})
 				}
+
+				// 检查是否是重复类型的错误
+					errorType := classifyError(err.Error())
+					totalFailures++
+					if errorType != "" && errorType == lastErrorType {
+						consecutiveFailures++
+						if consecutiveFailures >= maxConsecutiveFailures {
+							logger.Warn("[Runtime] 连续多次同类型失败，提前退出",
+								"consecutive_failures", consecutiveFailures,
+								"error_type", errorType)
+							return fmt.Sprintf("抱歉，无法完成您的请求：%s", err.Error()), nil
+						}
+					} else if errorType != "" {
+						consecutiveFailures = 1
+						lastErrorType = errorType
+					}
+
+					// 总失败次数过多时提前退出
+					if totalFailures >= 5 && totalFailures > totalSuccess*2 {
+						logger.Warn("[Runtime] 失败次数过多，提前退出",
+							"total_failures", totalFailures,
+							"total_success", totalSuccess)
+						return "抱歉，多次尝试后仍无法完成您的请求，请确认您的请求是否可行。", nil
+					}
 			} else {
+				consecutiveFailures = 0 // 成功后重置计数
+				lastErrorType = ""
+					totalSuccess++
 				logger.Info("[Runtime] 工具执行成功",
 					"tool_name", tc.Function.Name,
 					"result_len", len(result))
@@ -170,7 +204,33 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 	}
 
 	logger.Warn("[Runtime] 达到最大迭代次数", "max_iterations", maxIterations)
-	return "达到最大迭代次数", nil
+	return "达到最大迭代次数，无法完成任务", nil
+}
+
+// classifyError 分类错误类型，用于检测重复失败
+func classifyError(errMsg string) string {
+	if strings.Contains(errMsg, "禁止执行危险命令") {
+		return "dangerous_command"
+	}
+	if strings.Contains(errMsg, "找不到文件") || strings.Contains(errMsg, "找不到") || strings.Contains(errMsg, "The system cannot find") {
+		return "file_not_found"
+	}
+	if strings.Contains(errMsg, "权限") || strings.Contains(errMsg, "禁止") {
+		return "permission_denied"
+	}
+	if strings.Contains(errMsg, "不存在") {
+		return "not_found"
+	}
+	if strings.Contains(errMsg, "命令执行超时") {
+		return "command_timeout"
+	}
+	if strings.Contains(errMsg, "命令执行失败") {
+		return "command_failed"
+	}
+	if strings.Contains(errMsg, "读取文件失败") {
+		return "read_failed"
+	}
+	return ""
 }
 
 // ExecuteStream 执行Agent循环（流式版）

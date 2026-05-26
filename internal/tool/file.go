@@ -74,7 +74,7 @@ func (t *ReadFileTool) Name() string {
 }
 
 func (t *ReadFileTool) Description() string {
-	return "读取指定文件的内容。支持指定起始行和行数限制。"
+	return "读取指定文件的内容并返回。这是读取文件的首选工具，比使用命令行cat/type更高效可靠。"
 }
 
 func (t *ReadFileTool) Parameters() map[string]interface{} {

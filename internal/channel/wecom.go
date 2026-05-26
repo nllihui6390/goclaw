@@ -16,14 +16,14 @@ import (
 
 // WebSocket 命令常量 (对标 Python SDK types.py WsCmd)
 const (
-	WsCmdSubscribe       = "aibot_subscribe"          // 认证订阅
-	WsCmdHeartbeat       = "ping"                     // 心跳
-	WsCmdResponse        = "aibot_respond_msg"        // 回复消息
+	WsCmdSubscribe       = "aibot_subscribe"           // 认证订阅
+	WsCmdHeartbeat       = "ping"                      // 心跳
+	WsCmdResponse        = "aibot_respond_msg"         // 回复消息
 	WsCmdResponseWelcome = "aibot_respond_welcome_msg" // 回复欢迎语
 	WsCmdResponseUpdate  = "aibot_respond_update_msg"  // 更新模板卡片
-	WsCmdSendMsg         = "aibot_send_msg"           // 主动发送消息
+	WsCmdSendMsg         = "aibot_send_msg"            // 主动发送消息
 	WsCmdCallback        = "aibot_msg_callback"        // 消息推送回调
-	WsCmdEventCallback   = "aibot_event_callback"     // 事件推送回调
+	WsCmdEventCallback   = "aibot_event_callback"      // 事件推送回调
 )
 
 const DefaultWsURL = "wss://openws.work.weixin.qq.com"
@@ -34,8 +34,8 @@ type WeComChannel struct {
 	botID  string
 	secret string
 
-	conn   *websocket.Conn
-	connMu sync.Mutex
+	conn     *websocket.Conn
+	connMu   sync.Mutex
 	stopChan chan struct{}
 
 	authenticated bool
@@ -47,18 +47,18 @@ type WeComChannel struct {
 	heartbeatStop     chan struct{}
 	heartbeatMu       sync.Mutex
 
-	reconnectBaseDelay time.Duration
-	reconnectMaxDelay  time.Duration
+	reconnectBaseDelay   time.Duration
+	reconnectMaxDelay    time.Duration
 	maxReconnectAttempts int
-	reconnectAttempts   int
-	isManualClose       bool
+	reconnectAttempts    int
+	isManualClose        bool
 
-	pendingAcks   map[string]chan error
-	pendingAcksMu sync.Mutex
+	pendingAcks     map[string]chan error
+	pendingAcksMu   sync.Mutex
 	replyAckTimeout time.Duration
 
 	reqIDCounter int64
-	reqIDMu     sync.Mutex
+	reqIDMu      sync.Mutex
 
 	sessionInfo   map[string]sessionData
 	sessionInfoMu sync.RWMutex
@@ -69,23 +69,25 @@ type sessionData struct {
 	chatType string
 	userID   string
 	reqID    string
+	streamID string // 流式消息ID
+	thinking bool   // 是否已发送思考状态
 }
 
 // NewWeComChannel 创建企业微信渠道
 func NewWeComChannel(botID, secret string) *WeComChannel {
 	return &WeComChannel{
-		BotChannelBase:      NewBotChannelBase("wecom", ""),
-		botID:               botID,
-		secret:            secret,
-		stopChan:           make(chan struct{}),
-		heartbeatInterval:  30 * time.Second,
-		maxMissedPong:      2,
-		reconnectBaseDelay: 1 * time.Second,
-		reconnectMaxDelay:  30 * time.Second,
+		BotChannelBase:       NewBotChannelBase("wecom", ""),
+		botID:                botID,
+		secret:               secret,
+		stopChan:             make(chan struct{}),
+		heartbeatInterval:    30 * time.Second,
+		maxMissedPong:        2,
+		reconnectBaseDelay:   1 * time.Second,
+		reconnectMaxDelay:    30 * time.Second,
 		maxReconnectAttempts: 10,
-		pendingAcks:        make(map[string]chan error),
-		replyAckTimeout:    5 * time.Second,
-		sessionInfo:        make(map[string]sessionData),
+		pendingAcks:          make(map[string]chan error),
+		replyAckTimeout:      5 * time.Second,
+		sessionInfo:          make(map[string]sessionData),
 	}
 }
 
@@ -370,10 +372,10 @@ func (w *WeComChannel) handleMessageCallback(frame map[string]any) {
 		Timestamp: time.Now().Unix(),
 		Metadata: map[string]any{
 			"chatid":   chatID,
-			"chattype":  chatType,
+			"chattype": chatType,
 			"userid":   userID,
-			"req_id":    reqID,
-			"aibotid":   aibotID,
+			"req_id":   reqID,
+			"aibotid":  aibotID,
 		},
 	}
 
@@ -531,7 +533,7 @@ func (w *WeComChannel) clearPendingMessages(reason string) {
 	w.pendingAcksMu.Unlock()
 }
 
-// Send 发送响应 (使用 stream 流式消息格式)
+// Send 发送响应 (使用 stream 流式消息格式，不显示思考过程)
 func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 	// 从 sessionInfo 获取会话信息
 	w.sessionInfoMu.RLock()
@@ -545,7 +547,7 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 	reqID := session.reqID
 	streamID := w.generateReqID("stream")
 
-	// WeCom 智能机器人回复需要使用 stream 流式消息格式
+	// 直接发送最终内容，不发送中间思考消息
 	frame := map[string]any{
 		"cmd": WsCmdResponse,
 		"headers": map[string]string{
