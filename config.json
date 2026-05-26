@@ -7,7 +7,7 @@
     "deepseek": {
       "type": "openai",
       "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
-      "api_key": "eyJraWQiOiIxNmQwYzdiMDI2ZTU0OGEyODk4Yjg0Nzc3YTdmNmNmZSIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJyb2xlIjoib3BlbkFwaSIsImNyZWF0ZVRpbWUiOjE3NzkwOTE2MzIxNDYsImNwVG9rZW4iOiI2ZDM1NTVmNzRlY2E0ZmM2YWYyNGM2Yzc3OGRjZTcxOSIsImlzcyI6ImN0Zy5lYWkifQ.7Jg5UCoPU0FdsJWAbzscIGm1krEdh7D-yvT7nGfbn28",
+      "api_key": "",
       "default_model": "deepseek-v4-oc"
     },
     "ollama": {
