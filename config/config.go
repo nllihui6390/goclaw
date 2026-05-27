@@ -62,6 +62,8 @@ type AgentConfig struct {
 	CompactThresholdRatio float64 `json:"compact_threshold_ratio"` // 压缩触发比例，0=不压缩（默认0.8）
 	ReserveThresholdRatio float64 `json:"reserve_threshold_ratio"` // 压缩后保留比例（默认0.15）
 	ToolResultMaxBytes     int      `json:"tool_result_max_bytes"`   // 工具结果最大字节数，0=不限（默认20000）
+	ToolResultExemptTools  []string `json:"tool_result_exempt_tools"`  // 裁剪豁免工具名列表
+	ToolResultExemptExts   []string `json:"tool_result_exempt_extensions"` // 裁剪豁免文件扩展名列表
 	SupportsImage          bool     `json:"supports_image"`          // 模型是否支持图片输入
 	SupportsVideo          bool     `json:"supports_video"`          // 模型是否支持视频输入
 }

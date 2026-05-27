@@ -17,6 +17,11 @@ type Loader struct {
 	heartbeatEnabled bool   // 是否启用 heartbeat（影响 AGENTS.md 内容）
 }
 
+// GetWorkspaceDir 获取工作空间目录
+func (l *Loader) GetWorkspaceDir() string {
+	return l.workspaceDir
+}
+
 // NewLoader 创建工作空间加载器
 func NewLoader(workspaceDir string) *Loader {
 	return &Loader{workspaceDir: workspaceDir}

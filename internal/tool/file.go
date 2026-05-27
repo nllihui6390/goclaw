@@ -256,3 +256,141 @@ func truncate(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
+
+// AppendFileTool 追加文件工具
+type AppendFileTool struct{}
+
+func (t *AppendFileTool) Name() string {
+	return "append_file"
+}
+
+func (t *AppendFileTool) Description() string {
+	return "追加内容到指定文件末尾。如果文件不存在则创建。适合日志记录、增量写入场景。"
+}
+
+func (t *AppendFileTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "文件路径",
+			},
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "要追加的内容",
+			},
+		},
+		"required": []string{"path", "content"},
+	}
+}
+
+func (t *AppendFileTool) Execute(_ context.Context, params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok {
+		return "", fmt.Errorf("缺少 path 参数")
+	}
+	content, ok := params["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("缺少 content 参数")
+	}
+
+	// 安全检查
+	if isSensitivePath(path) {
+		return "", fmt.Errorf("禁止追加敏感路径: %s", path)
+	}
+
+	// 自动创建目录
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("创建目录失败: %v", err)
+		}
+	}
+
+	// 检查文件是否存在，获取原大小
+	originalSize := 0
+	if data, err := os.ReadFile(path); err == nil {
+		originalSize = len(data)
+	}
+
+	// 追加写入
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return "", fmt.Errorf("打开文件失败: %v", err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(content); err != nil {
+		return "", fmt.Errorf("追加写入失败: %v", err)
+	}
+
+	return fmt.Sprintf("成功追加 %d 字节到 %s (原大小: %d)", len(content), path, originalSize), nil
+}
+
+// SendFileTool 发送文件给用户工具
+type SendFileTool struct{}
+
+func NewSendFileTool() *SendFileTool {
+	return &SendFileTool{}
+}
+
+func (t *SendFileTool) Name() string {
+	return "send_file"
+}
+
+func (t *SendFileTool) Description() string {
+	return "发送文件给用户。支持本地文件路径或URL。返回文件信息供渠道发送。"
+}
+
+func (t *SendFileTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "文件路径或URL",
+			},
+			"filename": map[string]interface{}{
+				"type":        "string",
+				"description": "显示给用户的文件名（可选）",
+			},
+		},
+		"required": []string{"path"},
+	}
+}
+
+func (t *SendFileTool) Execute(_ context.Context, params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok || path == "" {
+		return "", fmt.Errorf("缺少 path 参数")
+	}
+
+	filename := filepath.Base(path)
+	if fn, ok := params["filename"].(string); ok && fn != "" {
+		filename = fn
+	}
+
+	// 检查是URL还是本地文件
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return fmt.Sprintf("[FILE_BLOCK]\n来源: URL\n路径: %s\n文件名: %s\n类型: url\n[/FILE_BLOCK]", path, filename), nil
+	}
+
+	// 本地文件
+	if isSensitivePath(path) {
+		return "", fmt.Errorf("禁止发送敏感文件: %s", path)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("文件不存在: %v", err)
+	}
+
+	size := info.Size()
+	return fmt.Sprintf("[FILE_BLOCK]\n来源: 本地文件\n路径: %s\n文件名: %s\n大小: %d 字节\n类型: local\n[/FILE_BLOCK]", path, filename, size), nil
+}
+
+func init() {
+	GlobalRegistry.Register("append_file", func() Tool { return &AppendFileTool{} })
+	GlobalRegistry.Register("send_file", func() Tool { return NewSendFileTool() })
+}

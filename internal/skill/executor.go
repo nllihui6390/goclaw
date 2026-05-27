@@ -61,7 +61,7 @@ func (e *Executor) executeScript(ctx context.Context, skill *Skill, args map[str
 	var cmd *exec.Cmd
 	if strings.HasSuffix(script, ".py") {
 		argsList := buildArgsList(args)
-		cmd = exec.CommandContext(ctx, "python3", script)
+		cmd = exec.CommandContext(ctx, "python", script)
 		cmd.Args = append(cmd.Args, argsList...)
 	} else if strings.HasSuffix(script, ".sh") {
 		// 设置环境变量传递参数

@@ -135,6 +135,8 @@ func main() {
 			CompactThresholdRatio: agentCfg.CompactThresholdRatio,
 			ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
 			ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
+			ToolResultExemptTools:  agentCfg.ToolResultExemptTools,
+			ToolResultExemptExts:   agentCfg.ToolResultExemptExts,
 			SupportsImage:         agentCfg.SupportsImage,
 			SupportsVideo:         agentCfg.SupportsVideo,
 		})

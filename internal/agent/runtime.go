@@ -825,15 +825,31 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 		"elapsed_ms", elapsed.Milliseconds())
 
 	// 工具结果裁剪：超长结果截断并保存到缓存文件
-	maxBytes := r.config.ToolResultMaxBytes
-	if maxBytes == 0 {
-		maxBytes = 20000 // 默认 20KB
+	if !r.isToolResultExempt(tc.Function.Name, result) {
+		maxBytes := r.config.ToolResultMaxBytes
+		if maxBytes == 0 {
+			maxBytes = 20000 // 默认 20KB
+		}
+		if len(result) > maxBytes {
+			result = r.pruneToolResult(tc.Function.Name, result, maxBytes)
+		}
 	}
-	if len(result) > maxBytes {
-		result = r.pruneToolResult(tc.Function.Name, result, maxBytes)
-	}
-
 	return result, nil
+}
+
+// isToolResultExempt 检查工具结果是否豁免裁剪
+func (r *Runtime) isToolResultExempt(toolName, result string) bool {
+	for _, exempt := range r.config.ToolResultExemptTools {
+		if exempt == toolName {
+			return true
+		}
+	}
+	for _, ext := range r.config.ToolResultExemptExts {
+		if strings.Contains(result, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // pruneToolResult 裁剪工具结果：截断 + 缓存全文

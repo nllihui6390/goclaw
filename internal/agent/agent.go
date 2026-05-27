@@ -39,6 +39,8 @@ type Config struct {
 	CompactThresholdRatio float64     // 压缩触发比例，0=不压缩（默认0.8）
 	ReserveThresholdRatio float64     // 压缩后保留比例（默认0.15）
 	ToolResultMaxBytes     int        // 工具结果最大字节数，0=不限（默认20000）
+	ToolResultExemptTools  []string   // 裁剪豁免工具名列表
+	ToolResultExemptExts   []string   // 裁剪豁免文件扩展名列表
 	SupportsImage          bool       // 模型是否支持图片输入
 	SupportsVideo          bool       // 模型是否支持视频输入
 }
