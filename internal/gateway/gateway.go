@@ -21,6 +21,50 @@ type Gateway struct {
 	wg       sync.WaitGroup
 }
 
+// GetAgents 获取所有 Agent 实例（供 proactive 等外部模块使用）
+func (g *Gateway) GetAgents() map[string]*agent.Agent {
+	return g.agents
+}
+
+// SendProactiveMessage 发送主动消息（实现 ProactiveBus 接口）
+func (g *Gateway) SendProactiveMessage(ctx context.Context, sessionID, message string) error {
+	logger := log.Logger()
+	// 解析 sessionID (格式: "channel:user")
+	parts := splitSessionID(sessionID)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid session ID format: %s", sessionID)
+	}
+	channelName, user := parts[0], parts[1]
+
+	ch, exists := g.channels[channelName]
+	if !exists {
+		return fmt.Errorf("channel not found: %s", channelName)
+	}
+
+	logger.Info("[Gateway] 发送主动消息", "channel", channelName, "user", user, "msg_len", len(message))
+	ch.Send(ctx, channel.Response{
+		Content: message,
+		Channel: channelName,
+		To:      user,
+	})
+	return nil
+}
+
+// splitSessionID 解析 sessionID
+func splitSessionID(sessionID string) []string {
+	idx := 0
+	for i, c := range sessionID {
+		if c == ':' {
+			idx = i
+			break
+		}
+	}
+	if idx == 0 {
+		return nil
+	}
+	return []string{sessionID[:idx], sessionID[idx+1:]}
+}
+
 // NewGateway 创建网关
 func NewGateway() *Gateway {
 	ctx, cancel := context.WithCancel(context.Background())

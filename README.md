@@ -222,6 +222,64 @@ DeepSeek 模型的内部推理标签 `flater`...`flater` 会先被剥离，再�
 
 自动剥离 DeepSeek 等模型的内部推理标签，用户只看到实际回答内容，不暴露思考过程。
 
+### 上下文压缩
+
+当对话历史接近 `max_tokens` 阈值（默认 80%）时，自动调用 LLM 压缩旧消息为摘要，保留关键信息。压缩后保留 system prompt + 压缩摘要 + 最近消息。
+
+配置：
+```json
+{
+  "compact_threshold_ratio": 0.8,  // 触发压缩的阈值比例
+  "reserve_threshold_ratio": 0.15  // 压缩后保留的消息比例
+}
+```
+
+### 工具结果裁剪
+
+工具执行结果超过 `tool_result_max_bytes`（默认 20KB）时自动截断，完整内容保存到工作空间 `cache/` 目录，返回截断内容 + 文件路径提示。
+
+配置：
+```json
+{
+  "tool_result_max_bytes": 20000  // 工具结果最大字节数
+}
+```
+
+### 多模态能力提示
+
+如果模型不支持图片/视频输入，自动在 system prompt 添加提示，避免模型尝试解析无法处理的内容。
+
+配置：
+```json
+{
+  "supports_image": false,  // 模型是否支持图片
+  "supports_video": false   // 模型是否支持视频
+}
+```
+
+### 自动记忆提取
+
+每次对话结束后，异步调用 LLM 提取关键信息（用户偏好、重要决策、待办事项），存入长期记忆和每日记忆文件。
+
+### 每日记忆
+
+工作空间新增 `memory/` 目录，每日生成 `YYYY-MM-DD.md` 记忆文件，自动追加提取的关键信息。可通过 `LoadDailyMemory()` 加载今日记忆。
+
+### 主动模式
+
+后台监控会话空闲时间，超过 `idle_minutes` 后分析记忆，主动发送提醒或建议消息。
+
+配置：
+```json
+{
+  "proactive": {
+    "enabled": true,
+    "idle_minutes": 30,
+    "agent_name": "default"
+  }
+}
+```
+
 ## 工作空间人设系统
 
 基于 CoPaw 设计，每个 Agent 有独立的工作空间目录 `goclaw-data/workspaces/<agent-name>/`，包含人设文件，启动时自动加载注入到 system prompt：
@@ -377,6 +435,8 @@ go-claw/
 │   │   └── file.go                  # 目录级 JSON 文件实现
 │   ├── workspace/
 │   │   └── loader.go                # 工作空间人设文件加载器
+│   ├── proactive/
+│   │   └── proactive.go             # 主动模式管理器
 │   └── middleware/
 │       ├── auth.go                  # Bearer Token 鉴权
 │       └── rate_limit.go            # 限流中间件
@@ -394,6 +454,10 @@ go-claw/
 │           ├── memories.json        # 记忆数据
 │           ├── sessions/            # 会话文件目录（每个会话一个 JSON）
 │           │   └── *.json
+│           ├── memory/              # 每日记忆目录
+│           │   └── YYYY-MM-DD.md
+│           ├── cache/               # 工具结果缓存目录
+│           │   └── *.txt
 │           └── skills/              # Agent 专属技能目录
 │               └── skill-name/
 │                   └── SKILL.md
@@ -433,7 +497,12 @@ go-claw/
       "system_prompt": "你是一个有用的AI助手。",
       "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use"],
       "max_iterations": 20,
-      "max_tokens": 32000
+      "max_tokens": 32000,
+      "compact_threshold_ratio": 0.8,
+      "reserve_threshold_ratio": 0.15,
+      "tool_result_max_bytes": 20000,
+      "supports_image": false,
+      "supports_video": false
     },
     {
       "name": "local",
@@ -454,7 +523,8 @@ go-claw/
   },
   "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": true },
   "auth": { "enabled": false, "token": "" },
-  "skills": { "enabled": true }
+  "skills": { "enabled": true },
+  "proactive": { "enabled": false, "idle_minutes": 30, "agent_name": "default" }
 }
 ```
 

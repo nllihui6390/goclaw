@@ -7,13 +7,21 @@ import (
 
 // Config 全局配置
 type Config struct {
-	Gateway   GatewayConfig           `json:"gateway"`
-	Providers map[string]ProviderConfig `json:"providers"` // 模型供应商配置
-	Agents    []AgentConfig           `json:"agents"`
-	Channels  ChannelsConfig          `json:"channels"`
-	Skills    SkillsConfig            `json:"skills"`
-	Logging   LoggingConfig           `json:"logging"`
-	Auth      AuthConfig              `json:"auth"`
+	Gateway    GatewayConfig             `json:"gateway"`
+	Providers  map[string]ProviderConfig `json:"providers"` // 模型供应商配置
+	Agents     []AgentConfig             `json:"agents"`
+	Channels   ChannelsConfig            `json:"channels"`
+	Skills     SkillsConfig              `json:"skills"`
+	Logging    LoggingConfig             `json:"logging"`
+	Auth       AuthConfig                `json:"auth"`
+	Proactive  ProactiveConfig           `json:"proactive"` // 主动模式配置
+}
+
+// ProactiveConfig 主动模式配置
+type ProactiveConfig struct {
+	Enabled     bool   `json:"enabled"`
+	IdleMinutes int    `json:"idle_minutes"` // 空闲多少分钟后触发（默认30）
+	AgentName   string `json:"agent_name"`   // 使用哪个 Agent 执行主动任务（默认default）
 }
 
 type GatewayConfig struct {
@@ -51,6 +59,11 @@ type AgentConfig struct {
 	Tools         []string `json:"tools"`
 	MaxIterations int      `json:"max_iterations"`
 	MaxTokens     int      `json:"max_tokens"`     // 最大上下文 Token 数，0=不限（默认32000）
+	CompactThresholdRatio float64 `json:"compact_threshold_ratio"` // 压缩触发比例，0=不压缩（默认0.8）
+	ReserveThresholdRatio float64 `json:"reserve_threshold_ratio"` // 压缩后保留比例（默认0.15）
+	ToolResultMaxBytes     int      `json:"tool_result_max_bytes"`   // 工具结果最大字节数，0=不限（默认20000）
+	SupportsImage          bool     `json:"supports_image"`          // 模型是否支持图片输入
+	SupportsVideo          bool     `json:"supports_video"`          // 模型是否支持视频输入
 }
 
 type ChannelsConfig struct {

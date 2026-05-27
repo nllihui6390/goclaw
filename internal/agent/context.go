@@ -21,14 +21,15 @@ type Message struct {
 
 // Session 会话
 type Session struct {
-	ID        string
-	Channel   string
-	User      string
-	Messages  []Message
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	mu        sync.RWMutex
-	store     store.Store
+	ID                string
+	Channel           string
+	User              string
+	Messages          []Message
+	CompressedSummary string    // 压缩后的历史摘要
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	mu                sync.RWMutex
+	store             store.Store
 }
 
 // AddMessage 添加消息

@@ -10,22 +10,29 @@ import (
 	glog "go-claw/pkg/log"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
 // Runtime Agent运行时（处理LLM调用和工具执行）
 type Runtime struct {
-	config *Config
-	client *http.Client
+	config       *Config
+	client       *http.Client
+	workspaceDir string // 用于缓存大工具结果
 }
 
 // NewRuntime 创建运行时
 func NewRuntime(cfg *Config) *Runtime {
 	return &Runtime{
-		config: cfg,
-		client: &http.Client{Timeout: 60 * time.Second},
+		config:       cfg,
+		client:       &http.Client{Timeout: 60 * time.Second},
 	}
+}
+
+// SetWorkspaceDir 设置工作空间目录（用于缓存文件）
+func (r *Runtime) SetWorkspaceDir(dir string) {
+	r.workspaceDir = dir
 }
 
 // ChatMessage 对话消息
@@ -767,7 +774,7 @@ func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb 
 	return fullContent, nil, nil
 }
 
-// executeTool 执行工具
+// executeTool 执行工具（带结果裁剪）
 func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Tool) (string, error) {
 	logger := glog.Logger()
 	logger.Debug("[Runtime] 开始执行工具",
@@ -817,7 +824,47 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 		"result_len", len(result),
 		"elapsed_ms", elapsed.Milliseconds())
 
+	// 工具结果裁剪：超长结果截断并保存到缓存文件
+	maxBytes := r.config.ToolResultMaxBytes
+	if maxBytes == 0 {
+		maxBytes = 20000 // 默认 20KB
+	}
+	if len(result) > maxBytes {
+		result = r.pruneToolResult(tc.Function.Name, result, maxBytes)
+	}
+
 	return result, nil
+}
+
+// pruneToolResult 裁剪工具结果：截断 + 缓存全文
+func (r *Runtime) pruneToolResult(toolName, result string, maxBytes int) string {
+	logger := glog.Logger()
+
+	if r.workspaceDir == "" {
+		logger.Warn("[Runtime] 无工作空间目录，仅截断结果不缓存", "tool", toolName)
+		return result[:maxBytes] + "\n\n[结果已被截断，原长度: " + fmt.Sprintf("%d", len(result)) + " 字符]"
+	}
+
+	// 保存全文到缓存文件
+	cacheDir := r.workspaceDir + "/cache"
+	os.MkdirAll(cacheDir, 0755)
+
+	// 生成唯一文件名
+	cacheID := fmt.Sprintf("%s_%d", toolName, time.Now().UnixNano())
+	cachePath := cacheDir + "/" + cacheID + ".txt"
+
+	if err := os.WriteFile(cachePath, []byte(result), 0644); err != nil {
+		logger.Warn("[Runtime] 缓存工具结果失败", "tool", toolName, "err", err)
+		return result[:maxBytes] + "\n\n[结果已被截断，原长度: " + fmt.Sprintf("%d", len(result)) + " 字符]"
+	}
+
+	logger.Info("[Runtime] 工具结果已裁剪并缓存",
+		"tool", toolName,
+		"original_len", len(result),
+		"truncated_len", maxBytes,
+		"cache_file", cachePath)
+
+	return result[:maxBytes] + "\n\n[结果已被截断，原长度: " + fmt.Sprintf("%d", len(result)) + " 字符。完整结果已保存至: " + cachePath + "]"
 }
 
 // convertTools 转换工具格式
@@ -838,7 +885,7 @@ func (r *Runtime) convertTools(tools []tool.Tool) []map[string]interface{} {
 	return openAITools
 }
 
-// buildMessages 构建消息列表
+// buildMessages 构建消息列表（带上下文压缩）
 func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessage {
 	logger := glog.Logger()
 	systemContent := r.config.SystemPrompt
@@ -852,6 +899,26 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		}
 	}
 
+	// 多模态能力提示
+	if !r.config.SupportsImage {
+		systemContent += "\n\n注意：当前模型不支持图片输入，请勿尝试解析图片内容。"
+	}
+	if !r.config.SupportsVideo {
+		systemContent += "\n\n注意：当前模型不支持视频输入，请勿尝试解析视频内容。"
+	}
+
+	// 首次引导：检测 BOOTSTRAP.md
+	if r.config.WorkspaceLoader != nil && r.config.WorkspaceLoader.IsBootstrapNeeded() {
+		if len(session.Messages) > 0 {
+			lastMsg := session.Messages[len(session.Messages)-1]
+			if lastMsg.Role == "user" {
+				systemContent += "\n\n" + r.config.WorkspaceLoader.GetBootstrapGuidance()
+				logger.Info("[Runtime] 首次引导模式，注入 BOOTSTRAP 指导")
+				r.config.WorkspaceLoader.MarkBootstrapCompleted()
+			}
+		}
+	}
+
 	// 检查用户是否要创建技能，动态注入技能创建模板
 	if len(session.Messages) > 0 {
 		lastMsg := session.Messages[len(session.Messages)-1]
@@ -860,6 +927,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 			logger.Info("[Runtime] 检测到技能创建意图，注入模板")
 		}
 	}
+
 	// 如果有工具，则添加到系统提示中
 	if len(tools) > 0 {
 		systemContent += "\n\n## 可用工具\n你必须通过调用工具来完成用户的请求，不要直接猜测或仅描述打算使用什么工具。\n"
@@ -869,8 +937,18 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		systemContent += "\n重要：当用户提出需要查询天气、执行命令、读写文件等具体请求时，你必须实际调用对应的工具（通过tool_calls），而不是仅在文本中说明你打算使用工具。"
 	}
 
+	// 基础 system message
 	messages := []ChatMessage{
 		{Role: "system", Content: systemContent},
+	}
+
+	// 如果有压缩摘要，注入到系统提示后面
+	if session.CompressedSummary != "" {
+		messages = append(messages, ChatMessage{
+			Role:    "system",
+			Content: "以下是之前对话的压缩摘要，请参考此上下文继续回答：\n\n" + session.CompressedSummary,
+		})
+		logger.Debug("[Runtime] 压缩摘要已注入", "len", len(session.CompressedSummary))
 	}
 
 	// 包含所有角色的消息（user, assistant, tool）
@@ -880,20 +958,60 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 			Content:    msg.Content,
 			ToolCallID: msg.ToolCallID,
 		}
-		// tool 角色消息需要 name 字段（OpenAI 格式）
 		if msg.Role == "tool" && msg.Name != "" {
 			chatMsg.Name = msg.Name
 		}
 		messages = append(messages, chatMsg)
 	}
 
-	// Token 预算管理：估算每消息约 5000 tokens，超限截断旧消息
+	// Token 预算管理
 	maxContextTokens := 32000
 	if r.config.MaxTokens > 0 {
 		maxContextTokens = r.config.MaxTokens
 	}
 	maxMessages := maxContextTokens / 5000
-	if len(messages) > maxMessages {
+
+	// 上下文压缩：接近阈值时压缩旧消息
+	compactRatio := r.config.CompactThresholdRatio
+	if compactRatio == 0 {
+		compactRatio = 0.8
+	}
+	reserveRatio := r.config.ReserveThresholdRatio
+	if reserveRatio == 0 {
+		reserveRatio = 0.15
+	}
+
+	compactThreshold := int(float64(maxMessages) * compactRatio)
+	reserveCount := int(float64(maxMessages) * reserveRatio)
+
+	if len(messages) > compactThreshold && session.CompressedSummary == "" && reserveCount > 0 {
+		logger.Info("[Runtime] 触发上下文压缩",
+			"current_messages", len(messages),
+			"compact_threshold", compactThreshold,
+			"reserve_count", reserveCount)
+
+		oldMsgs := messages[1:len(messages)-reserveCount]
+		if len(oldMsgs) > 2 {
+			summary := r.compressMessages(oldMsgs)
+			if summary != "" {
+				session.CompressedSummary = summary
+				session.mu.Lock()
+				session.persistLocked()
+				session.mu.Unlock()
+
+				recentMsgs := messages[len(messages)-reserveCount:]
+				messages = []ChatMessage{
+					{Role: "system", Content: systemContent},
+					{Role: "system", Content: "以下是之前对话的压缩摘要：\n\n" + summary},
+				}
+				messages = append(messages, recentMsgs...)
+				logger.Info("[Runtime] 上下文压缩完成",
+					"original_count", len(session.Messages)+1,
+					"compressed_count", len(messages),
+					"summary_len", len(summary))
+			}
+		}
+	} else if len(messages) > maxMessages {
 		systemMsg := messages[0]
 		recentMsgs := messages[len(messages)-maxMessages+1:]
 		messages = append([]ChatMessage{systemMsg}, recentMsgs...)
@@ -901,6 +1019,76 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	}
 
 	return messages
+}
+
+// compressMessages 调用 LLM 压缩旧消息
+func (r *Runtime) compressMessages(messages []ChatMessage) string {
+	logger := glog.Logger()
+
+	summaryPrompt := `请将以下对话历史压缩为简洁的摘要，保留关键信息：
+- 用户的主要问题和请求
+- AI 的关键回答和操作
+- 重要的决策和结论
+- 未完成或待办的事项
+
+只输出摘要内容，不要添加其他说明。`
+
+	summaryMessages := []ChatMessage{
+		{Role: "system", Content: summaryPrompt},
+	}
+	summaryMessages = append(summaryMessages, messages...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := r.callLLMWithRetry(ctx, summaryMessages, nil)
+	if err != nil {
+		logger.Warn("[Runtime] 压缩摘要失败", "err", err)
+		return ""
+	}
+
+	logger.Info("[Runtime] 压缩摘要生成成功", "len", len(resp.Content))
+	return resp.Content
+}
+
+// ExtractMemory 调用 LLM 提取对话中的关键信息
+func (r *Runtime) ExtractMemory(ctx context.Context, userMsg, assistantMsg string) string {
+	logger := glog.Logger()
+
+	extractPrompt := `请从以下对话中提取值得长期记住的关键信息。
+只提取以下类型的内容：
+1. 用户表达的重要偏好、习惯、身份信息
+2. 关键决策或结论
+3. 重要的事实或数据
+4. 未完成但重要的待办事项
+
+如果对话中没有值得记住的信息，返回空字符串。
+每条信息用简短的一句话描述，不要添加解释。格式：
+- 信息1
+- 信息2
+
+对话内容：`
+
+	messages := []ChatMessage{
+		{Role: "system", Content: extractPrompt},
+		{Role: "user", Content: userMsg},
+		{Role: "assistant", Content: assistantMsg},
+	}
+
+	resp, err := r.callLLMWithRetry(ctx, messages, nil)
+	if err != nil {
+		logger.Warn("[Runtime] 记忆提取失败", "err", err)
+		return ""
+	}
+
+	// 如果提取结果为空或无意义，不存储
+	content := strings.TrimSpace(resp.Content)
+	if content == "" || content == "无" || content == "没有值得记住的信息" {
+		return ""
+	}
+
+	logger.Info("[Runtime] 记忆提取完成", "len", len(content))
+	return content
 }
 
 // truncate 截断字符串

@@ -15,6 +15,11 @@ import (
 // WorkspaceLoader 工作空间加载器接口
 type WorkspaceLoader interface {
 	LoadSystemPrompt() string
+	IsBootstrapNeeded() bool        // 检查是否需要首次引导
+	MarkBootstrapCompleted() error  // 标记引导完成
+	GetBootstrapGuidance() string   // 获取引导提示词
+	LoadDailyMemory() string        // 加载今日记忆
+	AppendDailyMemory(content string) error // 追加到今日记忆
 }
 
 // Config Agent配置
@@ -31,6 +36,11 @@ type Config struct {
 	Memory          memory.Memory
 	Store           store.Store
 	WorkspaceLoader WorkspaceLoader   // 工作空间人设文件加载器
+	CompactThresholdRatio float64     // 压缩触发比例，0=不压缩（默认0.8）
+	ReserveThresholdRatio float64     // 压缩后保留比例（默认0.15）
+	ToolResultMaxBytes     int        // 工具结果最大字节数，0=不限（默认20000）
+	SupportsImage          bool       // 模型是否支持图片输入
+	SupportsVideo          bool       // 模型是否支持视频输入
 }
 
 // Agent AI智能体
@@ -133,7 +143,44 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 	session.AddMessage("assistant", finalResponse)
 	logger.Info("[Agent] 消息处理完成", "session", sessionID)
 
+	// 自动记忆提取：对话后提取关键信息存入长期记忆
+	go a.extractMemoryAsync(userMessage, finalResponse, sessionID, session.User)
+
 	return finalResponse, nil
+}
+
+// extractMemoryAsync 异步提取记忆（不阻塞主流程）
+func (a *Agent) extractMemoryAsync(userMsg, assistantMsg, sessionID, user string) {
+	logger := glog.Logger()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 调用 LLM 提取关键信息
+	extracted := a.runtime.ExtractMemory(ctx, userMsg, assistantMsg)
+	if extracted == "" {
+		return
+	}
+
+	// 存入长期记忆
+	if a.memory != nil {
+		a.memory.Store(ctx, memory.MemoryEntry{
+			Content:    extracted,
+			Type:       "long_term",
+			SessionID:  sessionID,
+			UserID:     user,
+			Metadata:   map[string]interface{}{"source": "auto_extraction"},
+			Importance: 0.8,
+			CreatedAt:  time.Now(),
+		})
+		logger.Info("[Agent] 自动记忆提取完成", "len", len(extracted))
+	}
+
+	// 追加到每日记忆
+	if a.config.WorkspaceLoader != nil {
+		if err := a.config.WorkspaceLoader.AppendDailyMemory("- " + extracted); err != nil {
+			logger.Warn("[Agent] 写入每日记忆失败", "err", err)
+		}
+	}
 }
 
 // GetMemories 获取会话记忆

@@ -14,6 +14,7 @@ import (
 	"go-claw/internal/channel"
 	"go-claw/internal/gateway"
 	"go-claw/internal/memory"
+	"go-claw/internal/proactive"
 	"go-claw/internal/skill"
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
@@ -80,7 +81,7 @@ func main() {
 		initDataDirs(agentWorkspaceDir, agentSessionsDir, agentSkillsDir, logger)
 
 		// 创建该 agent 专属的工作空间加载器
-		wsLoader := workspace.NewLoader(agentWorkspaceDir)
+		wsLoader := workspace.NewLoaderWithAgent(agentWorkspaceDir, agentCfg.Name)
 
 		// 创建该 agent 专属的存储
 		agentStore, err := store.NewFileStore(agentSessionsDir)
@@ -119,18 +120,23 @@ func main() {
 		}
 
 		ag := agent.NewAgent(&agent.Config{
-			Name:            agentCfg.Name,
-			SystemPrompt:    agentCfg.SystemPrompt,
-			Model:           model,
-			APIKey:          apiKey,
-			BaseURL:         baseURL,
-			ProviderType:    providerType,
-			Tools:           tools,
-			MaxIterations:   agentCfg.MaxIterations,
-			MaxTokens:       agentCfg.MaxTokens,
-			Memory:          memory.NewSimpleMemory(agentStore),
-			Store:           agentStore,
-			WorkspaceLoader: wsLoader,
+			Name:                  agentCfg.Name,
+			SystemPrompt:          agentCfg.SystemPrompt,
+			Model:                 model,
+			APIKey:                apiKey,
+			BaseURL:               baseURL,
+			ProviderType:          providerType,
+			Tools:                 tools,
+			MaxIterations:         agentCfg.MaxIterations,
+			MaxTokens:             agentCfg.MaxTokens,
+			Memory:                memory.NewSimpleMemory(agentStore),
+			Store:                 agentStore,
+			WorkspaceLoader:       wsLoader,
+			CompactThresholdRatio: agentCfg.CompactThresholdRatio,
+			ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
+			ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
+			SupportsImage:         agentCfg.SupportsImage,
+			SupportsVideo:         agentCfg.SupportsVideo,
 		})
 		gw.RegisterAgent(agentCfg.Name, ag)
 		logger.Info("Agent已注册", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model, "workspace", agentWorkspaceDir)
@@ -207,6 +213,26 @@ func main() {
 	logger.Info("GoClaw AI Agent Gateway 已启动",
 		"data_dir", dataDir)
 
+	// 启动主动模式
+	var proactiveMgr *proactive.ProactiveManager
+	if cfg.Proactive.Enabled {
+		idleMinutes := cfg.Proactive.IdleMinutes
+		if idleMinutes == 0 {
+			idleMinutes = 30 // 默认 30 分钟
+		}
+		agentName := cfg.Proactive.AgentName
+		if agentName == "" {
+			agentName = "default"
+		}
+		proactiveMgr = proactive.NewManager(proactive.Config{
+			Enabled:     true,
+			IdleMinutes: idleMinutes,
+			AgentName:   agentName,
+		}, gw.GetAgents(), nil, gw)
+		proactiveMgr.Start()
+		logger.Info("主动模式已启动", "idle_minutes", idleMinutes, "agent", agentName)
+	}
+
 	// 启动会话清理协程
 	if cfg.Gateway.SessionTTL > 0 {
 		logger.Info("会话清理已启用", "ttl_minutes", cfg.Gateway.SessionTTL)
@@ -226,6 +252,9 @@ func main() {
 	<-sigChan
 
 	logger.Info("正在关闭网关...")
+	if proactiveMgr != nil {
+		proactiveMgr.Stop()
+	}
 	gw.Stop()
 	tool.CloseBrowser()
 	glog.Close()
@@ -400,6 +429,30 @@ func initDataDirs(workspaceDir, sessionsDir, skillsDir string, logger *slog.Logg
 - 是伙伴，不是机器 - 有温度但不过度
 `,
 	}
+	// 创建首次引导文件（如果不存在且已完成标记不存在）
+	bootstrapCompletedPath := filepath.Join(workspaceDir, ".bootstrap_completed")
+	bootstrapPath := filepath.Join(workspaceDir, "BOOTSTRAP.md")
+	if _, err := os.Stat(bootstrapCompletedPath); os.IsNotExist(err) {
+		if _, err := os.Stat(bootstrapPath); os.IsNotExist(err) {
+			bootstrapContent := `# BOOTSTRAP.md
+
+欢迎使用 go-claw！这是你的首次对话。
+
+请帮我完成以下初始设置：
+
+1. **你的身份偏好**: 你希望我叫你什么？我们之间的沟通语言是中文还是英文？
+2. **我的服务重点**: 你最希望我帮你做什么？（如：编程助手、数据分析、信息查询等）
+3. **沟通风格**: 你喜欢简洁直接的回答，还是详细解释？
+
+我会根据你的回答更新 PROFILE.md，完成后此引导文件将自动标记为已完成。`
+			if err := os.WriteFile(bootstrapPath, []byte(bootstrapContent), 0644); err != nil {
+				logger.Warn("创建 BOOTSTRAP.md 失败", "err", err)
+			} else {
+				logger.Info("创建首次引导文件", "file", "BOOTSTRAP.md")
+			}
+		}
+	}
+
 
 	for name, content := range personalityFiles {
 		filePath := filepath.Join(workspaceDir, name)
