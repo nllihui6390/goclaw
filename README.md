@@ -13,12 +13,15 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索 (Embedding + 余弦相似度)、JSON 文件持久化
 - **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化、技能调用；控制台实时输出工具调用过程
-- **智能运行时**: Auto-continue（模型暗示工具时自动注入提示继续）、Summarizing（迭代上限时优雅总结而非硬中断）、API 重试（429/5xx 自动重试+指数退避）、Token 预算管理
-- **工作空间人设**: AGENTS.md（行为规则）+ SOUL.md（核心人格）+ PROFILE.md（用户偏好）自动加载注入 system prompt，MEMORY.md/HEARTBEAT.md 可选
-- **Skill 动态创建**: 用户对话中要求创建技能时，自动注入 SKILL.md 标准模板，AI 使用 write_file 工具按规范创建技能文件
+- **智能运行时**: Auto-continue（模型暗示工具时自动注入提示继续）、Summarizing（迭代上限时优雅总结而非硬中断）、API 重试（429/5xx 自动重试+指数退避）、Token 预算管理、智能终止
+- **工作空间人设**: 每个 Agent 有独立工作空间，AGENTS.md + SOUL.md + PROFILE.md 自动加载注入 system prompt
+- **Skill 技能系统**: 全局技能 + Agent 专属技能两层架构，fsnotify 热加载，无需重启即可生效
+- **Skill 动态创建**: 用户对话中要求创建技能时，自动注入 SKILL.md 标准模板，AI 使用 write_file 工具按规范创建
+- **浏览器自动化**: rod 驱动，支持 CSS 和 XPath 选择器，自动转换 Playwright :has-text() 伪选择器，全操作 panic 安全 + 超时保护
+- **日志按日分割**: 日志文件自动按天分割（如 `app-2026-05-27.log`），跨天无缝切换
 - **多 Agent 协作**: 事件总线 (AgentBus)、监督者模式 (SupervisorAgent)
 - **安全**: Bearer Token 鉴权、令牌桶限流、命令执行安全过滤
-- **运维**: Docker 化部署、配置热加载 (fsnotify)、Prometheus 指标、结构化日志
+- **运维**: Docker 化部署、配置热加载 (fsnotify)、Skill 热加载、Prometheus 指标、结构化日志
 
 ## 快速开始
 
@@ -99,12 +102,30 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
 
 go-claw 支持兼容 OpenClaw 规范的 Skill 系统，通过 `SKILL.md` 文件定义技能，AI 可通过 `skill_use` 工具主动调用。
 
+### 两层技能架构
+
+每个 Agent 同时加载 **全局技能** 和 **Agent 专属技能**：
+
+| 层级 | 目录 | 说明 |
+|------|------|------|
+| 全局技能 | `goclaw-data/skills/` | 所有 Agent 共享 |
+| Agent 专属 | `goclaw-data/workspaces/<agent-name>/skills/` | 仅当前 Agent 可用 |
+
+同名技能 Agent 专属版优先（不覆盖全局版）。
+
+### 热加载
+
+Skill 目录通过 `fsnotify` 监控，文件增删改后自动重载，**无需重启程序**：
+
+- 全局目录变化 → 重载所有 Agent 的技能
+- Agent 目录变化 → 仅重载该 Agent 的技能
+
 ### SKILL.md 格式
 
 每个 Skill 位于独立子目录，包含 `SKILL.md`（YAML frontmatter + Markdown 正文）和可选的 `scripts/` 脚本目录：
 
 ```
-skills/
+goclaw-data/skills/
 └── weather-query/
     ├── SKILL.md          # 技能定义
     └── scripts/          # 可选脚本 (.sh/.py/.js)
@@ -155,22 +176,17 @@ metadata:
 
 触发关键词：创建技能、新建skill、做成技能、保存为技能、封装成skill、create skill、make a skill 等。
 
-创建完成后，技能会持久保存在 `skills/` 目录，后续可通过 `skill_use` 工具直接调用。
+创建完成后，技能持久保存在 Agent 的专属技能目录，热加载自动生效。
 
 ### 配置
 
 ```json
 "skills": {
-  "enabled": true,
-  "skill_dir": "skills"
+  "enabled": true
 }
 ```
 
-将 `"skill_use"` 加入 agent 的 `tools` 列表即可让 AI 调用技能：
-
-```json
-"tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use", "skill_use"]
-```
+`skill_use` 工具自动加载（无需在 agent 的 tools 列表中配置）。当 `skills.enabled` 为 true 且技能目录中有可用技能时，`skill_use` 自动注入到 Agent 的工具列表。
 
 ## Agent 运行时优化
 
@@ -179,6 +195,8 @@ metadata:
 ### Auto-continue 机制
 
 当模型返回纯文本（无 tool_calls）但内容暗示要使用工具时（如"我来查询天气"），自动注入提示"请直接调用工具来完成任务"并继续循环，最多 3 次。避免模型只描述意图而不实际执行。
+
+DeepSeek 模型的内部推理标签 `flater`...`flater` 会先被剥离，再判断是否需要 auto-continue，避免思考内容误触发。
 
 ### Summarizing 机制
 
@@ -202,11 +220,11 @@ metadata:
 
 ### 推理标签剥离
 
-自动剥离 DeepSeek 等模型的内部推理标签 `ellites`...`ellites`，用户只看到实际回答内容，不暴露思考过程。
+自动剥离 DeepSeek 等模型的内部推理标签，用户只看到实际回答内容，不暴露思考过程。
 
 ## 工作空间人设系统
 
-基于 CoPaw 设计，工作空间目录 `goclaw-data/workspaces/default/` 包含人设文件，启动时自动加载注入到 system prompt：
+基于 CoPaw 设计，每个 Agent 有独立的工作空间目录 `goclaw-data/workspaces/<agent-name>/`，包含人设文件，启动时自动加载注入到 system prompt：
 
 | 文件 | 用途 | 是否注入 system prompt |
 |------|------|----------------------|
@@ -227,8 +245,45 @@ metadata:
 修改工作空间目录下的人设文件，重启生效。AI 行为会根据 SOUL.md 定义的人格调整。
 
 ```
-goclaw-data/workspaces/default/SOUL.md  ← 修改核心人格
-goclaw-data/workspaces/default/PROFILE.md  ← 修改用户偏好
+goclaw-data/workspaces/<agent-name>/SOUL.md     ← 修改核心人格
+goclaw-data/workspaces/<agent-name>/PROFILE.md   ← 修改用户偏好
+```
+
+## 浏览器自动化工具
+
+基于 rod 的浏览器自动化工具，支持以下操作：navigate、click、type、extract、screenshot、scroll、wait。
+
+### 选择器支持
+
+| 格式 | 示例 | 说明 |
+|------|------|------|
+| CSS 选择器 | `#id`, `.class`, `div > a` | 标准 CSS，使用 `querySelector` |
+| XPath | `//a[contains(text(),'文本')]` | 使用 `MustElementX` |
+| Playwright :has-text() | `a:has-text("财务分析")` | 自动转换为 XPath |
+
+Playwright 伪选择器自动转换规则：
+- `tag:has-text("文本")` → `//tag[contains(text(), "文本")]`
+- `tag.class:has-text("文本")` → `//tag[contains(@class, "class") and contains(text(), "文本")]`
+- `tag#id:has-text("文本")` → `//tag[@id="id" and contains(text(), "文本")]`
+
+不支持 `:visible`、`:nth-match()`、`text=` 等 Playwright 伪选择器。
+
+### 安全机制
+
+- **Panic 安全**: 所有 rod 操作通过 `safeCall` 包装 panic recovery，工具失败返回错误而非崩溃退出
+- **超时保护**: 元素查找 10 秒超时，页面导航 30 秒超时
+- **选择器验证**: 无效选择器在执行前被拦截并返回明确错误信息
+
+## 日志系统
+
+日志支持按日自动分割，文件名格式：`{prefix}-{YYYY-MM-DD}{ext}`
+
+配置 `logs/app.log` → 实际生成 `logs/app-2026-05-27.log`、`logs/app-2026-05-28.log` 等。
+
+跨天写入时自动切换新文件，旧文件关闭，无缝衔接。
+
+```json
+"logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": true }
 ```
 
 ## API 端点
@@ -279,7 +334,7 @@ go-claw/
 ├── main.go                          # 主入口
 ├── config.json                      # 配置文件
 ├── config/config.go                 # 配置管理
-├── pkg/log/log.go                   # 结构化日志 (slog)
+├── pkg/log/log.go                   # 结构化日志 (slog) + 按日分割
 ├── internal/
 │   ├── gateway/
 │   │   ├── gateway.go               # 网关核心
@@ -307,10 +362,10 @@ go-claw/
 │   │   ├── weather.go               # 天气工具
 │   │   ├── exec.go                  # 命令执行
 │   │   ├── file.go                  # 文件读写编辑工具
-│   │   └── browser.go               # 浏览器自动化工具 (rod)
+│   │   └── browser.go               # 浏览器自动化 (rod, panic安全, XPath支持)
 │   ├── skill/
 │   │   ├── skill.go                 # Skill 结构体 + SKILL.md 解析
-│   │   ├── registry.go              # Skill 注册中心（加载/匹配）
+│   │   ├── registry.go              # Skill 注册中心（加载/热重载/匹配）
 │   │   ├── executor.go              # Skill 执行器（脚本/AI指导）
 │   │   └── tool.go                  # skill_use 工具（AI调用入口）
 │   ├── memory/
@@ -320,23 +375,31 @@ go-claw/
 │   ├── store/
 │   │   ├── store.go                 # 持久化接口
 │   │   └── file.go                  # 目录级 JSON 文件实现
+│   ├── workspace/
+│   │   └── loader.go                # 工作空间人设文件加载器
 │   └── middleware/
 │       ├── auth.go                  # Bearer Token 鉴权
 │       └── rate_limit.go            # 限流中间件
 ├── goclaw-data/                     # 数据根目录（自动创建）
+│   ├── skills/                      # 全局技能目录（所有 Agent 共享）
+│   │   └── skill-name/
+│   │       └── SKILL.md
 │   └── workspaces/
-│       └── default/                 # 默认工作空间
-│           ├── AGENTS.md            # Agent 定义
+│       └── <agent-name>/            # 每个 Agent 独立工作空间
+│           ├── AGENTS.md            # 行为规则
 │           ├── HEARTBEAT.md         # 心跳状态
 │           ├── MEMORY.md            # 记忆说明
-│           ├── PROFILE.md           # 用户配置
+│           ├── PROFILE.md           # 用户偏好
 │           ├── SOUL.md              # Agent 人格
 │           ├── memories.json        # 记忆数据
-│           ├── sessions/            # 会话文件目录
+│           ├── sessions/            # 会话文件目录（每个会话一个 JSON）
 │           │   └── *.json
-│           └── skills/              # 技能目录
+│           └── skills/              # Agent 专属技能目录
 │               └── skill-name/
 │                   └── SKILL.md
+├── logs/                            # 日志目录（按日分割）
+│   ├── app-2026-05-27.log
+│   └── app-2026-05-28.log
 ├── Dockerfile                       # Docker 多阶段构建
 ├── docker-compose.yml               # Docker Compose
 ├── .env.example                     # 环境变量模板
@@ -348,7 +411,7 @@ go-claw/
 
 ```json
 {
-  "gateway": { "default_agent": "default", "session_ttl": 60, "data_dir": "goclaw-data", "workspace": "default" },
+  "gateway": { "default_agent": "default", "session_ttl": 60, "data_dir": "goclaw-data" },
   "providers": {
     "deepseek": {
       "type": "openai",
@@ -368,7 +431,7 @@ go-claw/
       "provider": "deepseek",
       "model": "deepseek-v4-oc",
       "system_prompt": "你是一个有用的AI助手。",
-      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use", "skill_use"],
+      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "browser_use"],
       "max_iterations": 20,
       "max_tokens": 32000
     },
@@ -389,11 +452,13 @@ go-claw/
     "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "" },
     "wecom":     { "enabled": false, "bot_id": "", "secret": "" }
   },
-  "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": false },
+  "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": true },
   "auth": { "enabled": false, "token": "" },
-  "skills": { "enabled": true, "skill_dir": "skills" }
+  "skills": { "enabled": true }
 }
 ```
+
+注意：`skill_use` 不需要在 `tools` 列表中配置，当 `skills.enabled` 为 true 时自动加载。
 
 ### 供应商类型
 
