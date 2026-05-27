@@ -273,27 +273,27 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 				}
 
 				// 检查是否是重复工具失败
-					totalFailures++
-					if tc.Function.Name == lastFailedTool {
-						consecutiveFailures++
-						if consecutiveFailures >= maxConsecutiveFailures {
-							logger.Warn("[Runtime] 同一工具连续失败，智能退出",
-								"tool", tc.Function.Name,
-								"consecutive_failures", consecutiveFailures)
-							return fmt.Sprintf("抱歉，工具 %s 连续失败%d次：%s", tc.Function.Name, consecutiveFailures, err.Error()), nil
-						}
-					} else {
-						consecutiveFailures = 1
-						lastFailedTool = tc.Function.Name
+				totalFailures++
+				if tc.Function.Name == lastFailedTool {
+					consecutiveFailures++
+					if consecutiveFailures >= maxConsecutiveFailures {
+						logger.Warn("[Runtime] 同一工具连续失败，智能退出",
+							"tool", tc.Function.Name,
+							"consecutive_failures", consecutiveFailures)
+						return fmt.Sprintf("抱歉，工具 %s 连续失败%d次：%s", tc.Function.Name, consecutiveFailures, err.Error()), nil
 					}
+				} else {
+					consecutiveFailures = 1
+					lastFailedTool = tc.Function.Name
+				}
 
-					// 失败次数远超成功次数时退出
-					if totalFailures >= 8 && totalFailures > totalSuccess*3 {
-						logger.Warn("[Runtime] 失败次数远超成功次数，智能退出",
-							"total_failures", totalFailures,
-							"total_success", totalSuccess)
-						return "抱歉，多次尝试后仍无法完成您的请求。", nil
-					}
+				// 失败次数远超成功次数时退出
+				if totalFailures >= 8 && totalFailures > totalSuccess*3 {
+					logger.Warn("[Runtime] 失败次数远超成功次数，智能退出",
+						"total_failures", totalFailures,
+						"total_success", totalSuccess)
+					return "抱歉，多次尝试后仍无法完成您的请求。", nil
+				}
 			} else {
 				consecutiveFailures = 0
 				lastFailedTool = ""
@@ -851,7 +851,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 			logger.Info("[Runtime] 检测到技能创建意图，注入模板")
 		}
 	}
-
+	// 如果有工具，则添加到系统提示中
 	if len(tools) > 0 {
 		systemContent += "\n\n## 可用工具\n你必须通过调用工具来完成用户的请求，不要直接猜测或仅描述打算使用什么工具。\n"
 		for _, t := range tools {
@@ -878,12 +878,12 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		messages = append(messages, chatMsg)
 	}
 
-	// Token 预算管理：估算每消息约 500 tokens，超限截断旧消息
+	// Token 预算管理：估算每消息约 5000 tokens，超限截断旧消息
 	maxContextTokens := 32000
 	if r.config.MaxTokens > 0 {
 		maxContextTokens = r.config.MaxTokens
 	}
-	maxMessages := maxContextTokens / 500
+	maxMessages := maxContextTokens / 5000
 	if len(messages) > maxMessages {
 		systemMsg := messages[0]
 		recentMsgs := messages[len(messages)-maxMessages+1:]
