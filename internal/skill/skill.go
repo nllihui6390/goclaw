@@ -166,13 +166,13 @@ func (s *Skill) Emoji() string {
 func (s *Skill) ToToolDescription() string {
 	desc := s.Description
 	if s.CoreCapabilities != "" {
-		desc += "\n\n能力范围:\n" + truncate(s.CoreCapabilities, 300)
+		desc += "\n\n能力范围:\n" + s.CoreCapabilities
 	}
 	if s.InputRequirements != "" {
-		desc += "\n\n参数说明:\n" + truncate(s.InputRequirements, 500)
+		desc += "\n\n参数说明:\n" + s.InputRequirements
 	}
 	if s.Examples != "" {
-		desc += "\n\n使用示例:\n" + truncate(s.Examples, 400)
+		desc += "\n\n使用示例:\n" + s.Examples
 	}
 	return desc
 }
@@ -198,9 +198,3 @@ func SubstituteVariables(text string, vars map[string]string) string {
 	return text
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
-}
