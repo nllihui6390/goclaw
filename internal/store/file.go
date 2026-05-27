@@ -3,74 +3,101 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
-	"go-claw/pkg/log"
+	glog "go-claw/pkg/log"
 )
 
-// FileStore 基于JSON文件的简单持久化存储
+// FileStore 基于目录的持久化存储
+// sessions/ 目录下每个会话一个 JSON 文件
+// memories.json 存放所有记忆数据
 type FileStore struct {
 	mu       sync.RWMutex
 	sessions map[string]SessionData
 	memories map[string]MemoryEntry
-	path     string
+	sessDir  string // sessions 目录路径
+	memFile  string // memories.json 文件路径
 }
 
-func NewFileStore(path string) (*FileStore, error) {
+func NewFileStore(sessDir string) (*FileStore, error) {
+	logger := glog.Logger()
 	s := &FileStore{
 		sessions: make(map[string]SessionData),
 		memories: make(map[string]MemoryEntry),
-		path:     path,
+		sessDir:  sessDir,
+		memFile:  filepath.Join(filepath.Dir(sessDir), "memories.json"),
 	}
-	if err := s.load(); err != nil {
-		if os.IsNotExist(err) {
-			return s, nil
+
+	// 确保 sessions 目录存在
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建 sessions 目录失败: %v", err)
+	}
+
+	// 加载已有会话文件
+	files, err := os.ReadDir(sessDir)
+	if err != nil {
+		logger.Warn("读取 sessions 目录失败", "err", err)
+	} else {
+		for _, f := range files {
+			if !f.IsDir() && filepath.Ext(f.Name()) == ".json" {
+				data, err := os.ReadFile(filepath.Join(sessDir, f.Name()))
+				if err != nil {
+					continue
+				}
+				var sess SessionData
+				if err := json.Unmarshal(data, &sess); err != nil {
+					continue
+				}
+				s.sessions[sess.ID] = sess
+			}
 		}
-		return nil, err
 	}
+
+	// 加载记忆文件
+	memData, err := os.ReadFile(s.memFile)
+	if err == nil {
+		var memList map[string]MemoryEntry
+		if err := json.Unmarshal(memData, &memList); err == nil {
+			s.memories = memList
+		}
+	}
+
+	logger.Info("存储已初始化", "sessions_dir", sessDir, "sessions_loaded", len(s.sessions), "memories_loaded", len(s.memories))
 	return s, nil
 }
 
-func (s *FileStore) persist() error {
-	data := map[string]interface{}{
-		"sessions": s.sessions,
-		"memories": s.memories,
-	}
-	out, err := json.MarshalIndent(data, "", "  ")
+func (s *FileStore) persistSession(sess SessionData) error {
+	data, err := json.MarshalIndent(sess, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, out, 0644)
+	// 会话ID中可能包含冒号，替换为下划线作为文件名
+	fileName := safeFileName(sess.ID) + ".json"
+	return os.WriteFile(filepath.Join(s.sessDir, fileName), data, 0644)
 }
 
-func (s *FileStore) load() error {
-	data, err := os.ReadFile(s.path)
+func (s *FileStore) persistMemories() error {
+	data, err := json.MarshalIndent(s.memories, "", "  ")
 	if err != nil {
 		return err
 	}
-	var store map[string]map[string]json.RawMessage
-	if err := json.Unmarshal(data, &store); err != nil {
-		return err
-	}
-	if sessions, ok := store["sessions"]; ok {
-		for id, raw := range sessions {
-			var sess SessionData
-			if err := json.Unmarshal(raw, &sess); err == nil {
-				s.sessions[id] = sess
-			}
+	return os.WriteFile(s.memFile, data, 0644)
+}
+
+func safeFileName(id string) string {
+	result := make([]byte, 0, len(id))
+	for _, c := range id {
+		if c == ':' || c == '/' || c == '\\' || c == ' ' {
+			result = append(result, '_')
+		} else {
+			result = append(result, byte(c))
 		}
 	}
-	if memories, ok := store["memories"]; ok {
-		for id, raw := range memories {
-			var entry MemoryEntry
-			if err := json.Unmarshal(raw, &entry); err == nil {
-				s.memories[id] = entry
-			}
-		}
-	}
-	return nil
+	return string(result)
 }
 
 func (s *FileStore) SaveSession(_ context.Context, session SessionData) error {
@@ -78,8 +105,8 @@ func (s *FileStore) SaveSession(_ context.Context, session SessionData) error {
 	defer s.mu.Unlock()
 	session.UpdatedAt = time.Now().Format(time.RFC3339)
 	s.sessions[session.ID] = session
-	if err := s.persist(); err != nil {
-		log.Logger().Error("持久化会话失败", "err", err)
+	if err := s.persistSession(session); err != nil {
+		glog.Logger().Error("持久化会话失败", "err", err)
 	}
 	return nil
 }
@@ -108,9 +135,8 @@ func (s *FileStore) DeleteSession(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
-	if err := s.persist(); err != nil {
-		log.Logger().Error("删除会话失败", "err", err)
-	}
+	fileName := safeFileName(id) + ".json"
+	os.Remove(filepath.Join(s.sessDir, fileName))
 	return nil
 }
 
@@ -125,11 +151,13 @@ func (s *FileStore) CleanupExpiredSessions(_ context.Context, ttlMinutes int) er
 	for id, sess := range s.sessions {
 		if t, err := time.Parse(time.RFC3339, sess.UpdatedAt); err == nil && t.Before(cutoff) {
 			delete(s.sessions, id)
+			fileName := safeFileName(id) + ".json"
+			os.Remove(filepath.Join(s.sessDir, fileName))
 			changed = true
 		}
 	}
 	if changed {
-		return s.persist()
+		glog.Logger().Info("清理过期会话", "removed", changed)
 	}
 	return nil
 }
@@ -142,8 +170,8 @@ func (s *FileStore) SaveMemory(_ context.Context, entry MemoryEntry) error {
 	}
 	entry.UpdatedAt = time.Now().Format(time.RFC3339)
 	s.memories[entry.ID] = entry
-	if err := s.persist(); err != nil {
-		log.Logger().Error("持久化记忆失败", "err", err)
+	if err := s.persistMemories(); err != nil {
+		glog.Logger().Error("持久化记忆失败", "err", err)
 	}
 	return nil
 }
@@ -167,8 +195,8 @@ func (s *FileStore) DeleteMemory(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.memories, id)
-	if err := s.persist(); err != nil {
-		log.Logger().Error("删除记忆失败", "err", err)
+	if err := s.persistMemories(); err != nil {
+		glog.Logger().Error("删除记忆失败", "err", err)
 	}
 	return nil
 }
@@ -184,7 +212,7 @@ func (s *FileStore) ClearSessionMemories(_ context.Context, sessionID string) er
 		}
 	}
 	if changed {
-		return s.persist()
+		return s.persistMemories()
 	}
 	return nil
 }

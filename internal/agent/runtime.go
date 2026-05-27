@@ -843,6 +843,15 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	logger := glog.Logger()
 	systemContent := r.config.SystemPrompt
 
+	// 加载工作空间人设文件（AGENTS.md + SOUL.md + PROFILE.md）
+	if r.config.WorkspaceLoader != nil {
+		personality := r.config.WorkspaceLoader.LoadSystemPrompt()
+		if personality != "" {
+			systemContent = personality + "\n\n" + systemContent
+			logger.Debug("[Runtime] 人设文件已注入到 system prompt", "len", len(personality))
+		}
+	}
+
 	// 检查用户是否要创建技能，动态注入技能创建模板
 	if len(session.Messages) > 0 {
 		lastMsg := session.Messages[len(session.Messages)-1]

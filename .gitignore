@@ -2,6 +2,9 @@
 logs
 *.log
 *.exe
+*.exe~
 .env
 .claude
 data.json
+go-claw
+goclaw-data/*

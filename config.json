@@ -27,7 +27,14 @@
       "name": "default",
       "provider": "deepseek",
       "system_prompt": "你是一个智能AI助手，可以使用工具帮助用户完成任务。",
-      "tools": ["weather", "write_file", "read_file", "edit_file", "browser_use","skill_use","exec"],
+      "tools": [
+        "weather",
+        "write_file",
+        "read_file",
+        "edit_file",
+        "browser_use",
+        "exec"
+      ],
       "max_iterations": 20
     },
     {
@@ -35,7 +42,14 @@
       "provider": "ollama",
       "model": "qwen2.5:7b",
       "system_prompt": "你是一个本地AI助手，运行在Ollama上。",
-      "tools": ["weather","write_file", "read_file", "edit_file", "browser_use","skill_use","exec"],
+      "tools": [
+        "weather",
+        "write_file",
+        "read_file",
+        "edit_file",
+        "browser_use",
+        "exec"
+      ],
       "max_iterations": 20
     }
   ],

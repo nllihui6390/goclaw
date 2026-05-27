@@ -19,6 +19,8 @@ type Config struct {
 type GatewayConfig struct {
 	DefaultAgent string `json:"default_agent"`
 	SessionTTL   int    `json:"session_ttl"` // 会话超时分钟数, 0=永不过期
+	DataDir      string `json:"data_dir"`    // 数据根目录，默认 goclaw-data
+	Workspace    string `json:"workspace"`   // 工作空间名称，默认 default
 }
 
 // ProviderConfig 模型供应商配置
@@ -136,6 +138,22 @@ func (c *Config) GetProviderConfig(providerName string) *ProviderConfig {
 	}
 
 	return &provider
+}
+
+// ResolveDataPaths 解析数据目录路径
+func (c *Config) ResolveDataPaths() (workspaceDir, sessionsDir, skillsDir string) {
+	dataDir := c.Gateway.DataDir
+	if dataDir == "" {
+		dataDir = "goclaw-data"
+	}
+	workspace := c.Gateway.Workspace
+	if workspace == "" {
+		workspace = "default"
+	}
+	workspaceDir = dataDir + "/workspaces/" + workspace
+	sessionsDir = workspaceDir + "/sessions"
+	skillsDir = workspaceDir + "/skills"
+	return
 }
 
 // ResolveAgentConfig 解析Agent配置，合并供应商配置

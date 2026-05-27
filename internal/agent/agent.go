@@ -12,19 +12,25 @@ import (
 	glog "go-claw/pkg/log"
 )
 
+// WorkspaceLoader 工作空间加载器接口
+type WorkspaceLoader interface {
+	LoadSystemPrompt() string
+}
+
 // Config Agent配置
 type Config struct {
-	Name          string
-	SystemPrompt  string
-	Model         string
-	APIKey        string
-	BaseURL       string
-	ProviderType  string            // 供应商类型: openai, ollama, anthropic, azure
-	Tools         []tool.Tool
-	MaxIterations int
-	MaxTokens     int               // 最大上下文 Token 数，0=不限（默认32000）
-	Memory        memory.Memory
-	Store         store.Store
+	Name            string
+	SystemPrompt    string
+	Model           string
+	APIKey          string
+	BaseURL         string
+	ProviderType    string            // 供应商类型: openai, ollama, anthropic, azure
+	Tools           []tool.Tool
+	MaxIterations   int
+	MaxTokens       int               // 最大上下文 Token 数，0=不限（默认32000）
+	Memory          memory.Memory
+	Store           store.Store
+	WorkspaceLoader WorkspaceLoader   // 工作空间人设文件加载器
 }
 
 // Agent AI智能体

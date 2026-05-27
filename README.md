@@ -14,6 +14,7 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索 (Embedding + 余弦相似度)、JSON 文件持久化
 - **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑、浏览器自动化、技能调用；控制台实时输出工具调用过程
 - **智能运行时**: Auto-continue（模型暗示工具时自动注入提示继续）、Summarizing（迭代上限时优雅总结而非硬中断）、API 重试（429/5xx 自动重试+指数退避）、Token 预算管理
+- **工作空间人设**: AGENTS.md（行为规则）+ SOUL.md（核心人格）+ PROFILE.md（用户偏好）自动加载注入 system prompt，MEMORY.md/HEARTBEAT.md 可选
 - **Skill 动态创建**: 用户对话中要求创建技能时，自动注入 SKILL.md 标准模板，AI 使用 write_file 工具按规范创建技能文件
 - **多 Agent 协作**: 事件总线 (AgentBus)、监督者模式 (SupervisorAgent)
 - **安全**: Bearer Token 鉴权、令牌桶限流、命令执行安全过滤
@@ -203,6 +204,33 @@ metadata:
 
 自动剥离 DeepSeek 等模型的内部推理标签 `ellites`...`ellites`，用户只看到实际回答内容，不暴露思考过程。
 
+## 工作空间人设系统
+
+基于 CoPaw 设计，工作空间目录 `goclaw-data/workspaces/default/` 包含人设文件，启动时自动加载注入到 system prompt：
+
+| 文件 | 用途 | 是否注入 system prompt |
+|------|------|----------------------|
+| AGENTS.md | 行为规则、安全指南、工具使用说明 | ✅ 是（第一个） |
+| SOUL.md | 核心人格、价值观、行为准则 | ✅ 是（第二个） |
+| PROFILE.md | 用户身份、偏好、上下文 | ✅ 是（第三个） |
+| MEMORY.md | 长期记忆存储 | ❌ 否（可通过工具访问） |
+| HEARTBEAT.md | 周期任务提示 | ❌ 否（heartbeat 功能使用） |
+
+### 加载顺序
+
+默认注入顺序：`AGENTS.md` → `SOUL.md` → `PROFILE.md`，拼接后添加到 system prompt 开头。
+
+文件不存在则跳过，YAML frontmatter（`---`分隔的元数据块）自动剥离。
+
+### 自定义人设
+
+修改工作空间目录下的人设文件，重启生效。AI 行为会根据 SOUL.md 定义的人格调整。
+
+```
+goclaw-data/workspaces/default/SOUL.md  ← 修改核心人格
+goclaw-data/workspaces/default/PROFILE.md  ← 修改用户偏好
+```
+
 ## API 端点
 
 | 方法 | 路径 | 说明 |
@@ -291,16 +319,27 @@ go-claw/
 │   │   └── vector.go                # 向量语义检索
 │   ├── store/
 │   │   ├── store.go                 # 持久化接口
-│   │   └── file.go                  # JSON 文件实现
+│   │   └── file.go                  # 目录级 JSON 文件实现
 │   └── middleware/
 │       ├── auth.go                  # Bearer Token 鉴权
 │       └── rate_limit.go            # 限流中间件
+├── goclaw-data/                     # 数据根目录（自动创建）
+│   └── workspaces/
+│       └── default/                 # 默认工作空间
+│           ├── AGENTS.md            # Agent 定义
+│           ├── HEARTBEAT.md         # 心跳状态
+│           ├── MEMORY.md            # 记忆说明
+│           ├── PROFILE.md           # 用户配置
+│           ├── SOUL.md              # Agent 人格
+│           ├── memories.json        # 记忆数据
+│           ├── sessions/            # 会话文件目录
+│           │   └── *.json
+│           └── skills/              # 技能目录
+│               └── skill-name/
+│                   └── SKILL.md
 ├── Dockerfile                       # Docker 多阶段构建
 ├── docker-compose.yml               # Docker Compose
 ├── .env.example                     # 环境变量模板
-├── skills/                          # Skill 技能目录
-│   └── weather-query/
-│       └── SKILL.md                 # Skill 定义示例
 ├── go.mod
 └── go.sum
 ```
@@ -309,7 +348,7 @@ go-claw/
 
 ```json
 {
-  "gateway": { "default_agent": "default", "session_ttl": 60 },
+  "gateway": { "default_agent": "default", "session_ttl": 60, "data_dir": "goclaw-data", "workspace": "default" },
   "providers": {
     "deepseek": {
       "type": "openai",
