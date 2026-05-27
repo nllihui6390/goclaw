@@ -20,12 +20,12 @@ func (t *SkillUseTool) Name() string {
 }
 
 func (t *SkillUseTool) Description() string {
-	desc := "技能调用工具。可调用已安装的技能来完成特定任务。"
+	desc := "技能调用工具。可调用已安装的技能来完成特定任务。调用时通过 args 传递参数（键值对），参数名和可选值见各技能说明。"
 	skills := t.executor.registry.List()
 	if len(skills) > 0 {
 		desc += "\n\n可用技能:\n"
 		for _, s := range skills {
-			desc += fmt.Sprintf("- %s %s: %s\n", s.Emoji(), s.Name, truncate(s.Description, 60))
+			desc += fmt.Sprintf("- %s %s: %s\n", s.Emoji(), s.Name, s.ToToolDescription())
 		}
 	}
 	return desc

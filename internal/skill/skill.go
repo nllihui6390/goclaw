@@ -166,7 +166,13 @@ func (s *Skill) Emoji() string {
 func (s *Skill) ToToolDescription() string {
 	desc := s.Description
 	if s.CoreCapabilities != "" {
-		desc += "\n\n能力范围:\n" + truncate(s.CoreCapabilities, 200)
+		desc += "\n\n能力范围:\n" + truncate(s.CoreCapabilities, 300)
+	}
+	if s.InputRequirements != "" {
+		desc += "\n\n参数说明:\n" + truncate(s.InputRequirements, 500)
+	}
+	if s.Examples != "" {
+		desc += "\n\n使用示例:\n" + truncate(s.Examples, 400)
 	}
 	return desc
 }
