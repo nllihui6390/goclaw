@@ -12,7 +12,8 @@ import (
 // Registry Skill 注册和加载中心
 type Registry struct {
 	skills   map[string]*Skill // name -> Skill
-	skillDir string            // Skill 目录路径
+	skillDir string            // Skill 主目录路径（全局）
+	dirs     []string          // 所有需要加载的目录（用于热重载）
 }
 
 // NewRegistry 创建 Skill 注册中心
@@ -20,19 +21,45 @@ func NewRegistry(skillDir string) *Registry {
 	return &Registry{
 		skills:   make(map[string]*Skill),
 		skillDir: skillDir,
+		dirs:     []string{skillDir},
 	}
+}
+
+// Clear 清空所有已加载的 Skill
+func (r *Registry) Clear() {
+	r.skills = make(map[string]*Skill)
+}
+
+// AddDir 添加需要加载的目录（用于热重载）
+func (r *Registry) AddDir(dir string) {
+	r.dirs = append(r.dirs, dir)
+}
+
+// ReloadAll 清空并重新加载所有目录的 Skill
+func (r *Registry) ReloadAll() error {
+	r.Clear()
+	for _, dir := range r.dirs {
+		if err := r.LoadFromDir(dir); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadAll 从 skillDir 加载所有 Skill
 func (r *Registry) LoadAll() error {
+	return r.LoadFromDir(r.skillDir)
+}
+
+// LoadFromDir 从指定目录加载 Skill（追加到已有 skills，不覆盖）
+func (r *Registry) LoadFromDir(dir string) error {
 	logger := glog.Logger()
 
-	// 确保 skill 目录存在
-	if err := os.MkdirAll(r.skillDir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("创建 Skill 目录失败: %v", err)
 	}
 
-	entries, err := os.ReadDir(r.skillDir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("读取 Skill 目录失败: %v", err)
 	}
@@ -42,7 +69,7 @@ func (r *Registry) LoadAll() error {
 			continue
 		}
 
-		skillPath := filepath.Join(r.skillDir, entry.Name(), "SKILL.md")
+		skillPath := filepath.Join(dir, entry.Name(), "SKILL.md")
 		if _, err := os.Stat(skillPath); err != nil {
 			continue // 没有 SKILL.md，跳过
 		}
@@ -61,10 +88,9 @@ func (r *Registry) LoadAll() error {
 		}
 
 		r.skills[skill.Name] = skill
-		logger.Info("[Skill] 已加载", "name", skill.Name, "emoji", skill.Emoji(), "path", skill.Path)
+		logger.Info("[Skill] 已加载", "name", skill.Name, "emoji", skill.Emoji(), "dir", dir)
 	}
 
-	logger.Info("[Skill] 加载完成", "total", len(r.skills))
 	return nil
 }
 

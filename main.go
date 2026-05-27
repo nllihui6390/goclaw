@@ -20,6 +20,7 @@ import (
 	"go-claw/internal/workspace"
 	glog "go-claw/pkg/log"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/joho/godotenv"
 )
 
@@ -48,24 +49,6 @@ func main() {
 	// 创建网关
 	gw := gateway.NewGateway()
 
-	// 初始化 Skill 系统（全局共享）
-	if cfg.Skills.Enabled {
-		skillDir := cfg.Skills.SkillDir
-		if skillDir == "" {
-			skillDir = "skills" // 默认使用项目根目录的 skills
-		}
-		skillReg := skill.NewRegistry(skillDir)
-		if err := skillReg.LoadAll(); err != nil {
-			logger.Warn("加载 Skill 目录失败", "err", err)
-		}
-		skillExecutor := skill.NewExecutor(skillReg)
-		skillTool := skill.NewSkillUseTool(skillExecutor)
-		tool.GlobalRegistry.Register("skill_use", func() tool.Tool {
-			return skillTool
-		})
-		logger.Info("Skill 系统已启用", "skill_dir", skillDir, "count", len(skillReg.List()))
-	}
-
 	// 注册Agents - 每个 agent 有独立的工作空间目录
 	dataDir := cfg.Gateway.DataDir
 	if dataDir == "" {
@@ -73,6 +56,14 @@ func main() {
 	}
 	// 确保数据根目录存在
 	os.MkdirAll(dataDir+"/workspaces", 0755)
+
+	// 全局技能目录（所有 agent 共享）
+	globalSkillsDir := dataDir + "/skills"
+	os.MkdirAll(globalSkillsDir, 0755)
+
+	// 存储 agent 的技能注册表，用于热加载
+	skillRegistries := make(map[string]*skill.Registry) // agentName -> registry
+	skillRegistryDirs := make(map[string]string)        // agentName -> agentSkillsDir
 
 	for _, agentCfg := range cfg.Agents {
 		tools := loadTools(agentCfg.Tools)
@@ -98,6 +89,35 @@ func main() {
 			continue
 		}
 
+		// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
+		if cfg.Skills.Enabled {
+			skillReg := skill.NewRegistry(globalSkillsDir)
+			skillReg.AddDir(agentSkillsDir) // 添加 agent 特定目录用于热重载
+			// 加载全局技能
+			if err := skillReg.LoadAll(); err != nil {
+				logger.Warn("加载全局 Skill 目录失败", "err", err)
+			}
+			globalCount := len(skillReg.List())
+			// 加载 agent 特定技能
+			if err := skillReg.LoadFromDir(agentSkillsDir); err != nil {
+				logger.Warn("加载 Agent Skill 目录失败", "agent", agentCfg.Name, "err", err)
+			}
+			agentCount := len(skillReg.List()) - globalCount
+
+			// 存储注册表用于热加载
+			skillRegistries[agentCfg.Name] = skillReg
+			skillRegistryDirs[agentCfg.Name] = agentSkillsDir
+
+			if len(skillReg.List()) > 0 {
+				skillExecutor := skill.NewExecutor(skillReg)
+				skillTool := skill.NewSkillUseTool(skillExecutor)
+				tools = append(tools, skillTool)
+				logger.Info("Agent Skill 已加载", "agent", agentCfg.Name, "global", globalCount, "agent_specific", agentCount, "total", len(skillReg.List()))
+			} else {
+				logger.Info("Skill 目录为空，skill_use 工具未加载", "agent", agentCfg.Name)
+			}
+		}
+
 		ag := agent.NewAgent(&agent.Config{
 			Name:            agentCfg.Name,
 			SystemPrompt:    agentCfg.SystemPrompt,
@@ -114,6 +134,11 @@ func main() {
 		})
 		gw.RegisterAgent(agentCfg.Name, ag)
 		logger.Info("Agent已注册", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model, "workspace", agentWorkspaceDir)
+	}
+
+	// Skill 热加载：监控技能目录变化，自动重新加载
+	if cfg.Skills.Enabled && len(skillRegistries) > 0 {
+		startSkillWatcher(globalSkillsDir, skillRegistries, skillRegistryDirs, logger)
 	}
 
 	// 注册渠道
@@ -268,11 +293,10 @@ func getDefaultConfig() *config.Config {
 	}
 }
 
-// loadTools 使用注册表加载工具
+// loadTools 使用注册表加载工具（不含 skill_use，skill_use 在 agent 循环中单独加载）
 func loadTools(toolNames []string) []tool.Tool {
 	var tools []tool.Tool
 	for _, name := range toolNames {
-		// skill_use 自动加载，跳过配置中的显式声明
 		if name == "skill_use" {
 			continue
 		}
@@ -289,10 +313,6 @@ func loadTools(toolNames []string) []tool.Tool {
 			continue
 		}
 		tools = append(tools, t)
-	}
-	// skill_use 默认加载（如果已注册）
-	if skillTool, err := tool.GlobalRegistry.Create("skill_use"); err == nil {
-		tools = append(tools, skillTool)
 	}
 	return tools
 }
@@ -393,4 +413,73 @@ func initDataDirs(workspaceDir, sessionsDir, skillsDir string, logger *slog.Logg
 	}
 
 	logger.Info("数据目录已初始化", "workspace", workspaceDir)
+}
+
+// startSkillWatcher 启动技能目录监控，实现热加载
+func startSkillWatcher(globalSkillsDir string, registries map[string]*skill.Registry, agentDirs map[string]string, logger *slog.Logger) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Error("创建 Skill watcher 失败", "err", err)
+		return
+	}
+
+	// 监控全局技能目录
+	watcher.Add(globalSkillsDir)
+	logger.Info("Skill 热加载已启动", "global_dir", globalSkillsDir)
+
+	// 监控每个 agent 的技能目录
+	for agentName, agentDir := range agentDirs {
+		watcher.Add(agentDir)
+		logger.Info("Skill 热加载监控 Agent 目录", "agent", agentName, "dir", agentDir)
+	}
+
+	go func() {
+		defer watcher.Close()
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// 只关注创建和写入事件（新技能添加或修改）
+				if event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Write == fsnotify.Write {
+					// 防抖：等待500ms确保文件写入完成
+					time.Sleep(500 * time.Millisecond)
+
+					// 判断是全局目录还是 agent 目录的变化
+					eventDir := filepath.Dir(event.Name)
+
+					if eventDir == globalSkillsDir || filepath.Dir(eventDir) == globalSkillsDir {
+						// 全局目录变化，重载所有 agent 的技能
+						logger.Info("全局 Skill 目录变化，重载所有 Agent 技能", "path", event.Name)
+						for agentName, reg := range registries {
+							if err := reg.ReloadAll(); err != nil {
+								logger.Warn("重载 Agent Skill 失败", "agent", agentName, "err", err)
+							} else {
+								logger.Info("Agent Skill 已重载", "agent", agentName, "count", len(reg.List()))
+							}
+						}
+					} else {
+						// 检查是哪个 agent 的目录变化
+						for agentName, agentDir := range agentDirs {
+							if eventDir == agentDir || filepath.Dir(eventDir) == agentDir {
+								reg := registries[agentName]
+								if err := reg.ReloadAll(); err != nil {
+									logger.Warn("重载 Agent Skill 失败", "agent", agentName, "err", err)
+								} else {
+									logger.Info("Agent Skill 已重载", "agent", agentName, "count", len(reg.List()))
+								}
+								break
+							}
+						}
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				logger.Error("Skill watcher 错误", "err", err)
+			}
+		}
+	}()
 }
