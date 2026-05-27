@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -71,7 +72,7 @@ type Client struct {
 	stdin   io.WriteCloser
 	stdout  io.Reader
 	nextID  int
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	pending map[int]chan *JSONRPCResponse
 	tools   []Tool
 }
@@ -194,7 +195,7 @@ func (c *Client) ListTools() []Tool {
 // Disconnect 断开连接
 func (c *Client) Disconnect() {
 	if c.cmd != nil && c.cmd.Process != nil {
-		c.cmd.Process.Signal(context.Done())
+		c.cmd.Process.Signal(os.Interrupt)
 		c.cmd.Wait()
 	}
 	glog.Logger().Info("[MCP] 已断开", "name", c.config.Name)
