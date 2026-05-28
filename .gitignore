@@ -9,3 +9,4 @@ data.json
 go-claw
 goclaw-data/*
 skills/*
+output/*
