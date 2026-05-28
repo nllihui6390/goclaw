@@ -92,7 +92,7 @@
     }
   },
   "logging": {
-    "level": "info",
+    "level": "debug",
     "json_mode": false,
     "file_path": "logs/app.log",
     "console": false

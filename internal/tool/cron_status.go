@@ -31,19 +31,19 @@ func (t *CronStatusTool) Name() string {
 
 func (t *CronStatusTool) Description() string {
 	return `管理 go-claw 内部的定时任务系统。
-
-⚠️ 这是程序内部定时任务，不是操作系统 crontab/schtasks。
+	执行操作时必须调用对应工具，绝不能只声称已执行而不实际调用工具
+⚠️ 重要：用户要求"执行"任务时，必须调用 action="run"，不能只描述任务信息！
 
 操作说明：
 - list: 查看所有任务列表
-- run: 立即执行指定任务（需要 id 参数）
+- run: 立即执行指定任务（需要 id 参数）← 执行任务用这个！
 - get: 查看单个任务详情（需要 id）
 - add: 新增定时任务
 - delete: 删除任务
 
 示例：
-- cron_status(action="list")
-- cron_status(action="run", id="cron_1_每日问候")
+- cron_status(action="list")  ← 先查看列表获取任务ID
+- cron_status(action="run", id="cron_1_每日问候")  ← 然后执行！
 - cron_status(action="get", id="cron_1_每日问候")
 - cron_status(action="add", name="早报", schedule="0 7 * * *", type="agent", agent_name="default", content="生成每日早报")
 

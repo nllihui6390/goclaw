@@ -26,8 +26,8 @@ type Runtime struct {
 // NewRuntime 创建运行时
 func NewRuntime(cfg *Config) *Runtime {
 	return &Runtime{
-		config:       cfg,
-		client:       &http.Client{Timeout: 60 * time.Second},
+		config: cfg,
+		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -174,7 +174,7 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 				Thinking: "正在思考...",
 			})
 		}
-
+		// 调用 LLM 并处理工具调用结果<-主进程逻辑开始处
 		resp, err := r.callLLMWithRetry(ctx, messages, tools)
 		if err != nil {
 			logger.Error("[Runtime] LLM调用失败", "iteration", i+1, "err", err)
@@ -262,13 +262,11 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 					Args:     tc.Function.Arguments,
 				})
 			}
-
+			// 执行工具并捕获结果（带结果裁剪）
 			result, err := r.executeTool(ctx, tc, tools)
 			if err != nil {
 				result = fmt.Sprintf("工具执行错误: %v", err)
-				logger.Error("[Runtime] 工具执行出错",
-					"tool_name", tc.Function.Name,
-					"err", err)
+				logger.Error("[Runtime] 工具执行出错", "tool_name", tc.Function.Name, "err", err)
 				if handler != nil {
 					handler(ToolEvent{
 						Type:     "error",
@@ -282,16 +280,12 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 
 				// 失败次数远超成功次数时退出
 				if totalFailures >= 8 && totalFailures > totalSuccess*3 {
-					logger.Warn("[Runtime] 失败次数远超成功次数，智能退出",
-						"total_failures", totalFailures,
-						"total_success", totalSuccess)
+					logger.Warn("[Runtime] 失败次数远超成功次数，智能退出", "total_failures", totalFailures, "total_success", totalSuccess)
 					return "抱歉，多次尝试后仍无法完成您的请求。", nil
 				}
 			} else {
 				totalSuccess++
-				logger.Info("[Runtime] 工具执行成功",
-					"tool_name", tc.Function.Name,
-					"result_len", len(result))
+				logger.Info("[Runtime] 工具执行成功", "tool_name", tc.Function.Name, "result_len", len(result))
 				// 输出工具执行结果
 				if handler != nil {
 					handler(ToolEvent{
@@ -1013,7 +1007,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 			"compact_threshold", compactThreshold,
 			"reserve_count", reserveCount)
 
-		oldMsgs := messages[1:len(messages)-reserveCount]
+		oldMsgs := messages[1 : len(messages)-reserveCount]
 		if len(oldMsgs) > 2 {
 			summary := r.compressMessages(oldMsgs)
 			if summary != "" {

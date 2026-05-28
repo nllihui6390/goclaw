@@ -466,12 +466,14 @@ type gatewayCronExecutor struct {
 	agents map[string]*agent.Agent
 }
 
+// 执行文本类型定时任务
 func (e gatewayCronExecutor) ExecuteText(ctx context.Context, sessionID, content string) error {
 	glog.Logger().Info("[Cron] 执行文本任务", "session_id", sessionID, "content", content)
 	// 通过 Gateway 主动消息系统发送文本通知
 	return e.gw.SendProactiveMessage(ctx, sessionID, content)
 }
 
+// 执行 Agent 类型定时任务
 func (e gatewayCronExecutor) ExecuteAgent(ctx context.Context, agentName, sessionID, content string) (string, error) {
 	ag, exists := e.agents[agentName]
 	if !exists {
