@@ -91,6 +91,32 @@
     "enabled": false,
     "token": ""
   },
+  "cron": {
+    "enabled": true,
+    "jobs": [
+      {
+        "name": "每日问候",
+        "schedule": "0 9 * * *",
+        "type": "text",
+        "content": "☀️ 早安！新的一天开始了，有什么需要帮忙的吗？"
+      },
+      {
+        "name": "每小时检查",
+        "schedule": "0 * * * *",
+        "type": "agent",
+        "agent_name": "default",
+        "content": "检查当前状态，看看有没有需要提醒用户的事项"
+      },
+      {
+        "name": "晚间总结",
+        "schedule": "0 21 * * *",
+        "type": "text",
+        "content": "🌙 晚安！今天辛苦了，明天见。",
+        "active_start": "21:00",
+        "active_end": "23:59"
+      }
+    ]
+  },
   "skills": {
     "enabled": true,
     "skill_dir": "skills"
