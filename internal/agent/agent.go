@@ -39,6 +39,7 @@ type Config struct {
 	Memory          memory.Memory
 	Store           store.Store
 	WorkspaceLoader WorkspaceLoader   // 工作空间人设文件加载器
+	WorkspaceDir    string            // 工作空间目录路径（用于缓存文件）
 	SkillRegistry   *skill.Registry   // 技能注册中心（用于系统提示词注入）
 	CompactThresholdRatio float64     // 压缩触发比例，0=不压缩（默认0.8）
 	ReserveThresholdRatio float64     // 压缩后保留比例（默认0.15）
@@ -61,9 +62,13 @@ type Agent struct {
 
 // NewAgent 创建Agent
 func NewAgent(cfg *Config) *Agent {
+	runtime := NewRuntime(cfg)
+	if cfg.WorkspaceDir != "" {
+		runtime.SetWorkspaceDir(cfg.WorkspaceDir)
+	}
 	return &Agent{
 		config:     cfg,
-		runtime:    NewRuntime(cfg),
+		runtime:    runtime,
 		sessionMgr: NewSessionManager(cfg.Store),
 		memory:     cfg.Memory,
 	}

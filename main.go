@@ -147,6 +147,7 @@ func main() {
 			Memory:                memory.NewSimpleMemory(agentStore),
 			Store:                 agentStore,
 			WorkspaceLoader:       wsLoader,
+				WorkspaceDir:          agentWorkspaceDir,
 			SkillRegistry:         skillReg,
 			CompactThresholdRatio: agentCfg.CompactThresholdRatio,
 			ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
