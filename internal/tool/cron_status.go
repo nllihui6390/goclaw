@@ -30,26 +30,32 @@ func (t *CronStatusTool) Name() string {
 }
 
 func (t *CronStatusTool) Description() string {
-	return `查询和管理 go-claw 程序内部的定时任务。
+	return `管理 go-claw 内部的定时任务系统。
 
-⚠️ 重要：这是 go-claw 程序内部的定时任务系统，不是操作系统的 crontab 或 schtasks。
-查看定时任务请用此工具，不要用 crontab -l 或 schtasks 命令。
+⚠️ 这是程序内部定时任务，不是操作系统 crontab/schtasks。
 
-常用操作：
-- 查看任务列表: cron_status(action="list")
-- 查看任务详情: cron_status(action="get", id="任务ID")
-- 新增任务: cron_status(action="add", name="任务名", schedule="09:00", type="agent", agent_name="default", content="任务内容")
-- 立即执行: cron_status(action="run", id="任务ID")
-- 删除任务: cron_status(action="delete", id="任务ID")
+操作说明：
+- list: 查看所有任务列表
+- run: 立即执行指定任务（需要 id 参数）
+- get: 查看单个任务详情（需要 id）
+- add: 新增定时任务
+- delete: 删除任务
+
+示例：
+- cron_status(action="list")
+- cron_status(action="run", id="cron_1_每日问候")
+- cron_status(action="get", id="cron_1_每日问候")
+- cron_status(action="add", name="早报", schedule="0 7 * * *", type="agent", agent_name="default", content="生成每日早报")
 
 schedule 格式：
-- "09:00" - 每天 9:00 执行
-- "@every 5m" - 每 5 分钟执行
-- "@every 1h" - 每 1 小时执行
+- "0 7 * * *" - 每天 7:00（标准5字段cron: 分 时 日 月 周）
+- "0 * * * *" - 每小时整点
+- "*/15 * * * *" - 每 15 分钟
+- "0 9-17 * * 1-5" - 工作日 9-17 点整点
+- "09:00" - 每天 9:00（简写格式）
+- "@every 5m" - 每 5 分钟
 
-type 类型：
-- "text" - 发送文本消息到指定渠道
-- "agent" - 调用 AI Agent 处理任务内容`
+type: "text" 发送消息 | "agent" 调用AI处理`
 }
 
 func (t *CronStatusTool) Parameters() map[string]interface{} {
@@ -128,18 +134,12 @@ func (t *CronStatusTool) Execute(ctx context.Context, params map[string]interfac
 		return t.getJob(mgr, params)
 	case "add":
 		return t.addJob(mgr, params)
-	case "update":
-		return t.updateJob(mgr, params)
 	case "delete":
 		return t.deleteJob(mgr, params)
-	case "enable":
-		return t.enableJob(mgr, params)
-	case "disable":
-		return t.disableJob(mgr, params)
 	case "run":
 		return t.runJob(ctx, mgr, params)
 	default:
-		return "", fmt.Errorf("未知操作: %s (支持: list, get, add, update, delete, enable, disable, run)", action)
+		return "", fmt.Errorf("未知操作: %s (支持: list, run, get, add, delete)", action)
 	}
 }
 

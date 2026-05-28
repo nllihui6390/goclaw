@@ -54,6 +54,12 @@ type Channel interface {
 	Stop() error
 }
 
+// ProactiveSender 主动消息发送接口（渠道可选实现）
+// 用于不需要用户先发消息就能推送消息的场景（如定时任务结果推送）
+type ProactiveSender interface {
+	SendProactive(ctx context.Context, userID, content string) error
+}
+
 // ControlResponse 控制台控制响应
 type ControlResponse struct {
 	Message string

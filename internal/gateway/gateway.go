@@ -42,12 +42,18 @@ func (g *Gateway) SendProactiveMessage(ctx context.Context, sessionID, message s
 	}
 
 	logger.Info("[Gateway] 发送主动消息", "channel", channelName, "user", user, "msg_len", len(message))
-	ch.Send(ctx, channel.Response{
+
+	// 优先使用 ProactiveSender 接口（适合 WeCom 等需要主动推送的渠道）
+	if ps, ok := ch.(channel.ProactiveSender); ok {
+		return ps.SendProactive(ctx, user, message)
+	}
+
+	// 其他渠道使用普通 Send
+	return ch.Send(ctx, channel.Response{
 		Content: message,
 		Channel: channelName,
 		To:      user,
 	})
-	return nil
 }
 
 // splitSessionID 解析 sessionID

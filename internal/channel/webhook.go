@@ -105,6 +105,24 @@ func (w *WebhookChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendProactive 主动发送消息（Webhook 是请求-响应模式，无法主动推送）
+func (w *WebhookChannel) SendProactive(ctx context.Context, userID, content string) error {
+	w.mu.RLock()
+	streamCh := w.streamResps[userID]
+	w.mu.RUnlock()
+
+	if streamCh != nil {
+		select {
+		case streamCh <- content:
+		default:
+		}
+		return nil
+	}
+
+	log.Logger().Warn("[Webhook] 主动消息发送失败：无活跃连接", "user", userID)
+	return fmt.Errorf("[Webhook] 无法主动发送消息给 %s（无活跃 SSE 连接）", userID)
+}
+
 // SendToolEvent 发送工具执行事件（webhook暂不支持实时输出，忽略）
 func (w *WebhookChannel) SendToolEvent(event ToolEvent) error {
 	// Webhook 是请求-响应模式，无法实时推送工具事件

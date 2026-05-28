@@ -27,6 +27,13 @@ type LarkChannel struct {
 	tokenExpiry time.Time
 	tokenMu    sync.RWMutex
 	stopChan   chan struct{}
+
+	sessionInfo   map[string]larkSession
+	sessionInfoMu sync.RWMutex
+}
+
+type larkSession struct {
+	openID string // 用户 open_id 用于主动发送
 }
 
 // NewLarkChannel 创建飞书渠道
@@ -36,6 +43,7 @@ func NewLarkChannel(appID, appSecret string) *LarkChannel {
 		appID:          appID,
 		appSecret:      appSecret,
 		stopChan:       make(chan struct{}),
+		sessionInfo:    make(map[string]larkSession),
 	}
 }
 
@@ -211,6 +219,13 @@ func (l *LarkChannel) handleMessage(data []byte) {
 		},
 	}
 
+	// 存储会话信息用于主动发送
+	l.sessionInfoMu.Lock()
+	l.sessionInfo[openID] = larkSession{
+		openID: openID,
+	}
+	l.sessionInfoMu.Unlock()
+
 	l.PushMessage(msg)
 }
 
@@ -245,6 +260,48 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 	}
 
 	log.Logger().Debug("[Lark] 消息已发送", "to", resp.To)
+	return nil
+}
+
+// SendProactive 主动发送消息（飞书 WebSocket 模式）
+func (l *LarkChannel) SendProactive(ctx context.Context, userID, content string) error {
+	l.sessionInfoMu.RLock()
+	session, ok := l.sessionInfo[userID]
+	l.sessionInfoMu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("[Lark] 未找到用户 %s 的会话信息（用户需先与机器人对话一次）", userID)
+	}
+
+	token, err := l.getTenantAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	url := "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
+	reqBody := map[string]any{
+		"receive_id": session.openID,
+		"msg_type":   "text",
+		"content":    string(mustJSON(map[string]string{"text": content})),
+	}
+
+	jsonData, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	httpResp, err := l.HTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(httpResp.Body)
+		return fmt.Errorf("飞书API返回 %d: %s", httpResp.StatusCode, truncateStr(string(respBody), 200))
+	}
+
+	log.Logger().Info("[Lark] 主动消息已发送", "user", userID)
 	return nil
 }
 

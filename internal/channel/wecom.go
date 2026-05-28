@@ -655,6 +655,47 @@ func (w *WeComChannel) sendAndWaitAck(reqID string, frame map[string]any) error 
 }
 
 
+// SendProactive 主动发送消息（不需要用户先发消息）
+// 使用 aibot_send_msg 命令，严格遵循官方文档格式
+// 单聊不需要 sessionInfo（chatid=userID, chat_type=1）
+// 群聊需要 sessionInfo 来获取群聊 chatid 和 chat_type
+func (w *WeComChannel) SendProactive(ctx context.Context, userID, content string) error {
+	reqID := w.generateReqID(WsCmdSendMsg)
+
+	// 默认单聊: chatid = userID, chat_type = 1
+	chatID := userID
+	chatType := uint32(1)
+
+	// 如果有群聊会话信息，使用群聊参数
+	w.sessionInfoMu.RLock()
+	session, ok := w.sessionInfo[userID]
+	w.sessionInfoMu.RUnlock()
+
+	if ok && session.chatID != "" && session.chatType == "group" {
+		chatID = session.chatID
+		chatType = uint32(2)
+	}
+
+	// 严格按官方文档格式
+	frame := map[string]any{
+		"cmd": WsCmdSendMsg,
+		"headers": map[string]string{
+			"req_id": reqID,
+		},
+		"body": map[string]any{
+			"chatid":    chatID,
+			"chat_type": chatType,
+			"msgtype":   "markdown",
+			"markdown": map[string]string{
+				"content": content,
+			},
+		},
+	}
+
+	log.Logger().Info("[WeCom] 主动发送消息", "user", userID, "chat_id", chatID, "chat_type", chatType, "content_len", len(content))
+	return w.sendAndWaitAck(reqID, frame)
+}
+
 func truncateJSON(v any) string {
 	data, _ := json.Marshal(v)
 	s := string(data)

@@ -52,6 +52,13 @@ func (c *ConsoleChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendProactive 主动发送消息到控制台
+func (c *ConsoleChannel) SendProactive(ctx context.Context, userID, content string) error {
+	fmt.Printf("\n[Proactive] %s\n", content)
+	fmt.Print("> ")
+	return nil
+}
+
 // SendToolEvent 发送工具执行事件（实时输出工具调用过程）
 func (c *ConsoleChannel) SendToolEvent(event ToolEvent) error {
 	switch event.Type {

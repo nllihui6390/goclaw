@@ -103,19 +103,24 @@
   },
   "cron": {
     "enabled": true,
+    "default_channel": "wecom",
+    "default_user": "lhh15698",
     "jobs": [
       {
         "name": "每日问候",
-        "schedule": "0 9 * * *",
-        "type": "text",
-        "content": "☀️ 早安！新的一天开始了，有什么需要帮忙的吗？"
+        "schedule": "0 7 * * *",
+        "type": "agent",
+        "agent_name": "default",
+        "content": "查询上海天气情况，生成每日问候，并发送给用户",
+        "session_id": "wecom:lhh15698"
       },
       {
         "name": "每小时检查",
         "schedule": "0 * * * *",
         "type": "agent",
         "agent_name": "default",
-        "content": "检查当前状态，看看有没有需要提醒用户的事项"
+        "content": "检查当前状态，看看有没有需要提醒用户的事项",
+        "session_id": "console:cron"
       },
       {
         "name": "晚间总结",
@@ -123,7 +128,8 @@
         "type": "text",
         "content": "🌙 晚安！今天辛苦了，明天见。",
         "active_start": "21:00",
-        "active_end": "23:59"
+        "active_end": "23:59",
+        "session_id": "wecom:lhh15698"
       }
     ]
   },

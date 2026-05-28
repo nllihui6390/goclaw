@@ -24,6 +24,13 @@ type DingTalkChannel struct {
 	conn     *websocket.Conn
 	connMu   sync.Mutex
 	stopChan chan struct{}
+
+	sessionInfo   map[string]dingtalkSession
+	sessionInfoMu sync.RWMutex
+}
+
+type dingtalkSession struct {
+	conversationID string // chatid 用于主动发送
 }
 
 // NewDingTalkChannel 创建钉钉渠道
@@ -33,6 +40,7 @@ func NewDingTalkChannel(clientID, clientSecret string) *DingTalkChannel {
 		clientID:       clientID,
 		clientSecret:   clientSecret,
 		stopChan:       make(chan struct{}),
+		sessionInfo:    make(map[string]dingtalkSession),
 	}
 }
 
@@ -201,6 +209,13 @@ func (d *DingTalkChannel) handleMessage(data []byte) {
 		},
 	}
 
+	// 存储会话信息用于主动发送
+	d.sessionInfoMu.Lock()
+	d.sessionInfo[msgData.SenderStaffId] = dingtalkSession{
+		conversationID: msgData.ChatId,
+	}
+	d.sessionInfoMu.Unlock()
+
 	d.PushMessage(msg)
 }
 
@@ -235,6 +250,45 @@ func (d *DingTalkChannel) Send(ctx context.Context, resp Response) error {
 	}
 
 	log.Logger().Debug("[DingTalk] 消息已发送", "to", resp.To)
+	return nil
+}
+
+// SendProactive 主动发送消息（钉钉 Stream 模式）
+func (d *DingTalkChannel) SendProactive(ctx context.Context, userID, content string) error {
+	d.sessionInfoMu.RLock()
+	session, ok := d.sessionInfo[userID]
+	d.sessionInfoMu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("[DingTalk] 未找到用户 %s 的会话信息（用户需先与机器人对话一次）", userID)
+	}
+
+	// 使用钉钉机器人 API 发送消息到群聊
+	url := "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
+
+	reqBody := map[string]any{
+		"robotCode": d.clientID,
+		"userIds":   []string{userID},
+		"msgType":   "text",
+		"msgParam":  string(mustJSON(map[string]string{"content": content})),
+	}
+
+	jsonData, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := d.HTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(httpResp.Body)
+		return fmt.Errorf("钉钉API返回 %d: %s", httpResp.StatusCode, truncateStr(string(respBody), 200))
+	}
+
+	log.Logger().Info("[DingTalk] 主动消息已发送", "user", userID, "conversation_id", session.conversationID)
 	return nil
 }
 

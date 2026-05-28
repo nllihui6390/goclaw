@@ -90,6 +90,28 @@ func (w *WebSocketChannel) Send(ctx context.Context, resp Response) error {
 	return nil
 }
 
+// SendProactive 主动发送消息到指定 WebSocket 连接
+func (w *WebSocketChannel) SendProactive(ctx context.Context, userID, content string) error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	wc, ok := w.conns[userID]
+	if !ok {
+		return fmt.Errorf("[WebSocket] 未找到连接 %s", userID)
+	}
+
+	wc.mu.Lock()
+	err := wc.conn.WriteJSON(map[string]string{"type": "response", "content": content})
+	wc.mu.Unlock()
+
+	if err != nil {
+		return fmt.Errorf("[WebSocket] 发送消息失败: %w", err)
+	}
+
+	log.Logger().Info("[WebSocket] 主动消息已发送", "session", userID)
+	return nil
+}
+
 // SendToolEvent 发送工具执行事件（WebSocket实时推送）
 func (w *WebSocketChannel) SendToolEvent(event ToolEvent) error {
 	w.mu.RLock()

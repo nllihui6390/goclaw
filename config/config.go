@@ -23,8 +23,10 @@ type Config struct {
 
 // CronConfig 定时任务配置
 type CronConfig struct {
-	Enabled bool       `json:"enabled"`
-	Jobs    []CronJob  `json:"jobs"`
+	Enabled        bool      `json:"enabled"`
+	DefaultChannel string    `json:"default_channel"` // 默认发送渠道: console, webhook, wecom, lark, dingtalk
+	DefaultUser    string    `json:"default_user"`    // 默认目标用户（渠道特定，如企业微信用户ID）
+	Jobs           []CronJob `json:"jobs"`
 }
 
 // CronJob 定时任务定义

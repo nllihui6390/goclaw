@@ -254,7 +254,6 @@ func main() {
 	}
 
 	// 初始化 ACP 协议
-	var _ *acp.Service
 	if cfg.ACP.Enabled {
 		_ = acp.NewService()
 		logger.Info("ACP 协议已初始化", "agents", len(cfg.ACP.Agents))
@@ -271,15 +270,28 @@ func main() {
 			}
 			// 生成唯一 ID
 			jobID := fmt.Sprintf("cron_%d_%s", i+1, job.Name)
-			// 默认 sessionID: console:cron
+			// 确定 sessionID: 优先用任务配置，否则用 cron 默认渠道
 			sessionID := job.SessionID
 			if sessionID == "" {
-				sessionID = "console:cron"
+				defaultChannel := cfg.Cron.DefaultChannel
+				if defaultChannel == "" {
+					defaultChannel = "console"
+				}
+				defaultUser := cfg.Cron.DefaultUser
+				if defaultUser == "" {
+					defaultUser = "cron"
+				}
+				sessionID = defaultChannel + ":" + defaultUser
 			}
 			// agent 类型: content 作为 prompt，agent_prompt 也兼容
 			content := job.Content
 			if jobType == cron.JobTypeAgent && job.AgentPrompt != "" && content == "" {
 				content = job.AgentPrompt
+			}
+			// agent_name 默认为 "default"
+			agentName := job.AgentName
+			if jobType == cron.JobTypeAgent && agentName == "" {
+				agentName = "default"
 			}
 			cronMgr.AddJob(&cron.Job{
 				ID:          jobID,
@@ -287,7 +299,7 @@ func main() {
 				Schedule:    job.Schedule,
 				Type:        jobType,
 				Content:     content,
-				AgentName:   job.AgentName,
+				AgentName:   agentName,
 				SessionID:   sessionID,
 				ActiveStart: job.ActiveStart,
 				ActiveEnd:   job.ActiveEnd,
@@ -295,8 +307,8 @@ func main() {
 			})
 		}
 		cronMgr.Start()
+		tool.SetGlobalCronManager(cronMgr)
 		logger.Info("Cron 系统已启动", "jobs", len(cfg.Cron.Jobs))
-			tool.SetGlobalCronManager(cronMgr)
 	}
 
 	// 初始化工具安全守卫
@@ -465,11 +477,25 @@ func (e gatewayCronExecutor) ExecuteAgent(ctx context.Context, agentName, sessio
 	if !exists {
 		return "", fmt.Errorf("Agent '%s' 不存在", agentName)
 	}
-	// 生成 cron 专用会话 ID
-	if sessionID == "" || sessionID == "console:cron" {
-		sessionID = "cron:" + agentName + "_" + time.Now().Format("20060102_150405")
+	// 生成 cron 专用会话 ID（避免干扰用户对话）
+	cronSessionID := "cron:" + agentName + "_" + time.Now().Format("20060102_150405")
+
+	result, err := ag.Process(ctx, cronSessionID, content)
+	if err != nil {
+		return "", err
 	}
-	return ag.Process(ctx, sessionID, content)
+
+	// 将处理结果发送到配置的渠道
+	if sessionID != "" && !strings.HasPrefix(sessionID, "console:") {
+		// 发送结果到指定渠道（如企业微信、飞书等）
+		if sendErr := e.gw.SendProactiveMessage(ctx, sessionID, result); sendErr != nil {
+			glog.Logger().Warn("[Cron] 发送 Agent 结果到渠道失败", "session_id", sessionID, "err", sendErr)
+		} else {
+			glog.Logger().Info("[Cron] Agent 结果已发送", "session_id", sessionID, "result_len", len(result))
+		}
+	}
+
+	return result, nil
 }
 
 // loadTools 使用注册表加载工具
