@@ -7,7 +7,7 @@
 | 文件名 | go-claw.exe |
 | 大小 | 约 16MB |
 | 平台 | Windows 64位 |
-| 语言 | Go 语言 AI Agent 框架 |
+| 语言 | AI Agent 框架 |
 
 ## 快速启动
 
