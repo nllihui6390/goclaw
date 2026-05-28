@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,11 +11,17 @@ import (
 	"time"
 
 	"go-claw/config"
+	"go-claw/internal/acp"
 	"go-claw/internal/agent"
 	"go-claw/internal/channel"
+	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
+	"go-claw/internal/inbox"
+	"go-claw/internal/mcp"
 	"go-claw/internal/memory"
+	"go-claw/internal/multiagent"
 	"go-claw/internal/proactive"
+	"go-claw/internal/security"
 	"go-claw/internal/skill"
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
@@ -209,7 +216,97 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("GoClaw AI Agent Gateway 已启动",
-		"data_dir", dataDir)
+			"data_dir", dataDir)
+
+		// 初始化 Inbox 系统
+		inbox.NewStore(dataDir + "/inbox.json") // Inbox 初始化完成
+		logger.Info("Inbox 系统已初始化")
+
+		// 初始化 MCP 集成
+		var mcpMgr *mcp.Manager
+		if cfg.MCP.Enabled {
+			mcpMgr = mcp.NewManager()
+			for _, serverCfg := range cfg.MCP.Servers {
+				mcpMgr.Register(mcp.ServerConfig{
+					Name:    serverCfg.Name,
+					Command: serverCfg.Command,
+					URL:     serverCfg.URL,
+					Args:    serverCfg.Args,
+					Env:     serverCfg.Env,
+					Enabled: serverCfg.Enabled,
+				})
+			}
+			mcpMgr.ConnectAll(nil)
+			logger.Info("MCP 集成已启动", "servers", len(cfg.MCP.Servers))
+		}
+
+		// 初始化 ACP 协议
+		var _ *acp.Service
+		if cfg.ACP.Enabled {
+			_ = acp.NewService()
+			logger.Info("ACP 协议已初始化", "agents", len(cfg.ACP.Agents))
+		}
+
+		// 初始化 Cron 系统
+		var cronMgr *cron.Manager
+		if cfg.Cron.Enabled {
+			cronMgr = cron.NewManager(gatewayCronExecutor{gw: gw, agents: gw.GetAgents()})
+			for _, job := range cfg.Cron.Jobs {
+				jobType := cron.JobTypeText
+				if job.Type == "agent" {
+					jobType = cron.JobTypeAgent
+				}
+				cronMgr.AddJob(&cron.Job{
+					Name:         job.Name,
+					Schedule:     job.Schedule,
+					Type:         jobType,
+					Content:      job.Content,
+					AgentName:    job.AgentName,
+					ActiveStart:  job.ActiveStart,
+					ActiveEnd:    job.ActiveEnd,
+					Enabled:      true,
+				})
+			}
+			cronMgr.Start()
+			logger.Info("Cron 系统已启动", "jobs", len(cfg.Cron.Jobs))
+		}
+
+		// 初始化工具安全守卫
+		var toolGuard *security.ToolGuard
+		if cfg.Security.Enabled {
+			toolGuard = security.NewToolGuard()
+			if cfg.Security.DenyShellInject {
+				toolGuard.AddGuardian(security.NewShellEvasionGuardian())
+			}
+			if cfg.Security.DenySensitivePath {
+				toolGuard.AddGuardian(security.NewFileGuardian())
+			}
+			if cfg.Security.GuardBrowser {
+				toolGuard.AddGuardian(security.NewRuleGuardian())
+			}
+			logger.Info("工具安全守卫已启用",
+				"shell_inject", cfg.Security.DenyShellInject,
+				"sensitive_path", cfg.Security.DenySensitivePath,
+				"browser", cfg.Security.GuardBrowser)
+		}
+
+		// 注册多 Agent 协作工具
+		// 转换 Agent map 为 AgentProcessor map
+			agentProcessors := make(map[string]multiagent.AgentProcessor)
+			for name, ag := range gw.GetAgents() {
+				agentProcessors[name] = ag
+			}
+			tool.GlobalRegistry.Register("chat_with_agent", func() tool.Tool {
+				return multiagent.NewChatWithAgentTool(agentProcessors)
+			})
+			tool.GlobalRegistry.Register("submit_to_agent", func() tool.Tool {
+				return multiagent.NewSubmitToAgentTool(agentProcessors)
+			})
+			tool.GlobalRegistry.Register("list_agents", func() tool.Tool {
+				return multiagent.NewListAgentsTool(agentProcessors)
+			})
+		logger.Info("多 Agent 协作工具已注册")
+
 
 	// 启动主动模式
 	var proactiveMgr *proactive.ProactiveManager
@@ -252,6 +349,12 @@ func main() {
 	logger.Info("正在关闭网关...")
 	if proactiveMgr != nil {
 		proactiveMgr.Stop()
+	}
+	if cronMgr != nil {
+		cronMgr.Stop()
+	}
+	if mcpMgr != nil {
+		mcpMgr.DisconnectAll()
 	}
 	gw.Stop()
 	tool.CloseBrowser()
@@ -318,6 +421,25 @@ func getDefaultConfig() *config.Config {
 			SkillDir: "skills",
 		},
 	}
+}
+
+// gatewayCronExecutor 实现 cron.Executor 接口
+type gatewayCronExecutor struct {
+	gw    *gateway.Gateway
+	agents map[string]*agent.Agent
+}
+
+func (e gatewayCronExecutor) ExecuteText(ctx context.Context, sessionID, content string) error {
+	glog.Logger().Info("[Cron] 执行文本任务", "content", content)
+	return nil
+}
+
+func (e gatewayCronExecutor) ExecuteAgent(ctx context.Context, agentName, sessionID, content string) (string, error) {
+	ag, exists := e.agents[agentName]
+	if !exists {
+		return "", fmt.Errorf("Agent '%s' 不存在", agentName)
+	}
+	return ag.Process(ctx, sessionID, content)
 }
 
 // loadTools 使用注册表加载工具

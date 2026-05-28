@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go-claw/internal/security"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 	"io"
@@ -789,6 +790,21 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 	logger.Debug("[Runtime] 工具参数解析成功",
 		"tool_name", tc.Function.Name,
 		"params_count", len(params))
+
+	// 工具安全守卫检查
+	if r.config.ToolGuard != nil {
+		guardResult := r.config.ToolGuard.Check(ctx, tc.Function.Name, params)
+		if guardResult.Decision == security.DecisionDeny {
+			logger.Warn("[Runtime] 工具调用被安全守卫拒绝",
+				"tool", tc.Function.Name, "reason", guardResult.Reason)
+			return fmt.Sprintf("操作被拒绝: %s", guardResult.Message), nil
+		}
+		if guardResult.Decision == security.DecisionGuard {
+			logger.Warn("[Runtime] 工具调用需要确认",
+				"tool", tc.Function.Name, "reason", guardResult.Reason)
+			return fmt.Sprintf("此操作需要确认: %s\n请明确确认后再执行。", guardResult.Message), nil
+		}
+	}
 
 	startTime := time.Now()
 	result, err := targetTool.Execute(ctx, params)

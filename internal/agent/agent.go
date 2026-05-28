@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"go-claw/internal/inbox"
 	"go-claw/internal/memory"
+	"go-claw/internal/security"
 	"go-claw/internal/skill"
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
@@ -45,6 +47,8 @@ type Config struct {
 	ToolResultExemptExts   []string   // 裁剪豁免文件扩展名列表
 	SupportsImage          bool       // 模型是否支持图片输入
 	SupportsVideo          bool       // 模型是否支持视频输入
+	ToolGuard              *security.ToolGuard // 工具安全守卫
+	InboxStore             *inbox.Store        // Inbox 事件通知存储
 }
 
 // Agent AI智能体
@@ -68,6 +72,11 @@ func NewAgent(cfg *Config) *Agent {
 // Process 处理用户消息
 func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (string, error) {
 	return a.ProcessWithHandler(ctx, sessionID, userMessage, nil)
+}
+
+// GetInfo 获取 Agent 信息描述
+func (a *Agent) GetInfo() string {
+	return fmt.Sprintf("Agent %s (model: %s, provider: %s)", a.config.Name, a.config.Model, a.config.ProviderType)
 }
 
 // ProcessWithHandler 处理用户消息（带工具事件回调）

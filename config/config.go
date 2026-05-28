@@ -14,7 +14,67 @@ type Config struct {
 	Skills     SkillsConfig              `json:"skills"`
 	Logging    LoggingConfig             `json:"logging"`
 	Auth       AuthConfig                `json:"auth"`
-	Proactive  ProactiveConfig           `json:"proactive"` // 主动模式配置
+	Proactive  ProactiveConfig           `json:"proactive"`  // 主动模式配置
+	Cron       CronConfig                `json:"cron"`       // 定时任务配置
+	MCP        MCPConfig                 `json:"mcp"`        // MCP 集成配置
+	ACP        ACPConfig                 `json:"acp"`        // ACP 协议配置
+	Security   SecurityConfig            `json:"security"`   // 安全守卫配置
+}
+
+// CronConfig 定时任务配置
+type CronConfig struct {
+	Enabled bool       `json:"enabled"`
+	Jobs    []CronJob  `json:"jobs"`
+}
+
+// CronJob 定时任务定义
+type CronJob struct {
+	Name        string `json:"name"`
+	Schedule    string `json:"schedule"`     // @every 5m, HH:MM, 或 cron 表达式
+	Type        string `json:"type"`         // "text" 或 "agent"
+	Content     string `json:"content"`      // text 类型: 消息内容
+	AgentName   string `json:"agent_name"`   // agent 类型: Agent 名称
+	AgentPrompt string `json:"agent_prompt"` // agent 类型: 提示词
+	ActiveStart string `json:"active_start"` // 活跃时段开始 HH:MM
+	ActiveEnd   string `json:"active_end"`   // 活跃时段结束 HH:MM
+}
+
+// MCPConfig MCP 集成配置
+type MCPConfig struct {
+	Enabled  bool             `json:"enabled"`
+	Servers  []MCPServerConfig `json:"servers"`
+}
+
+// MCPServerConfig MCP 服务器配置
+type MCPServerConfig struct {
+	Name    string            `json:"name"`
+	Command string            `json:"command"`     // stdio 模式启动命令
+	URL     string            `json:"url"`         // SSE 模式服务器地址
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
+	Enabled bool              `json:"enabled"`
+}
+
+// ACPConfig ACP 协议配置
+type ACPConfig struct {
+	Enabled bool            `json:"enabled"`
+	Agents  []ACPAgentConfig `json:"agents"`
+}
+
+// ACPAgentConfig 外部 Agent 配置
+type ACPAgentConfig struct {
+	Name    string `json:"name"`
+	Command string `json:"command"`
+	Enabled bool   `json:"enabled"`
+}
+
+// SecurityConfig 安全守卫配置
+type SecurityConfig struct {
+	Enabled          bool     `json:"enabled"`
+	DenyShellInject  bool     `json:"deny_shell_inject"`   // Shell 注入检测
+	DenySensitivePath bool    `json:"deny_sensitive_path"` // 敏感路径访问检测
+	GuardBrowser     bool     `json:"guard_browser"`       // 浏览器操作需确认
+	AllowedPaths     []string `json:"allowed_paths"`       // 允许访问的路径
 }
 
 // ProactiveConfig 主动模式配置
