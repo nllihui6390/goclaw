@@ -307,6 +307,12 @@ func main() {
 			})
 		logger.Info("多 Agent 协作工具已注册")
 
+		// 注册 cron_status 工具（让 AI 能查询内部定时任务）
+		tool.GlobalRegistry.Register("cron_status", func() tool.Tool {
+			return tool.NewCronStatusTool(cronMgr)
+		})
+		logger.Info("cron_status 工具已注册")
+
 
 	// 启动主动模式
 	var proactiveMgr *proactive.ProactiveManager

@@ -323,6 +323,7 @@ Model Context Protocol 客户端，连接外部工具服务：
 | `list_agents` | 列出所有 Agent |
 | `chat_with_agent` | 与其他 Agent 对话 |
 | `submit_to_agent` | 提交后台任务 |
+| `cron_status` | 查询内部定时任务状态 |
 
 ## 工作空间人设系统
 
