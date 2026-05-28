@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,9 +43,22 @@ func main() {
 	// 加载配置
 	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
-		cfg = getDefaultConfig()
-		// 日志尚未初始化，临时输出到控制台
-		fmt.Printf("加载配置文件失败，使用默认配置: %v\n", err)
+		if os.IsNotExist(err) {
+			fmt.Println("首次运行，启动配置向导...")
+			cfg = config.RunWizard()
+		} else {
+			fmt.Printf("配置文件损坏: %v\n", err)
+			fmt.Print("是否重新配置? [Y/n]: ")
+			reader := bufio.NewReader(os.Stdin)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(strings.ToLower(line))
+			if line != "n" && line != "no" {
+				cfg = config.RunWizard()
+			} else {
+				cfg = getDefaultConfig()
+				fmt.Printf("使用默认配置（注意：默认配置无有效 API Key）\n")
+			}
+		}
 	}
 
 	// 初始化日志
