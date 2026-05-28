@@ -10,20 +10,23 @@ import (
 
 // 预设供应商配置
 var providerPresets = []struct {
-	Name       string
-	Type       string
-	BaseURL    string
+	Name         string
+	Type         string
+	BaseURL      string
 	DefaultModel string
-	NeedsKey   bool
-	Models     []struct {
-		Name string
+	NeedsKey     bool
+	Models       []struct {
+		Name  string
 		Label string
 	}
 }{
 	{
 		Name: "openai", Type: "openai", BaseURL: "https://api.openai.com/v1",
 		NeedsKey: true, DefaultModel: "gpt-4o-mini",
-		Models: []struct{Name string; Label string}{
+		Models: []struct {
+			Name  string
+			Label string
+		}{
 			{"gpt-4o", "GPT-4o (最强)"},
 			{"gpt-4o-mini", "GPT-4o-mini (推荐)"},
 			{"gpt-3.5-turbo", "GPT-3.5-turbo (经济)"},
@@ -32,7 +35,10 @@ var providerPresets = []struct {
 	{
 		Name: "deepseek", Type: "openai", BaseURL: "https://api.deepseek.com/v1",
 		NeedsKey: true, DefaultModel: "deepseek-chat",
-		Models: []struct{Name string; Label string}{
+		Models: []struct {
+			Name  string
+			Label string
+		}{
 			{"deepseek-chat", "DeepSeek-V3 (推荐)"},
 			{"deepseek-reasoner", "DeepSeek-R1 (推理增强)"},
 		},
@@ -40,7 +46,10 @@ var providerPresets = []struct {
 	{
 		Name: "ollama", Type: "ollama", BaseURL: "http://localhost:11434",
 		NeedsKey: false, DefaultModel: "qwen3",
-		Models: []struct{Name string; Label string}{
+		Models: []struct {
+			Name  string
+			Label string
+		}{
 			{"qwen3", "Qwen3 (推荐)"},
 			{"llama3", "Llama3"},
 			{"mistral", "Mistral"},
@@ -49,7 +58,10 @@ var providerPresets = []struct {
 	{
 		Name: "anthropic", Type: "openai", BaseURL: "https://api.anthropic.com/v1",
 		NeedsKey: true, DefaultModel: "claude-sonnet-4-20250514",
-		Models: []struct{Name string; Label string}{
+		Models: []struct {
+			Name  string
+			Label string
+		}{
 			{"claude-sonnet-4-20250514", "Claude Sonnet 4 (推荐)"},
 			{"claude-opus-4-20250514", "Claude Opus 4 (最强)"},
 			{"claude-haiku-4-20251001", "Claude Haiku 4 (经济)"},
@@ -63,9 +75,9 @@ func RunWizard() *Config {
 
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
-	fmt.Println("║            欢迎使用 go-claw AI Agent 框架               ║")
+	fmt.Println("║            欢迎使用 go-claw AI Agent 框架                 ║")
 	fmt.Println("║                                                          ║")
-	fmt.Println("║  首次运行需要进行基本配置，让我们开始吧！                 ║")
+	fmt.Println("║           首次运行需要进行基本配置，让我们开始吧！           ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
 	fmt.Println()
 
@@ -241,11 +253,11 @@ func RunWizard() *Config {
 			FilePath: "logs/app.log",
 			Console:  false,
 		},
-		Auth: AuthConfig{Enabled: false},
+		Auth:   AuthConfig{Enabled: false},
 		Skills: SkillsConfig{Enabled: true},
 		Security: SecurityConfig{
-			Enabled:         true,
-			DenyShellInject: true,
+			Enabled:           true,
+			DenyShellInject:   true,
 			DenySensitivePath: true,
 		},
 	}
@@ -270,11 +282,11 @@ func RunWizard() *Config {
 
 		fmt.Println()
 		fmt.Println("╔══════════════════════════════════════════════════════════╗")
-		fmt.Println("║  配置完成！已保存到 config.json                          ║")
+		fmt.Println("║  配置完成！已保存到 config.json                            ║")
 		fmt.Println("║                                                          ║")
-		fmt.Printf("║  供应商: %s\n", titleCase(providerName))
-		fmt.Printf("║  模型:   %s\n", model)
-		fmt.Printf("║  渠道:   %s\n", channels)
+		fmt.Printf("║  供应商: %s\n                                             ║", titleCase(providerName))
+		fmt.Printf("║  模型:   %s\n                                             ║", model)
+		fmt.Printf("║  渠道:   %s\n                                             ║", channels)
 		fmt.Println("╚══════════════════════════════════════════════════════════╝")
 		fmt.Println()
 		fmt.Println("正在启动 go-claw...")
