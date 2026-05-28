@@ -19,10 +19,11 @@ func (t *ExecTool) Name() string {
 func (t *ExecTool) Description() string {
 	return "执行shell命令并返回输出。超时10秒。" +
 		"\n重要规则:" +
-		"\n1. 读取文件内容请用 read_file 工具，不要用 cat/type 命令" +
+		"\n1. 读取文件请用 read_file 工具，不要用 cat/type 命令" +
 		"\n2. 写文件请用 write_file 工具，不要用 echo/printf 重定向" +
-		"\n3. 本工具适合系统信息查询（ls/dir、ps/tasklist、df、whoami等）和一次性脚本执行" +
-		"\n4. Windows 环境下常见 Linux 命令会自动转换（ls→dir, cat→type, ps→tasklist, grep→findstr）" +
+		"\n3. 查看定时任务请用 cron_status 工具，不要用 crontab/schtasks 命令" +
+		"\n4. 本工具适合系统信息查询（ls/dir、ps/tasklist、df、whoami等）和脚本执行" +
+		"\n5. Windows 下常见 Linux 命令自动转换（ls→dir, ps→tasklist, grep→findstr）" +
 		"\n调用格式: execute_command(command=\"shell命令\")" +
 		"\n示例: execute_command(command=\"ls -la\") 或 execute_command(command=\"dir\")"
 }

@@ -29,11 +29,16 @@
       "system_prompt": "你是一个智能AI助手，可以使用工具帮助用户完成任务。",
       "tools": [
         "weather",
+        "exec",
         "write_file",
         "read_file",
         "edit_file",
+        "append_file",
+        "send_file",
         "browser_use",
-        "exec"
+        "get_current_time",
+        "set_user_timezone",
+        "cron_status"
       ],
       "max_iterations": 20
     },
@@ -44,11 +49,16 @@
       "system_prompt": "你是一个本地AI助手，运行在Ollama上。",
       "tools": [
         "weather",
+        "exec",
         "write_file",
         "read_file",
         "edit_file",
+        "append_file",
+        "send_file",
         "browser_use",
-        "exec"
+        "get_current_time",
+        "set_user_timezone",
+        "cron_status"
       ],
       "max_iterations": 20
     }

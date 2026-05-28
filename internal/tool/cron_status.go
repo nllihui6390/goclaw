@@ -27,41 +27,26 @@ func (t *CronStatusTool) Name() string {
 }
 
 func (t *CronStatusTool) Description() string {
-	return `管理 go-claw 内部定时任务系统。
+	return `查询和管理 go-claw 程序内部的定时任务。
 
-**这是程序内部的定时任务系统，不是操作系统的 cron。**
+⚠️ 重要：这是 go-claw 程序内部的定时任务系统，不是操作系统的 crontab 或 schtasks。
+查看定时任务请用此工具，不要用 crontab -l 或 schtasks 命令。
 
-支持的操作：
-- list: 列出所有任务
-- get: 查看单个任务详情
-- add: 新增任务
-- update: 修改任务
-- delete: 删除任务
-- enable: 启用任务
-- disable: 禁用任务
-- run: 立即执行任务
+常用操作：
+- 查看任务列表: cron_status(action="list")
+- 查看任务详情: cron_status(action="get", id="任务ID")
+- 新增任务: cron_status(action="add", name="任务名", schedule="09:00", type="agent", agent_name="default", content="任务内容")
+- 立即执行: cron_status(action="run", id="任务ID")
+- 删除任务: cron_status(action="delete", id="任务ID")
 
-调用格式:
-- cron_status(action="list")
-- cron_status(action="get", id="任务ID")
-- cron_status(action="add", name="任务名", schedule="09:00", type="agent", agent_name="default", content="提醒内容", session_id="console:cron")
-- cron_status(action="update", id="任务ID", name="新名称", schedule="新时间", enabled=true)
-- cron_status(action="delete", id="任务ID")
-- cron_status(action="enable", id="任务ID")
-- cron_status(action="disable", id="任务ID")
-- cron_status(action="run", id="任务ID")
+schedule 格式：
+- "09:00" - 每天 9:00 执行
+- "@every 5m" - 每 5 分钟执行
+- "@every 1h" - 每 1 小时执行
 
-参数说明:
-- action: 必填，操作类型
-- id: 任务ID（get/update/delete/enable/disable/run 必填）
-- name: 任务名称（add 必填，update 可选）
-- schedule: 调度时间（add 必填，update 可选），格式: "@every 5m", "09:00", 或 cron 表达式
-- type: 任务类型（add 必填），"text" 发送消息, "agent" 调用AI处理
-- agent_name: Agent名称（type=agent 时必填）
-- content: 任务内容（add 必填）
-- session_id: 目标会话（可选，默认 console:cron）
-- enabled: 是否启用（update 可选）
-- active_start/active_end: 活跃时段（可选，格式 HH:MM）`
+type 类型：
+- "text" - 发送文本消息到指定渠道
+- "agent" - 调用 AI Agent 处理任务内容`
 }
 
 func (t *CronStatusTool) Parameters() map[string]interface{} {
