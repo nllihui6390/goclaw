@@ -178,6 +178,23 @@ func (r *Registry) SkillSummary() string {
 	return strings.Join(lines, "\n")
 }
 
+// GetSkillPrompt 生成用于系统提示词注入的技能信息
+func (r *Registry) GetSkillPrompt() string {
+	if len(r.skills) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# 可用技能\n\n")
+	sb.WriteString("以下是可用技能列表。每个技能有 SKILL.md 文件描述如何使用。\n")
+	sb.WriteString("使用技能前，先用 read_file 工具读取 SKILL.md 了解详细用法，然后用 exec 工具执行相应脚本。\n\n")
+	for _, s := range r.skills {
+		sb.WriteString(s.ToPromptSection())
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s

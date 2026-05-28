@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go-claw/internal/memory"
+	"go-claw/internal/skill"
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
@@ -36,6 +37,7 @@ type Config struct {
 	Memory          memory.Memory
 	Store           store.Store
 	WorkspaceLoader WorkspaceLoader   // 工作空间人设文件加载器
+	SkillRegistry   *skill.Registry   // 技能注册中心（用于系统提示词注入）
 	CompactThresholdRatio float64     // 压缩触发比例，0=不压缩（默认0.8）
 	ReserveThresholdRatio float64     // 压缩后保留比例（默认0.15）
 	ToolResultMaxBytes     int        // 工具结果最大字节数，0=不限（默认20000）

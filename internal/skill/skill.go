@@ -162,19 +162,16 @@ func (s *Skill) Emoji() string {
 	return "🔧"
 }
 
-// ToToolDescription 将 Skill 转换为 Tool 描述格式
-func (s *Skill) ToToolDescription() string {
-	desc := s.Description
-	if s.CoreCapabilities != "" {
-		desc += "\n\n能力范围:\n" + s.CoreCapabilities
+// ToPromptSection 将 Skill 转换为系统提示词注入格式
+func (s *Skill) ToPromptSection() string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("### %s %s\n", s.Emoji(), s.Name))
+	sb.WriteString(s.Description)
+	sb.WriteString(fmt.Sprintf("\nSKILL.md 路径: %s/SKILL.md\n", s.Path))
+	if len(s.Scripts) > 0 {
+		sb.WriteString(fmt.Sprintf("脚本路径: %s\n", s.Scripts[0]))
 	}
-	if s.InputRequirements != "" {
-		desc += "\n\n参数说明:\n" + s.InputRequirements
-	}
-	if s.Examples != "" {
-		desc += "\n\n使用示例:\n" + s.Examples
-	}
-	return desc
+	return sb.String()
 }
 
 // ExtractVariables 从文本中提取变量占位符 {{xxx}}

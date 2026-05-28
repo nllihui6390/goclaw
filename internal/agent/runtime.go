@@ -136,9 +136,6 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 		"max_iterations", maxIterations)
 
 	// 跟踪失败情况，用于智能退出
-	consecutiveFailures := 0
-	maxConsecutiveFailures := 3
-	lastFailedTool := ""
 	totalFailures := 0
 	totalSuccess := 0
 	// auto-continue 跟踪
@@ -279,20 +276,8 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 					})
 				}
 
-				// 检查是否是重复工具失败
+				// 记录失败次数
 				totalFailures++
-				if tc.Function.Name == lastFailedTool {
-					consecutiveFailures++
-					if consecutiveFailures >= maxConsecutiveFailures {
-						logger.Warn("[Runtime] 同一工具连续失败，智能退出",
-							"tool", tc.Function.Name,
-							"consecutive_failures", consecutiveFailures)
-						return fmt.Sprintf("抱歉，工具 %s 连续失败%d次：%s", tc.Function.Name, consecutiveFailures, err.Error()), nil
-					}
-				} else {
-					consecutiveFailures = 1
-					lastFailedTool = tc.Function.Name
-				}
 
 				// 失败次数远超成功次数时退出
 				if totalFailures >= 8 && totalFailures > totalSuccess*3 {
@@ -302,8 +287,6 @@ func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.To
 					return "抱歉，多次尝试后仍无法完成您的请求。", nil
 				}
 			} else {
-				consecutiveFailures = 0
-				lastFailedTool = ""
 				totalSuccess++
 				logger.Info("[Runtime] 工具执行成功",
 					"tool_name", tc.Function.Name,
@@ -912,6 +895,14 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		if personality != "" {
 			systemContent = personality + "\n\n" + systemContent
 			logger.Debug("[Runtime] 人设文件已注入到 system prompt", "len", len(personality))
+		}
+	}
+
+	// 注入技能提示词（Prompt-based 技能系统）
+	if r.config.SkillRegistry != nil {
+		if skillPrompt := r.config.SkillRegistry.GetSkillPrompt(); skillPrompt != "" {
+			systemContent += "\n\n" + skillPrompt
+			logger.Debug("[Runtime] 技能提示已注入到 system prompt")
 		}
 	}
 

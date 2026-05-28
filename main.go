@@ -28,9 +28,7 @@ import (
 func main() {
 	// 加载 .env 文件
 	if err := godotenv.Load(); err != nil {
-		println("未找到 .env 文件，将使用系统环境变量")
-	} else {
-		println("成功加载 .env 配置文件")
+		fmt.Printf("未找到 .env 文件，将使用系统环境变量")
 	}
 
 	// 加载配置
@@ -41,7 +39,6 @@ func main() {
 		fmt.Printf("加载配置文件失败，使用默认配置: %v\n", err)
 	}
 
-	
 	// 初始化日志
 	glog.Init(cfg.Logging.Level, cfg.Logging.JSONMode, cfg.Logging.FilePath, cfg.Logging.Console)
 	logger := glog.Logger()
@@ -91,8 +88,9 @@ func main() {
 		}
 
 		// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
+			var skillReg *skill.Registry
 		if cfg.Skills.Enabled {
-			skillReg := skill.NewRegistry(globalSkillsDir)
+			skillReg = skill.NewRegistry(globalSkillsDir)
 			skillReg.AddDir(agentSkillsDir) // 添加 agent 特定目录用于热重载
 			// 加载全局技能
 			if err := skillReg.LoadAll(); err != nil {
@@ -110,12 +108,9 @@ func main() {
 			skillRegistryDirs[agentCfg.Name] = agentSkillsDir
 
 			if len(skillReg.List()) > 0 {
-				skillExecutor := skill.NewExecutor(skillReg)
-				skillTool := skill.NewSkillUseTool(skillExecutor)
-				tools = append(tools, skillTool)
-				logger.Info("Agent Skill 已加载", "agent", agentCfg.Name, "global", globalCount, "agent_specific", agentCount, "total", len(skillReg.List()))
+				logger.Info("Agent Skill 已加载（Prompt-based 模式）", "agent", agentCfg.Name, "global", globalCount, "agent_specific", agentCount, "total", len(skillReg.List()))
 			} else {
-				logger.Info("Skill 目录为空，skill_use 工具未加载", "agent", agentCfg.Name)
+				logger.Info("Skill 目录为空，无技能可用", "agent", agentCfg.Name)
 			}
 		}
 
@@ -132,11 +127,12 @@ func main() {
 			Memory:                memory.NewSimpleMemory(agentStore),
 			Store:                 agentStore,
 			WorkspaceLoader:       wsLoader,
+			SkillRegistry:         skillReg,
 			CompactThresholdRatio: agentCfg.CompactThresholdRatio,
 			ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
 			ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
-			ToolResultExemptTools:  agentCfg.ToolResultExemptTools,
-			ToolResultExemptExts:   agentCfg.ToolResultExemptExts,
+			ToolResultExemptTools: agentCfg.ToolResultExemptTools,
+			ToolResultExemptExts:  agentCfg.ToolResultExemptExts,
 			SupportsImage:         agentCfg.SupportsImage,
 			SupportsVideo:         agentCfg.SupportsVideo,
 		})
@@ -324,13 +320,10 @@ func getDefaultConfig() *config.Config {
 	}
 }
 
-// loadTools 使用注册表加载工具（不含 skill_use，skill_use 在 agent 循环中单独加载）
+// loadTools 使用注册表加载工具
 func loadTools(toolNames []string) []tool.Tool {
 	var tools []tool.Tool
 	for _, name := range toolNames {
-		if name == "skill_use" {
-			continue
-		}
 		t, err := tool.GlobalRegistry.Create(name)
 		if err != nil {
 			continue
@@ -351,7 +344,7 @@ func loadTools(toolNames []string) []tool.Tool {
 // initDataDirs 初始化数据目录结构和人设文件
 func initDataDirs(workspaceDir, sessionsDir, skillsDir string, logger *slog.Logger) {
 	// 创建目录
- dirs := []string{workspaceDir, sessionsDir, skillsDir}
+	dirs := []string{workspaceDir, sessionsDir, skillsDir}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			logger.Error("创建目录失败", "dir", d, "err", err)
@@ -454,7 +447,6 @@ func initDataDirs(workspaceDir, sessionsDir, skillsDir string, logger *slog.Logg
 			}
 		}
 	}
-
 
 	for name, content := range personalityFiles {
 		filePath := filepath.Join(workspaceDir, name)
