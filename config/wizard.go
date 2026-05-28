@@ -237,8 +237,9 @@ func RunWizard() *Config {
 			WeCom:     WeComConfig{Enabled: wecomEnabled, BotID: wecomBotID, Secret: wecomSecret},
 		},
 		Logging: LoggingConfig{
-			Level:   "info",
-			Console: false,
+			Level:    "info",
+			FilePath: "logs/app.log",
+			Console:  false,
 		},
 		Auth: AuthConfig{Enabled: false},
 		Skills: SkillsConfig{Enabled: true},

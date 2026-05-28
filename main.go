@@ -35,10 +35,8 @@ import (
 )
 
 func main() {
-	// 加载 .env 文件
-	if err := godotenv.Load(); err != nil {
-		fmt.Printf("未找到 .env 文件，将使用系统环境变量")
-	}
+	// 加载 .env 文件（静默，失败时由日志记录）
+	godotenv.Load()
 
 	// 加载配置
 	cfg, err := config.LoadConfig("config.json")
@@ -430,7 +428,7 @@ func getDefaultConfig() *config.Config {
 		Logging: config.LoggingConfig{
 			Level:    "info",
 			JSONMode: false,
-			FilePath: "",
+			FilePath: "logs/app.log",
 			Console:  false,
 		},
 		Auth: config.AuthConfig{
