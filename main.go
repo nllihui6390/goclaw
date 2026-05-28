@@ -108,7 +108,7 @@ func main() {
 		}
 
 		// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
-			var skillReg *skill.Registry
+		var skillReg *skill.Registry
 		if cfg.Skills.Enabled {
 			skillReg = skill.NewRegistry(globalSkillsDir)
 			skillReg.AddDir(agentSkillsDir) // 添加 agent 特定目录用于热重载
@@ -147,7 +147,7 @@ func main() {
 			Memory:                memory.NewSimpleMemory(agentStore),
 			Store:                 agentStore,
 			WorkspaceLoader:       wsLoader,
-				WorkspaceDir:          agentWorkspaceDir,
+			WorkspaceDir:          agentWorkspaceDir,
 			SkillRegistry:         skillReg,
 			CompactThresholdRatio: agentCfg.CompactThresholdRatio,
 			ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
@@ -229,111 +229,122 @@ func main() {
 		logger.Error("启动网关失败", "err", err)
 		os.Exit(1)
 	}
-	logger.Info("GoClaw AI Agent Gateway 已启动",
-			"data_dir", dataDir)
+	logger.Info("GoClaw AI Agent Gateway 已启动", "data_dir", dataDir)
 
-		// 初始化 Inbox 系统
-		inbox.NewStore(dataDir + "/inbox.json") // Inbox 初始化完成
-		logger.Info("Inbox 系统已初始化")
+	// 初始化 Inbox 系统
+	inbox.NewStore(dataDir + "/inbox.json")
+	logger.Info("Inbox 系统已初始化")
 
-		// 初始化 MCP 集成
-		var mcpMgr *mcp.Manager
-		if cfg.MCP.Enabled {
-			mcpMgr = mcp.NewManager()
-			for _, serverCfg := range cfg.MCP.Servers {
-				mcpMgr.Register(mcp.ServerConfig{
-					Name:    serverCfg.Name,
-					Command: serverCfg.Command,
-					URL:     serverCfg.URL,
-					Args:    serverCfg.Args,
-					Env:     serverCfg.Env,
-					Enabled: serverCfg.Enabled,
-				})
-			}
-			mcpMgr.ConnectAll(nil)
-			logger.Info("MCP 集成已启动", "servers", len(cfg.MCP.Servers))
-		}
-
-		// 初始化 ACP 协议
-		var _ *acp.Service
-		if cfg.ACP.Enabled {
-			_ = acp.NewService()
-			logger.Info("ACP 协议已初始化", "agents", len(cfg.ACP.Agents))
-		}
-
-		// 初始化 Cron 系统
-		var cronMgr *cron.Manager
-		if cfg.Cron.Enabled {
-			cronMgr = cron.NewManager(gatewayCronExecutor{gw: gw, agents: gw.GetAgents()})
-			for _, job := range cfg.Cron.Jobs {
-				jobType := cron.JobTypeText
-				if job.Type == "agent" {
-					jobType = cron.JobTypeAgent
-				}
-				cronMgr.AddJob(&cron.Job{
-					Name:         job.Name,
-					Schedule:     job.Schedule,
-					Type:         jobType,
-					Content:      job.Content,
-					AgentName:    job.AgentName,
-					ActiveStart:  job.ActiveStart,
-					ActiveEnd:    job.ActiveEnd,
-					Enabled:      true,
-				})
-			}
-			cronMgr.Start()
-			logger.Info("Cron 系统已启动", "jobs", len(cfg.Cron.Jobs))
-		}
-
-		// 初始化工具安全守卫
-		var toolGuard *security.ToolGuard
-		if cfg.Security.Enabled {
-			toolGuard = security.NewToolGuard()
-			if cfg.Security.DenyShellInject {
-				toolGuard.AddGuardian(security.NewShellEvasionGuardian())
-			}
-			if cfg.Security.DenySensitivePath {
-				toolGuard.AddGuardian(security.NewFileGuardian())
-			}
-			if cfg.Security.GuardBrowser {
-				toolGuard.AddGuardian(security.NewRuleGuardian())
-			}
-			logger.Info("工具安全守卫已启用",
-				"shell_inject", cfg.Security.DenyShellInject,
-				"sensitive_path", cfg.Security.DenySensitivePath,
-				"browser", cfg.Security.GuardBrowser)
-		}
-
-		// 注册多 Agent 协作工具
-		// 转换 Agent map 为 AgentProcessor map
-			agentProcessors := make(map[string]multiagent.AgentProcessor)
-			for name, ag := range gw.GetAgents() {
-				agentProcessors[name] = ag
-			}
-			tool.GlobalRegistry.Register("chat_with_agent", func() tool.Tool {
-				return multiagent.NewChatWithAgentTool(agentProcessors)
+	// 初始化 MCP 集成
+	var mcpMgr *mcp.Manager
+	if cfg.MCP.Enabled {
+		mcpMgr = mcp.NewManager()
+		for _, serverCfg := range cfg.MCP.Servers {
+			mcpMgr.Register(mcp.ServerConfig{
+				Name:    serverCfg.Name,
+				Command: serverCfg.Command,
+				URL:     serverCfg.URL,
+				Args:    serverCfg.Args,
+				Env:     serverCfg.Env,
+				Enabled: serverCfg.Enabled,
 			})
-			tool.GlobalRegistry.Register("submit_to_agent", func() tool.Tool {
-				return multiagent.NewSubmitToAgentTool(agentProcessors)
-			})
-			tool.GlobalRegistry.Register("list_agents", func() tool.Tool {
-				return multiagent.NewListAgentsTool(agentProcessors)
-			})
-		logger.Info("多 Agent 协作工具已注册")
+		}
+		mcpMgr.ConnectAll(nil)
+		logger.Info("MCP 集成已启动", "servers", len(cfg.MCP.Servers))
+	}
 
-		// 注册 cron_status 工具（让 AI 能查询内部定时任务）
-		tool.GlobalRegistry.Register("cron_status", func() tool.Tool {
-			return tool.NewCronStatusTool(cronMgr)
-		})
-		logger.Info("cron_status 工具已注册")
+	// 初始化 ACP 协议
+	var _ *acp.Service
+	if cfg.ACP.Enabled {
+		_ = acp.NewService()
+		logger.Info("ACP 协议已初始化", "agents", len(cfg.ACP.Agents))
+	}
 
+	// 初始化 Cron 系统
+	var cronMgr *cron.Manager
+	if cfg.Cron.Enabled {
+		cronMgr = cron.NewManager(gatewayCronExecutor{gw: gw, agents: gw.GetAgents()})
+		for i, job := range cfg.Cron.Jobs {
+			jobType := cron.JobTypeText
+			if job.Type == "agent" {
+				jobType = cron.JobTypeAgent
+			}
+			// 生成唯一 ID
+			jobID := fmt.Sprintf("cron_%d_%s", i+1, job.Name)
+			// 默认 sessionID: console:cron
+			sessionID := job.SessionID
+			if sessionID == "" {
+				sessionID = "console:cron"
+			}
+			// agent 类型: content 作为 prompt，agent_prompt 也兼容
+			content := job.Content
+			if jobType == cron.JobTypeAgent && job.AgentPrompt != "" && content == "" {
+				content = job.AgentPrompt
+			}
+			cronMgr.AddJob(&cron.Job{
+				ID:          jobID,
+				Name:        job.Name,
+				Schedule:    job.Schedule,
+				Type:        jobType,
+				Content:     content,
+				AgentName:   job.AgentName,
+				SessionID:   sessionID,
+				ActiveStart: job.ActiveStart,
+				ActiveEnd:   job.ActiveEnd,
+				Enabled:     true,
+			})
+		}
+		cronMgr.Start()
+		logger.Info("Cron 系统已启动", "jobs", len(cfg.Cron.Jobs))
+	}
+
+	// 初始化工具安全守卫
+	var toolGuard *security.ToolGuard
+	if cfg.Security.Enabled {
+		toolGuard = security.NewToolGuard()
+		if cfg.Security.DenyShellInject {
+			toolGuard.AddGuardian(security.NewShellEvasionGuardian())
+		}
+		if cfg.Security.DenySensitivePath {
+			toolGuard.AddGuardian(security.NewFileGuardian())
+		}
+		if cfg.Security.GuardBrowser {
+			toolGuard.AddGuardian(security.NewRuleGuardian())
+		}
+		logger.Info("工具安全守卫已启用",
+			"shell_inject", cfg.Security.DenyShellInject,
+			"sensitive_path", cfg.Security.DenySensitivePath,
+			"browser", cfg.Security.GuardBrowser)
+	}
+
+	// 注册多 Agent 协作工具
+	agentProcessors := make(map[string]multiagent.AgentProcessor)
+	for name, ag := range gw.GetAgents() {
+		agentProcessors[name] = ag
+	}
+	tool.GlobalRegistry.Register("chat_with_agent", func() tool.Tool {
+		return multiagent.NewChatWithAgentTool(agentProcessors)
+	})
+	tool.GlobalRegistry.Register("submit_to_agent", func() tool.Tool {
+		return multiagent.NewSubmitToAgentTool(agentProcessors)
+	})
+	tool.GlobalRegistry.Register("list_agents", func() tool.Tool {
+		return multiagent.NewListAgentsTool(agentProcessors)
+	})
+	logger.Info("多 Agent 协作工具已注册")
+
+	// 注册 cron_status 工具
+	tool.GlobalRegistry.Register("cron_status", func() tool.Tool {
+		return tool.NewCronStatusTool(cronMgr)
+	})
+	logger.Info("cron_status 工具已注册")
 
 	// 启动主动模式
 	var proactiveMgr *proactive.ProactiveManager
 	if cfg.Proactive.Enabled {
 		idleMinutes := cfg.Proactive.IdleMinutes
 		if idleMinutes == 0 {
-			idleMinutes = 30 // 默认 30 分钟
+			idleMinutes = 30
 		}
 		agentName := cfg.Proactive.AgentName
 		if agentName == "" {
@@ -387,7 +398,6 @@ func getDefaultConfig() *config.Config {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		apiKey = "your-openai-api-key-here"
-		// 此时日志可能未初始化，直接输出到控制台
 		println("警告: 请设置 OPENAI_API_KEY 环境变量")
 	}
 
@@ -445,19 +455,24 @@ func getDefaultConfig() *config.Config {
 
 // gatewayCronExecutor 实现 cron.Executor 接口
 type gatewayCronExecutor struct {
-	gw    *gateway.Gateway
+	gw     *gateway.Gateway
 	agents map[string]*agent.Agent
 }
 
 func (e gatewayCronExecutor) ExecuteText(ctx context.Context, sessionID, content string) error {
-	glog.Logger().Info("[Cron] 执行文本任务", "content", content)
-	return nil
+	glog.Logger().Info("[Cron] 执行文本任务", "session_id", sessionID, "content", content)
+	// 通过 Gateway 主动消息系统发送文本通知
+	return e.gw.SendProactiveMessage(ctx, sessionID, content)
 }
 
 func (e gatewayCronExecutor) ExecuteAgent(ctx context.Context, agentName, sessionID, content string) (string, error) {
 	ag, exists := e.agents[agentName]
 	if !exists {
 		return "", fmt.Errorf("Agent '%s' 不存在", agentName)
+	}
+	// 生成 cron 专用会话 ID
+	if sessionID == "" || sessionID == "console:cron" {
+		sessionID = "cron:" + agentName + "_" + time.Now().Format("20060102_150405")
 	}
 	return ag.Process(ctx, sessionID, content)
 }

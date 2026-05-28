@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +106,48 @@ func (m *Manager) DisableJob(id string) {
 	if job, exists := m.jobs[id]; exists {
 		job.Enabled = false
 	}
+}
+
+// UpdateJob 更新任务（通过删除再添加实现）
+func (m *Manager) UpdateJob(job *Job) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.jobs[job.ID]; exists {
+		job.NextRun = m.parseSchedule(job.Schedule)
+		m.jobs[job.ID] = job
+		glog.Logger().Info("[Cron] 任务已更新", "id", job.ID, "name", job.Name, "next_run", job.NextRun)
+	}
+}
+
+// RunJobNow 立即执行任务（不等待调度）
+func (m *Manager) RunJobNow(id string) error {
+	m.mu.RLock()
+	job, exists := m.jobs[id]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("任务不存在: %s", id)
+	}
+
+	glog.Logger().Info("[Cron] 手动触发任务", "id", id, "name", job.Name)
+	m.runJob(job)
+
+	// 更新执行时间
+	m.mu.Lock()
+	job.LastRun = time.Now()
+	m.mu.Unlock()
+
+	return nil
+}
+
+// GetJob 获取单个任务
+func (m *Manager) GetJob(id string) (*Job, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if job, exists := m.jobs[id]; exists {
+		return job, nil
+	}
+	return nil, fmt.Errorf("任务不存在: %s", id)
 }
 
 // Start 启动任务调度

@@ -35,6 +35,7 @@ type CronJob struct {
 	Content     string `json:"content"`      // text 类型: 消息内容
 	AgentName   string `json:"agent_name"`   // agent 类型: Agent 名称
 	AgentPrompt string `json:"agent_prompt"` // agent 类型: 提示词
+	SessionID   string `json:"session_id"`   // 目标会话 ID (格式: channel:user，如 console:admin)
 	ActiveStart string `json:"active_start"` // 活跃时段开始 HH:MM
 	ActiveEnd   string `json:"active_end"`   // 活跃时段结束 HH:MM
 }
