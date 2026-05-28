@@ -296,6 +296,7 @@ func main() {
 		}
 		cronMgr.Start()
 		logger.Info("Cron 系统已启动", "jobs", len(cfg.Cron.Jobs))
+			tool.SetGlobalCronManager(cronMgr)
 	}
 
 	// 初始化工具安全守卫
@@ -332,12 +333,6 @@ func main() {
 		return multiagent.NewListAgentsTool(agentProcessors)
 	})
 	logger.Info("多 Agent 协作工具已注册")
-
-	// 注册 cron_status 工具
-	tool.GlobalRegistry.Register("cron_status", func() tool.Tool {
-		return tool.NewCronStatusTool(cronMgr)
-	})
-	logger.Info("cron_status 工具已注册")
 
 	// 启动主动模式
 	var proactiveMgr *proactive.ProactiveManager

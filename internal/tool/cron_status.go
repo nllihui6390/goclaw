@@ -7,19 +7,22 @@ import (
 	"time"
 )
 
+// 全局 cron manager（在 main.go 中设置）
+var globalCronManager *cron.Manager
+
+// SetGlobalCronManager 设置全局 cron manager
+func SetGlobalCronManager(manager *cron.Manager) {
+	globalCronManager = manager
+}
+
 // CronStatusTool 管理内部 cron 任务系统
 type CronStatusTool struct {
-	manager *cron.Manager
+	manager  *cron.Manager
 	executor cron.Executor
 }
 
 func NewCronStatusTool(manager *cron.Manager) *CronStatusTool {
 	return &CronStatusTool{manager: manager}
-}
-
-// SetExecutor 设置执行器（用于立即执行任务）
-func (t *CronStatusTool) SetExecutor(executor cron.Executor) {
-	t.executor = executor
 }
 
 func (t *CronStatusTool) Name() string {
@@ -108,34 +111,40 @@ func (t *CronStatusTool) Execute(ctx context.Context, params map[string]interfac
 		return "", fmt.Errorf("缺少 action 参数")
 	}
 
-	if t.manager == nil {
+	// 获取 manager（实例优先，否则使用全局）
+	mgr := t.manager
+	if mgr == nil {
+		mgr = globalCronManager
+	}
+
+	if mgr == nil {
 		return "Cron 系统未启用。在 config.json 中设置 `cron.enabled: true` 并配置 jobs 数组来启用。", nil
 	}
 
 	switch action {
 	case "list":
-		return t.listJobs()
+		return t.listJobs(mgr)
 	case "get":
-		return t.getJob(params)
+		return t.getJob(mgr, params)
 	case "add":
-		return t.addJob(params)
+		return t.addJob(mgr, params)
 	case "update":
-		return t.updateJob(params)
+		return t.updateJob(mgr, params)
 	case "delete":
-		return t.deleteJob(params)
+		return t.deleteJob(mgr, params)
 	case "enable":
-		return t.enableJob(params)
+		return t.enableJob(mgr, params)
 	case "disable":
-		return t.disableJob(params)
+		return t.disableJob(mgr, params)
 	case "run":
-		return t.runJob(ctx, params)
+		return t.runJob(ctx, mgr, params)
 	default:
 		return "", fmt.Errorf("未知操作: %s (支持: list, get, add, update, delete, enable, disable, run)", action)
 	}
 }
 
-func (t *CronStatusTool) listJobs() (string, error) {
-	jobs := t.manager.ListJobs()
+func (t *CronStatusTool) listJobs(mgr *cron.Manager) (string, error) {
+	jobs := mgr.ListJobs()
 	if len(jobs) == 0 {
 		return "当前没有配置任何定时任务。使用 cron_status(action=\"add\", ...) 新增任务。", nil
 	}
@@ -163,13 +172,13 @@ func (t *CronStatusTool) listJobs() (string, error) {
 	return result, nil
 }
 
-func (t *CronStatusTool) getJob(params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) getJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	id, ok := params["id"].(string)
 	if !ok || id == "" {
 		return "", fmt.Errorf("缺少 id 参数")
 	}
 
-	job, err := t.manager.GetJob(id)
+	job, err := mgr.GetJob(id)
 	if err != nil {
 		return err.Error(), nil
 	}
@@ -194,7 +203,7 @@ func (t *CronStatusTool) getJob(params map[string]interface{}) (string, error) {
 	return result, nil
 }
 
-func (t *CronStatusTool) addJob(params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) addJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	name, ok := params["name"].(string)
 	if !ok || name == "" {
 		return "", fmt.Errorf("缺少 name 参数")
@@ -238,19 +247,19 @@ func (t *CronStatusTool) addJob(params map[string]interface{}) (string, error) {
 	job.ActiveStart = getStringOr(params, "active_start", "")
 	job.ActiveEnd = getStringOr(params, "active_end", "")
 
-	t.manager.AddJob(job)
+	mgr.AddJob(job)
 
 	return fmt.Sprintf("✅ 任务已添加\n- ID: %s\n- 名称: %s\n- 调度: %s\n- 下次执行: %s",
 		id, name, schedule, job.NextRun.Format("2006-01-02 15:04")), nil
 }
 
-func (t *CronStatusTool) updateJob(params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) updateJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	id, ok := params["id"].(string)
 	if !ok || id == "" {
 		return "", fmt.Errorf("缺少 id 参数")
 	}
 
-	existing, err := t.manager.GetJob(id)
+	existing, err := mgr.GetJob(id)
 	if err != nil {
 		return err.Error(), nil
 	}
@@ -281,49 +290,49 @@ func (t *CronStatusTool) updateJob(params map[string]interface{}) (string, error
 		existing.Enabled = enabled
 	}
 
-	t.manager.UpdateJob(existing)
+	mgr.UpdateJob(existing)
 
 	return fmt.Sprintf("✅ 任务已更新\n- ID: %s\n- 名称: %s\n- 下次执行: %s",
 		id, existing.Name, existing.NextRun.Format("2006-01-02 15:04")), nil
 }
 
-func (t *CronStatusTool) deleteJob(params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) deleteJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	id, ok := params["id"].(string)
 	if !ok || id == "" {
 		return "", fmt.Errorf("缺少 id 参数")
 	}
 
-	t.manager.RemoveJob(id)
+	mgr.RemoveJob(id)
 	return fmt.Sprintf("✅ 任务已删除: %s", id), nil
 }
 
-func (t *CronStatusTool) enableJob(params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) enableJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	id, ok := params["id"].(string)
 	if !ok || id == "" {
 		return "", fmt.Errorf("缺少 id 参数")
 	}
 
-	t.manager.EnableJob(id)
+	mgr.EnableJob(id)
 	return fmt.Sprintf("✅ 任务已启用: %s", id), nil
 }
 
-func (t *CronStatusTool) disableJob(params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) disableJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	id, ok := params["id"].(string)
 	if !ok || id == "" {
 		return "", fmt.Errorf("缺少 id 参数")
 	}
 
-	t.manager.DisableJob(id)
+	mgr.DisableJob(id)
 	return fmt.Sprintf("✅ 任务已禁用: %s", id), nil
 }
 
-func (t *CronStatusTool) runJob(ctx context.Context, params map[string]interface{}) (string, error) {
+func (t *CronStatusTool) runJob(ctx context.Context, mgr *cron.Manager, params map[string]interface{}) (string, error) {
 	id, ok := params["id"].(string)
 	if !ok || id == "" {
 		return "", fmt.Errorf("缺少 id 参数")
 	}
 
-	err := t.manager.RunJobNow(id)
+	err := mgr.RunJobNow(id)
 	if err != nil {
 		return err.Error(), nil
 	}
@@ -346,4 +355,11 @@ func truncStr(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// init 在程序启动时注册工具
+func init() {
+	GlobalRegistry.Register("cron_status", func() Tool {
+		return &CronStatusTool{}
+	})
 }
