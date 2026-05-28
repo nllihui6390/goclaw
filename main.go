@@ -431,7 +431,7 @@ func getDefaultConfig() *config.Config {
 			Level:    "info",
 			JSONMode: false,
 			FilePath: "",
-			Console:  true,
+			Console:  false,
 		},
 		Auth: config.AuthConfig{
 			Enabled: false,

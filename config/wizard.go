@@ -77,7 +77,7 @@ func RunWizard() *Config {
 		if !p.NeedsKey {
 			keyNote = " (无需 API Key)"
 		}
-		fmt.Printf("  %d. %s%s\n", i+1, strings.Title(p.Name), keyNote)
+		fmt.Printf("  %d. %s%s\n", i+1, titleCase(p.Name), keyNote)
 	}
 	fmt.Println("  5. 自定义 (OpenAI 兼容 API)")
 	fmt.Println()
@@ -94,7 +94,7 @@ func RunWizard() *Config {
 
 		// ── 步骤 2: 配置供应商 ──
 		fmt.Println()
-		fmt.Printf("步骤 2/3: 配置 %s\n", strings.Title(providerName))
+		fmt.Printf("步骤 2/3: 配置 %s\n", titleCase(providerName))
 		fmt.Println()
 
 		if preset.NeedsKey {
@@ -238,7 +238,7 @@ func RunWizard() *Config {
 		},
 		Logging: LoggingConfig{
 			Level:   "info",
-			Console: true,
+			Console: false,
 		},
 		Auth: AuthConfig{Enabled: false},
 		Skills: SkillsConfig{Enabled: true},
@@ -271,7 +271,7 @@ func RunWizard() *Config {
 		fmt.Println("╔══════════════════════════════════════════════════════════╗")
 		fmt.Println("║  配置完成！已保存到 config.json                          ║")
 		fmt.Println("║                                                          ║")
-		fmt.Printf("║  供应商: %s\n", strings.Title(providerName))
+		fmt.Printf("║  供应商: %s\n", titleCase(providerName))
 		fmt.Printf("║  模型:   %s\n", model)
 		fmt.Printf("║  渠道:   %s\n", channels)
 		fmt.Println("╚══════════════════════════════════════════════════════════╝")
@@ -333,4 +333,12 @@ func askYesNo(reader *bufio.Reader, prompt string, defaultYes bool) bool {
 		return defaultYes
 	}
 	return strings.ToLower(line) == "y" || strings.ToLower(line) == "yes"
+}
+
+// titleCase 将字符串首字母大写
+func titleCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

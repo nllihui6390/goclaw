@@ -17,7 +17,14 @@ func (t *ExecTool) Name() string {
 }
 
 func (t *ExecTool) Description() string {
-	return "执行shell命令查看系统信息（如ls/dir、ps/tasklist）。注意：读取文件内容请用read_file工具，不要用cat/type命令。"
+	return "执行shell命令并返回输出。超时10秒。" +
+		"\n重要规则:" +
+		"\n1. 读取文件内容请用 read_file 工具，不要用 cat/type 命令" +
+		"\n2. 写文件请用 write_file 工具，不要用 echo/printf 重定向" +
+		"\n3. 本工具适合系统信息查询（ls/dir、ps/tasklist、df、whoami等）和一次性脚本执行" +
+		"\n4. Windows 环境下常见 Linux 命令会自动转换（ls→dir, cat→type, ps→tasklist, grep→findstr）" +
+		"\n调用格式: execute_command(command=\"shell命令\")" +
+		"\n示例: execute_command(command=\"ls -la\") 或 execute_command(command=\"dir\")"
 }
 
 func (t *ExecTool) Parameters() map[string]interface{} {

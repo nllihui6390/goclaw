@@ -16,7 +16,9 @@ func (t *WriteFileTool) Name() string {
 }
 
 func (t *WriteFileTool) Description() string {
-	return "将内容写入指定文件。如果文件已存在则覆盖，不存在则创建（含目录）。"
+	return "将内容写入指定文件。如果文件已存在则覆盖，不存在则自动创建（含中间目录）。" +
+		"\n调用格式: write_file(path=\"文件路径\", content=\"要写入的内容\")" +
+		"\n示例: write_file(path=\"output/result.txt\", content=\"Hello World\")"
 }
 
 func (t *WriteFileTool) Parameters() map[string]interface{} {
@@ -74,7 +76,10 @@ func (t *ReadFileTool) Name() string {
 }
 
 func (t *ReadFileTool) Description() string {
-	return "读取指定文件的内容并返回。这是读取文件的首选工具，比使用命令行cat/type更高效可靠。"
+	return "读取指定文件的内容并返回（带行号）。读取文件请优先用此工具，不要用 cat/type 命令。" +
+		"\n调用格式: read_file(path=\"文件路径\") 或 read_file(path=\"文件路径\", offset=起始行号, limit=最大行数)" +
+		"\noffset 和 limit 可选，用于读取大文件的指定行范围。" +
+		"\n示例: read_file(path=\"config.json\") 或 read_file(path=\"config.json\", offset=0, limit=50)"
 }
 
 func (t *ReadFileTool) Parameters() map[string]interface{} {
@@ -154,7 +159,14 @@ func (t *EditFileTool) Name() string {
 }
 
 func (t *EditFileTool) Description() string {
-	return "编辑文件：用新字符串替换旧字符串。old_string 必须在文件中唯一匹配。"
+	return "精确编辑文件：用 new_string 替换文件中 old_string 处的内容。" +
+		"\n重要规则:" +
+		"\n1. old_string 必须与文件中的原文完全一致（包括空格、缩进、换行），否则会匹配失败" +
+		"\n2. old_string 在文件中只能出现一次（唯一匹配），多处匹配会报错" +
+		"\n3. 修改前先用 read_file 查看原文，确保 old_string 复制准确" +
+		"\n4. 尽量用小范围替换（几行），不要用大块文本作为 old_string" +
+		"\n调用格式: edit_file(path=\"文件路径\", old_string=\"原文\", new_string=\"新文本\")" +
+		"\n示例: edit_file(path=\"config.json\", old_string=\"enabled: false\", new_string=\"enabled: true\")"
 }
 
 func (t *EditFileTool) Parameters() map[string]interface{} {
@@ -265,7 +277,9 @@ func (t *AppendFileTool) Name() string {
 }
 
 func (t *AppendFileTool) Description() string {
-	return "追加内容到指定文件末尾。如果文件不存在则创建。适合日志记录、增量写入场景。"
+	return "追加内容到指定文件末尾。如果文件不存在则自动创建（含中间目录）。适合日志记录、增量写入。" +
+		"\n调用格式: append_file(path=\"文件路径\", content=\"追加的内容\")" +
+		"\n示例: append_file(path=\"logs/note.txt\", content=\"新增一行记录\n\")"
 }
 
 func (t *AppendFileTool) Parameters() map[string]interface{} {
@@ -340,7 +354,10 @@ func (t *SendFileTool) Name() string {
 }
 
 func (t *SendFileTool) Description() string {
-	return "发送文件给用户。支持本地文件路径或URL。返回文件信息供渠道发送。"
+	return "发送文件给用户。支持本地文件路径或URL。返回文件信息供渠道发送。" +
+		"\n调用格式: send_file(path=\"文件路径或URL\") 或 send_file(path=\"文件路径\", filename=\"显示名\")" +
+		"\nfilename 可选，用于指定显示给用户的文件名（默认取路径中的文件名）" +
+		"\n示例: send_file(path=\"output/report.pdf\") 或 send_file(path=\"https://example.com/data.csv\", filename=\"数据表\")"
 }
 
 func (t *SendFileTool) Parameters() map[string]interface{} {

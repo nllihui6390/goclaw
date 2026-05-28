@@ -103,7 +103,7 @@ type LoggingConfig struct {
 	Level    string `json:"level"`      // debug, info, warn, error
 	JSONMode bool   `json:"json_mode"`  // 是否输出JSON格式
 	FilePath string `json:"file_path"`  // 日志输出文件路径，为空则不写文件
-	Console  bool   `json:"console"`    // 是否同时输出到控制台，默认true
+	Console  bool   `json:"console"`    // 是否同时输出到控制台，默认false
 }
 
 type AuthConfig struct {
