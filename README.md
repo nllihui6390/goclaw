@@ -116,7 +116,7 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
 
 ## Skill 技能系统
 
-go-claw 采用 **Prompt-based** 技能系统（仿 CoPaw），技能描述注入系统提示词，AI 读取完整 SKILL.md 后用 `exec` 等工具执行脚本。
+go-claw 采用 **Prompt-based** 技能系统，技能描述注入系统提示词，AI 读取完整 SKILL.md 后用 `exec` 等工具执行脚本。
 
 ### 两层技能架构
 
