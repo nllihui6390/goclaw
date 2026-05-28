@@ -12,7 +12,7 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **多渠道接入**: 控制台、REST API (HTTP)、WebSocket、飞书、钉钉、企业微信（均为 WebSocket 客户端模式）
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索、JSON 文件持久化
-- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑追加、浏览器自动化、技能调用、时间/时区、文件发送
+- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑追加、浏览器自动化、时间/时区、文件发送
 - **智能运行时**: Auto-continue、Summarizing、API 重试（429/5xx 自动重试+指数退避）、Token 预算管理、智能终止、推理标签剥离
 - **上下文压缩**: 对话接近 token 阈值时自动压缩旧消息为摘要
 - **工具结果裁剪**: 超长结果截断并缓存到文件，支持豁免规则
@@ -116,7 +116,7 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
 
 ## Skill 技能系统
 
-go-claw 支持兼容 OpenClaw 规范的 Skill 系统，通过 `SKILL.md` 文件定义技能，AI 可通过 `skill_use` 工具主动调用。
+go-claw 采用 **Prompt-based** 技能系统（仿 CoPaw），技能描述注入系统提示词，AI 读取完整 SKILL.md 后用 `exec` 等工具执行脚本。
 
 ### 两层技能架构
 
@@ -126,6 +126,17 @@ go-claw 支持兼容 OpenClaw 规范的 Skill 系统，通过 `SKILL.md` 文件�
 | Agent 专属 | `goclaw-data/workspaces/<agent-name>/skills/` | 仅当前 Agent 可用 |
 
 同名技能 Agent 专属版优先。Skill 目录通过 `fsnotify` 热加载，无需重启。
+
+### 使用流程
+
+```
+1. 系统提示词注入技能信息（名称、描述、SKILL.md 路径、脚本路径）
+2. AI 用 read_file 读取完整 SKILL.md（包含参数表、示例、注意事项）
+3. AI 理解如何使用技能，构造正确的命令参数
+4. AI 用 exec 工具执行脚本
+```
+
+**优势**：AI 拥有完整 SKILL.md 上下文，无参数 Schema 刚性，更灵活。
 
 ### SKILL.md 格式
 
@@ -152,8 +163,6 @@ metadata:
 返回城市的天气信息，包括温度、体感温度、风速、湿度
 ```
 
-运行机制：有脚本时执行 `scripts/` 目录下的脚本；无脚本时生成结构化指导信息交给 AI 自行完成。
-
 ### 动态创建技能
 
 对话中发送包含"创建技能""做成技能""封装成skill"等关键词时，自动注入 SKILL.md 标准模板。
@@ -175,7 +184,6 @@ metadata:
 ### 智能终止
 
 - 安全上限 100 次迭代
-- 同一工具连续失败 3 次
 - 总失败次数 ≥ 8 且 > 3× 成功次数
 - 模型返回无 tool_calls 的最终响应
 
@@ -310,7 +318,6 @@ Model Context Protocol 客户端，连接外部工具服务：
 | `append_file` | 追加文件（增量写入） |
 | `send_file` | 发送文件给用户 |
 | `browser_use` | 浏览器自动化 (rod) |
-| `skill_use` | 技能调用 |
 | `get_current_time` | 获取当前时间 |
 | `set_user_timezone` | 设置用户时区 |
 | `list_agents` | 列出所有 Agent |
@@ -404,9 +411,7 @@ go-claw/
 │   │   └── time.go                      # 时间/时区工具
 │   ├── skill/
 │   │   ├── skill.go                     # SKILL.md 解析
-│   │   ├── registry.go                  # 注册中心 + 热重载
-│   │   ├── executor.go                  # 执行器
-│   │   └── tool.go                      # skill_use 入口
+│   │   └── registry.go                  # 注册中心 + 热重载 + Prompt 生成
 │   ├── memory/
 │   │   ├── memory.go                    # 记忆接口
 │   │   ├── simple.go                    # 关键词检索
