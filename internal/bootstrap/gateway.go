@@ -14,5 +14,9 @@ func (app *App) initGateway() {
 	if app.DataDir == "" {
 		app.DataDir = "clawdata"
 	}
-	os.MkdirAll(app.DataDir+"/workspaces", 0755)
+	app.Workspace = app.Config.Gateway.Workspace
+	if app.Workspace == "" {
+		app.Workspace = "workspaces"
+	}
+	os.MkdirAll(app.DataDir+"/"+app.Workspace, 0755)
 }

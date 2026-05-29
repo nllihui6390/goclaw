@@ -21,6 +21,7 @@ type App struct {
 	Config      *config.Config
 	Gateway     *gateway.Gateway
 	DataDir     string
+	Workspace   string
 
 	// 子系统（可为 nil）
 	CronMgr      *cron.Manager

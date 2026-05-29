@@ -3,25 +3,40 @@
     "default_agent": "default",
     "session_ttl": 0,
     "data_dir": "clawdata",
-    "workspace": "workspace"
+    "workspace": "workspaces",
+    "default_provider": "deepseek",
+    "default_model": "deepseek-v4-oc"
   },
   "providers": {
     "deepseek": {
       "type": "openai",
       "base_url": "https://eaichat.ctyun.cn/ai/platform/v2/cp",
       "api_key": "",
-      "default_model": "deepseek-v4-oc"
+      "models": [
+        {
+          "name": "deepseek-v4-oc",
+          "description": "DeepSeek-V4"
+        }
+      ]
     },
     "ollama": {
       "type": "ollama",
       "base_url": "http://localhost:11434",
-      "default_model": "llama3"
-    },
-    "openai": {
-      "type": "openai",
-      "base_url": "https://api.openai.com/v1",
-      "api_key": "",
-      "default_model": "gpt-4"
+      "models": [
+        {
+          "name": "llama3",
+          "description": "Llama 3 默认模型"
+        },
+        {
+          "name": "qwen2.5:7b",
+          "description": "Qwen 2.5 7B"
+        },
+        {
+          "name": "glm4:9b",
+          "description": "GLM-4 9B",
+          "supports_image": true
+        }
+      ]
     }
   },
   "agents": [

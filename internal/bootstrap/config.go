@@ -51,22 +51,31 @@ func getDefaultConfig() *config.Config {
 
 	return &config.Config{
 		Gateway: config.GatewayConfig{
-			DefaultAgent: "default",
-			SessionTTL:   60,
-			DataDir:      "clawdata",
-			Workspace:    "workspace",
+			DefaultProvider: "openai",
+			DefaultModel:    "gpt-3.5-turbo",
+			DefaultAgent:    "default",
+			SessionTTL:      60,
+			DataDir:         "clawdata",
+			Workspace:       "workspaces",
 		},
 		Providers: map[string]config.ProviderConfig{
 			"openai": {
-				Type:         "openai",
-				BaseURL:      "https://api.openai.com/v1",
-				APIKey:       apiKey,
-				DefaultModel: "gpt-3.5-turbo",
+				Type:    "openai",
+				BaseURL: "https://api.openai.com/v1",
+				APIKey:  apiKey,
+				Models: []config.ModelConfig{
+					{Name: "gpt-3.5-turbo", Description: "GPT-3.5 快速模型"},
+					{Name: "gpt-4", Description: "GPT-4 标准模型"},
+					{Name: "gpt-4o", Description: "GPT-4o 多模态", SupportsImage: true, SupportsVideo: true},
+				},
 			},
 			"ollama": {
-				Type:         "ollama",
-				BaseURL:      "http://localhost:11434",
-				DefaultModel: "llama3",
+				Type:    "ollama",
+				BaseURL: "http://localhost:11434",
+				Models: []config.ModelConfig{
+					{Name: "llama3", Description: "Llama 3 默认"},
+					{Name: "qwen2.5:7b", Description: "Qwen 2.5 7B"},
+				},
 			},
 		},
 		Agents: []config.AgentConfig{

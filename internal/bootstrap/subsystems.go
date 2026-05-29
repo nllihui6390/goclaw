@@ -22,7 +22,7 @@ import (
 
 // initInbox 初始化 Inbox 系统
 func (app *App) initInbox() {
-	inbox.NewStore(app.DataDir + "/inbox.json")
+	inbox.NewStore(app.DataDir)
 	app.logger.Info("Inbox 系统已初始化")
 }
 

@@ -7,7 +7,6 @@ logs
 .claude
 data.json
 go-claw
-goclaw-data/*
 clawdata/*
 skills/*
 output/*

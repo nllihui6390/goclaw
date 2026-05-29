@@ -27,9 +27,10 @@ func (app *App) initAgents() {
 
 		// 解析配置：从provider获取
 		model, baseURL, apiKey, providerType := app.Config.ResolveAgentConfig(&agentCfg)
+	supportsImage, supportsVideo := app.Config.ResolveAgentModelConfig(&agentCfg)
 
-		// 每个 agent 有独立的工作空间目录: goclaw-data/workspaces/<agent-name>/
-		agentWorkspaceDir := app.DataDir + "/workspaces/" + agentCfg.Name
+		// 每个 agent 有独立的工作空间目录: clawdata/workspaces/<agent-name>/
+		agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + agentCfg.Name
 		agentSessionsDir := agentWorkspaceDir + "/sessions"
 		agentSkillsDir := agentWorkspaceDir + "/skills"
 
@@ -88,8 +89,8 @@ func (app *App) initAgents() {
 			ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
 			ToolResultExemptTools: agentCfg.ToolResultExemptTools,
 			ToolResultExemptExts:  agentCfg.ToolResultExemptExts,
-			SupportsImage:         agentCfg.SupportsImage,
-			SupportsVideo:         agentCfg.SupportsVideo,
+			SupportsImage:         supportsImage,
+			SupportsVideo:         supportsVideo,
 		})
 		app.Gateway.RegisterAgent(agentCfg.Name, ag)
 		app.logger.Info("Agent已注册", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model, "workspace", agentWorkspaceDir)

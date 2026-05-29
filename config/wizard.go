@@ -217,16 +217,19 @@ func RunWizard() *Config {
 	// ── 构建配置 ──
 	cfg := &Config{
 		Gateway: GatewayConfig{
-			DefaultAgent: "default",
-			SessionTTL:   60,
-			DataDir:      "goclaw-data",
+			DefaultProvider: providerName,
+			DefaultModel:    model,
+			DefaultAgent:    "default",
+			SessionTTL:      60,
+			DataDir:         "clawdata",
+			Workspace:       "workspaces",
 		},
 		Providers: map[string]ProviderConfig{
 			providerName: {
-				Type:         providerType,
-				BaseURL:      baseURL,
-				APIKey:       apiKey,
-				DefaultModel: model,
+				Type:    providerType,
+				BaseURL: baseURL,
+				APIKey:  apiKey,
+				Models:  []ModelConfig{{Name: model, Description: "默认模型"}},
 			},
 		},
 		Agents: []AgentConfig{

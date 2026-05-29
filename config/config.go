@@ -7,39 +7,39 @@ import (
 
 // Config 全局配置
 type Config struct {
-	Gateway    GatewayConfig             `json:"gateway"`
-	Providers  map[string]ProviderConfig `json:"providers"` // 模型供应商配置
-	Agents     []AgentConfig             `json:"agents"`
-	Channels   ChannelsConfig            `json:"channels"`
-	Skills     SkillsConfig              `json:"skills"`
-	Logging    LoggingConfig             `json:"logging"`
-	Auth       AuthConfig                `json:"auth"`
-	Proactive  ProactiveConfig           `json:"proactive"`  // 主动模式配置
-	Cron       CronConfig                `json:"cron"`       // 定时任务配置
-	MCP        MCPConfig                 `json:"mcp"`        // MCP 集成配置
-	ACP        ACPConfig                 `json:"acp"`        // ACP 协议配置
-	Security   SecurityConfig            `json:"security"`   // 安全守卫配置
+	Gateway   GatewayConfig             `json:"gateway"`
+	Providers map[string]ProviderConfig `json:"providers"` // 模型供应商配置
+	Agents    []AgentConfig             `json:"agents"`
+	Channels  ChannelsConfig            `json:"channels"`
+	Skills    SkillsConfig              `json:"skills"`
+	Logging   LoggingConfig             `json:"logging"`
+	Auth      AuthConfig                `json:"auth"`
+	Proactive ProactiveConfig           `json:"proactive"`
+	Cron      CronConfig                `json:"cron"`
+	MCP       MCPConfig                 `json:"mcp"`
+	ACP       ACPConfig                 `json:"acp"`
+	Security  SecurityConfig            `json:"security"`
 }
 
 // CronConfig 定时任务配置
 type CronConfig struct {
 	Enabled        bool      `json:"enabled"`
-	DefaultChannel string    `json:"default_channel"` // 默认发送渠道: console, webhook, wecom, lark, dingtalk
-	DefaultUser    string    `json:"default_user"`    // 默认目标用户（渠道特定，如企业微信用户ID）
+	DefaultChannel string    `json:"default_channel"` // 默认发送渠道
+	DefaultUser    string    `json:"default_user"`    // 默认目标用户
 	Jobs           []CronJob `json:"jobs"`
 }
 
 // CronJob 定时任务定义
 type CronJob struct {
 	Name        string `json:"name"`
-	Schedule    string `json:"schedule"`     // @every 5m, HH:MM, 或 cron 表达式
-	Type        string `json:"type"`         // "text" 或 "agent"
-	Content     string `json:"content"`      // text 类型: 消息内容
-	AgentName   string `json:"agent_name"`   // agent 类型: Agent 名称
-	AgentPrompt string `json:"agent_prompt"` // agent 类型: 提示词
-	SessionID   string `json:"session_id"`   // 目标会话 ID (格式: channel:user，如 console:admin)
-	ActiveStart string `json:"active_start"` // 活跃时段开始 HH:MM
-	ActiveEnd   string `json:"active_end"`   // 活跃时段结束 HH:MM
+	Schedule    string `json:"schedule"`
+	Type        string `json:"type"`
+	Content     string `json:"content"`
+	AgentName   string `json:"agent_name"`
+	AgentPrompt string `json:"agent_prompt"`
+	SessionID   string `json:"session_id"`
+	ActiveStart string `json:"active_start"`
+	ActiveEnd   string `json:"active_end"`
 }
 
 // MCPConfig MCP 集成配置
@@ -51,8 +51,8 @@ type MCPConfig struct {
 // MCPServerConfig MCP 服务器配置
 type MCPServerConfig struct {
 	Name    string            `json:"name"`
-	Command string            `json:"command"`     // stdio 模式启动命令
-	URL     string            `json:"url"`         // SSE 模式服务器地址
+	Command string            `json:"command"`
+	URL     string            `json:"url"`
 	Args    []string          `json:"args"`
 	Env     map[string]string `json:"env"`
 	Enabled bool              `json:"enabled"`
@@ -73,40 +73,52 @@ type ACPAgentConfig struct {
 
 // SecurityConfig 安全守卫配置
 type SecurityConfig struct {
-	Enabled          bool     `json:"enabled"`
-	DenyShellInject  bool     `json:"deny_shell_inject"`   // Shell 注入检测
-	DenySensitivePath bool    `json:"deny_sensitive_path"` // 敏感路径访问检测
-	GuardBrowser     bool     `json:"guard_browser"`       // 浏览器操作需确认
-	AllowedPaths     []string `json:"allowed_paths"`       // 允许访问的路径
+	Enabled           bool     `json:"enabled"`
+	DenyShellInject   bool     `json:"deny_shell_inject"`
+	DenySensitivePath bool     `json:"deny_sensitive_path"`
+	GuardBrowser      bool     `json:"guard_browser"`
+	AllowedPaths      []string `json:"allowed_paths"`
 }
 
 // ProactiveConfig 主动模式配置
 type ProactiveConfig struct {
 	Enabled     bool   `json:"enabled"`
-	IdleMinutes int    `json:"idle_minutes"` // 空闲多少分钟后触发（默认30）
-	AgentName   string `json:"agent_name"`   // 使用哪个 Agent 执行主动任务（默认default）
+	IdleMinutes int    `json:"idle_minutes"`
+	AgentName   string `json:"agent_name"`
 }
 
+// GatewayConfig 网关配置
 type GatewayConfig struct {
-	DefaultAgent string `json:"default_agent"`
-	SessionTTL   int    `json:"session_ttl"` // 会话超时分钟数, 0=永不过期
-	DataDir      string `json:"data_dir"`    // 数据根目录，默认 goclaw-data
-	Workspace    string `json:"workspace"`   // 工作空间名称，默认 default
+	DefaultProvider string `json:"default_provider"` // 默认供应商
+	DefaultModel    string `json:"default_model"`    // 默认模型
+	DefaultAgent    string `json:"default_agent"`    // 默认 Agent
+	SessionTTL      int    `json:"session_ttl"`      // 会话超时分钟数
+	DataDir         string `json:"data_dir"`         // 数据根目录
+	Workspace       string `json:"workspace"`        // 工作空间名称
+}
+
+// ModelConfig 单个模型配置
+type ModelConfig struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	MaxTokens     int    `json:"max_tokens"`
+	SupportsImage bool   `json:"supports_image"`
+	SupportsVideo bool   `json:"supports_video"`
 }
 
 // ProviderConfig 模型供应商配置
 type ProviderConfig struct {
-	Type     string `json:"type"`      // 供应商类型: openai, ollama, anthropic, azure
-	BaseURL  string `json:"base_url"`  // API基础地址
-	APIKey   string `json:"api_key"`   // API密钥（Ollama可留空）
-	DefaultModel string `json:"default_model"` // 默认模型
+	Type    string        `json:"type"`
+	BaseURL string        `json:"base_url"`
+	APIKey  string        `json:"api_key"`
+	Models  []ModelConfig `json:"models"`
 }
 
 type LoggingConfig struct {
-	Level    string `json:"level"`      // debug, info, warn, error
-	JSONMode bool   `json:"json_mode"`  // 是否输出JSON格式
-	FilePath string `json:"file_path"`  // 日志输出文件路径，为空则不写文件
-	Console  bool   `json:"console"`    // 是否同时输出到控制台，默认false
+	Level    string `json:"level"`
+	JSONMode bool   `json:"json_mode"`
+	FilePath string `json:"file_path"`
+	Console  bool   `json:"console"`
 }
 
 type AuthConfig struct {
@@ -115,20 +127,20 @@ type AuthConfig struct {
 }
 
 type AgentConfig struct {
-	Name          string   `json:"name"`
-	Provider      string   `json:"provider"`      // 使用的供应商名称（引用providers中的key）
-	Model         string   `json:"model"`         // 模型名称（可覆盖供应商默认模型）
-	SystemPrompt  string   `json:"system_prompt"`
-	Tools         []string `json:"tools"`
-	MaxIterations int      `json:"max_iterations"`
-	MaxTokens     int      `json:"max_tokens"`     // 最大上下文 Token 数，0=不限（默认32000）
-	CompactThresholdRatio float64 `json:"compact_threshold_ratio"` // 压缩触发比例，0=不压缩（默认0.8）
-	ReserveThresholdRatio float64 `json:"reserve_threshold_ratio"` // 压缩后保留比例（默认0.15）
-	ToolResultMaxBytes     int      `json:"tool_result_max_bytes"`   // 工具结果最大字节数，0=不限（默认20000）
-	ToolResultExemptTools  []string `json:"tool_result_exempt_tools"`  // 裁剪豁免工具名列表
-	ToolResultExemptExts   []string `json:"tool_result_exempt_extensions"` // 裁剪豁免文件扩展名列表
-	SupportsImage          bool     `json:"supports_image"`          // 模型是否支持图片输入
-	SupportsVideo          bool     `json:"supports_video"`          // 模型是否支持视频输入
+	Name                 string   `json:"name"`
+	Provider             string   `json:"provider"`
+	Model                string   `json:"model"`
+	SystemPrompt         string   `json:"system_prompt"`
+	Tools                []string `json:"tools"`
+	MaxIterations        int      `json:"max_iterations"`
+	MaxTokens            int      `json:"max_tokens"`
+	CompactThresholdRatio  float64 `json:"compact_threshold_ratio"`
+	ReserveThresholdRatio float64 `json:"reserve_threshold_ratio"`
+	ToolResultMaxBytes    int      `json:"tool_result_max_bytes"`
+	ToolResultExemptTools []string `json:"tool_result_exempt_tools"`
+	ToolResultExemptExts  []string `json:"tool_result_exempt_extensions"`
+	SupportsImage         bool     `json:"supports_image"`
+	SupportsVideo         bool     `json:"supports_video"`
 }
 
 type ChannelsConfig struct {
@@ -143,7 +155,7 @@ type ChannelsConfig struct {
 // SkillsConfig Skill 系统配置
 type SkillsConfig struct {
 	Enabled  bool   `json:"enabled"`
-	SkillDir string `json:"skill_dir"` // Skill 目录路径，默认 ~/.goclaw/skills
+	SkillDir string `json:"skill_dir"`
 }
 
 type ConsoleConfig struct {
@@ -160,25 +172,25 @@ type WebSocketConfig struct {
 	Port    string `json:"port"`
 }
 
-// LarkConfig 飞书机器人配置（WebSocket 客户端模式，无需开端口）
+// LarkConfig 飞书机器人配置
 type LarkConfig struct {
 	Enabled   bool   `json:"enabled"`
 	AppID     string `json:"app_id"`
 	AppSecret string `json:"app_secret"`
 }
 
-// DingTalkConfig 钉钉机器人配置（Stream 模式，无需开端口）
+// DingTalkConfig 钉钉机器人配置
 type DingTalkConfig struct {
 	Enabled      bool   `json:"enabled"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 }
 
-// WeComConfig 企业微信机器人配置（WebSocket 长连接模式，无需开端口）
+// WeComConfig 企业微信机器人配置
 type WeComConfig struct {
 	Enabled bool   `json:"enabled"`
-	BotID   string `json:"bot_id"`   // 智能机器人 BotID
-	Secret  string `json:"secret"`   // 长连接专用密钥
+	BotID   string `json:"bot_id"`
+	Secret  string `json:"secret"`
 }
 
 // LoadConfig 加载配置
@@ -222,13 +234,13 @@ func (c *Config) GetProviderConfig(providerName string) *ProviderConfig {
 func (c *Config) ResolveDataPaths() (workspaceDir, sessionsDir, skillsDir string) {
 	dataDir := c.Gateway.DataDir
 	if dataDir == "" {
-		dataDir = "goclaw-data"
+		dataDir = "clawdata"
 	}
 	workspace := c.Gateway.Workspace
 	if workspace == "" {
-		workspace = "default"
+		workspace = "workspaces"
 	}
-	workspaceDir = dataDir + "/workspaces/" + workspace
+	workspaceDir = dataDir + "/" + workspace
 	sessionsDir = workspaceDir + "/sessions"
 	skillsDir = workspaceDir + "/skills"
 	return
@@ -236,29 +248,78 @@ func (c *Config) ResolveDataPaths() (workspaceDir, sessionsDir, skillsDir string
 
 // ResolveAgentConfig 解析Agent配置，合并供应商配置
 func (c *Config) ResolveAgentConfig(agentCfg *AgentConfig) (model, baseURL, apiKey, providerType string) {
-	// 必须配置provider
-	if agentCfg.Provider == "" {
-		// 没有配置provider，返回空值
+	// 确定供应商：agent指定 → gateway默认
+	providerName := agentCfg.Provider
+	if providerName == "" {
+		providerName = c.Gateway.DefaultProvider
+	}
+	if providerName == "" {
 		return "", "", "", ""
 	}
 
 	if c.Providers == nil {
-		// 没有providers配置，返回空值
 		return "", "", "", ""
 	}
 
-	provider := c.GetProviderConfig(agentCfg.Provider)
+	provider := c.GetProviderConfig(providerName)
 	if provider == nil {
-		// provider不存在，返回空值
 		return "", "", "", ""
 	}
 
+	// 确定模型：agent指定 → gateway默认 → provider首个模型
 	model = agentCfg.Model
 	if model == "" {
-		model = provider.DefaultModel
+		model = c.Gateway.DefaultModel
 	}
+	if model == "" && len(provider.Models) > 0 {
+		model = provider.Models[0].Name
+	}
+
 	baseURL = provider.BaseURL
 	apiKey = provider.APIKey
 	providerType = provider.Type
 	return
+}
+
+// ResolveAgentModelConfig 解析Agent的模型级别配置（supports_image等）
+// agent自身配置优先，否则从 provider.models 中继承
+func (c *Config) ResolveAgentModelConfig(agentCfg *AgentConfig) (supportsImage, supportsVideo bool) {
+	// agent 自身配置优先
+	if agentCfg.SupportsImage || agentCfg.SupportsVideo {
+		return agentCfg.SupportsImage, agentCfg.SupportsVideo
+	}
+
+	// 从 provider.models 中查找对应模型继承
+	providerName := agentCfg.Provider
+	if providerName == "" {
+		providerName = c.Gateway.DefaultProvider
+	}
+	if providerName == "" || c.Providers == nil {
+		return false, false
+	}
+
+	provider := c.GetProviderConfig(providerName)
+	if provider == nil || len(provider.Models) == 0 {
+		return false, false
+	}
+
+	// 确定目标模型名
+	modelName := agentCfg.Model
+	if modelName == "" {
+		modelName = c.Gateway.DefaultModel
+	}
+	if modelName == "" {
+		modelName = provider.Models[0].Name
+	}
+	if modelName == "" {
+		return false, false
+	}
+
+	for _, m := range provider.Models {
+		if m.Name == modelName {
+			return m.SupportsImage, m.SupportsVideo
+		}
+	}
+
+	return false, false
 }

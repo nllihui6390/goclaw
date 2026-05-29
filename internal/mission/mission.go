@@ -47,9 +47,9 @@ type Runner struct {
 }
 
 // NewRunner 创建任务执行器
-func NewRunner(taskText string, maxIterations int, verifyEnabled bool, llm LLMCaller) *Runner {
+func NewRunner(dataDir, taskText string, maxIterations int, verifyEnabled bool, llm LLMCaller) *Runner {
 	id := fmt.Sprintf("mission_%s", time.Now().Format("20060102150405"))
-	dir := filepath.Join("goclaw-data", "missions", id)
+	dir := filepath.Join(dataDir, "missions", id)
 	os.MkdirAll(dir, 0755)
 
 	return &Runner{
