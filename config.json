@@ -1,7 +1,9 @@
 {
   "gateway": {
     "default_agent": "default",
-    "session_ttl": 0
+    "session_ttl": 0,
+    "data_dir": "goclaw-data",
+    "workspace": "workspace"
   },
   "providers": {
     "deepseek": {
@@ -90,6 +92,11 @@
       "bot_id": "aibuzW2brot2Dm0D7_7cCDulznfLbppvErq",
       "secret": "LGSYO230IPJ75ipnxZPwOfQHWOb78SNArbOQBsgjflw"
     }
+  },
+  "cron": {
+    "enabled": true,
+    "default_channel": "wecom",
+    "default_user": "lhh15698"
   },
   "logging": {
     "level": "info",

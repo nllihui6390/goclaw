@@ -12,7 +12,7 @@ func (app *App) initGateway() {
 
 	app.DataDir = app.Config.Gateway.DataDir
 	if app.DataDir == "" {
-		app.DataDir = "goclaw-data"
+		app.DataDir = "clawdata"
 	}
 	os.MkdirAll(app.DataDir+"/workspaces", 0755)
 }

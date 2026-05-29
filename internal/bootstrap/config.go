@@ -53,6 +53,8 @@ func getDefaultConfig() *config.Config {
 		Gateway: config.GatewayConfig{
 			DefaultAgent: "default",
 			SessionTTL:   60,
+			DataDir:      "clawdata",
+			Workspace:    "workspace",
 		},
 		Providers: map[string]config.ProviderConfig{
 			"openai": {
