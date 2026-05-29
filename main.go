@@ -259,57 +259,57 @@ func main() {
 		logger.Info("ACP 协议已初始化", "agents", len(cfg.ACP.Agents))
 	}
 
-	// 初始化 Cron 系统
-	var cronMgr *cron.Manager
-	if cfg.Cron.Enabled {
-		cronMgr = cron.NewManager(gatewayCronExecutor{gw: gw, agents: gw.GetAgents()})
-		for i, job := range cfg.Cron.Jobs {
-			jobType := cron.JobTypeText
-			if job.Type == "agent" {
-				jobType = cron.JobTypeAgent
-			}
-			// 生成唯一 ID
-			jobID := fmt.Sprintf("cron_%d_%s", i+1, job.Name)
-			// 确定 sessionID: 优先用任务配置，否则用 cron 默认渠道
-			sessionID := job.SessionID
-			if sessionID == "" {
-				defaultChannel := cfg.Cron.DefaultChannel
-				if defaultChannel == "" {
-					defaultChannel = "console"
+		// 初始化 Cron 系统
+		var cronMgr *cron.Manager
+		if cfg.Cron.Enabled {
+			cronMgr = cron.NewManager(gatewayCronExecutor{gw: gw, agents: gw.GetAgents()}, filepath.Join(dataDir, "cron_jobs.json"))
+
+			// 如果已从持久化文件加载任务，跳过 config.json 种子任务
+			if len(cronMgr.ListJobs()) == 0 && len(cfg.Cron.Jobs) > 0 {
+				for i, job := range cfg.Cron.Jobs {
+					jobType := cron.JobTypeText
+					if job.Type == "agent" {
+						jobType = cron.JobTypeAgent
+					}
+					jobID := fmt.Sprintf("cron_%d_%s", i+1, job.Name)
+					sessionID := job.SessionID
+					if sessionID == "" {
+						defaultChannel := cfg.Cron.DefaultChannel
+						if defaultChannel == "" {
+							defaultChannel = "console"
+						}
+						defaultUser := cfg.Cron.DefaultUser
+						if defaultUser == "" {
+							defaultUser = "cron"
+						}
+						sessionID = defaultChannel + ":" + defaultUser
+					}
+					content := job.Content
+					if jobType == cron.JobTypeAgent && job.AgentPrompt != "" && content == "" {
+						content = job.AgentPrompt
+					}
+					agentName := job.AgentName
+					if jobType == cron.JobTypeAgent && agentName == "" {
+						agentName = "default"
+					}
+					cronMgr.AddJob(&cron.Job{
+						ID:          jobID,
+						Name:        job.Name,
+						Schedule:    job.Schedule,
+						Type:        jobType,
+						Content:     content,
+						AgentName:   agentName,
+						SessionID:   sessionID,
+						ActiveStart: job.ActiveStart,
+						ActiveEnd:   job.ActiveEnd,
+						Enabled:     true,
+					})
 				}
-				defaultUser := cfg.Cron.DefaultUser
-				if defaultUser == "" {
-					defaultUser = "cron"
-				}
-				sessionID = defaultChannel + ":" + defaultUser
 			}
-			// agent 类型: content 作为 prompt，agent_prompt 也兼容
-			content := job.Content
-			if jobType == cron.JobTypeAgent && job.AgentPrompt != "" && content == "" {
-				content = job.AgentPrompt
-			}
-			// agent_name 默认为 "default"
-			agentName := job.AgentName
-			if jobType == cron.JobTypeAgent && agentName == "" {
-				agentName = "default"
-			}
-			cronMgr.AddJob(&cron.Job{
-				ID:          jobID,
-				Name:        job.Name,
-				Schedule:    job.Schedule,
-				Type:        jobType,
-				Content:     content,
-				AgentName:   agentName,
-				SessionID:   sessionID,
-				ActiveStart: job.ActiveStart,
-				ActiveEnd:   job.ActiveEnd,
-				Enabled:     true,
-			})
+			cronMgr.Start()
+			tool.SetGlobalCronManager(cronMgr)
+			logger.Info("Cron 系统已启动", "jobs", len(cronMgr.ListJobs()))
 		}
-		cronMgr.Start()
-		tool.SetGlobalCronManager(cronMgr)
-		logger.Info("Cron 系统已启动", "jobs", len(cfg.Cron.Jobs))
-	}
 
 	// 初始化工具安全守卫
 	var toolGuard *security.ToolGuard

@@ -2,7 +2,9 @@ package cron
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -48,34 +50,96 @@ type Manager struct {
 	stopChan chan struct{}
 	wg       sync.WaitGroup
 	jobWg    sync.WaitGroup // 等待正在执行的任务
+	dataFile string         // 持久化文件路径
 }
 
 // NewManager 创建定时任务管理器
-func NewManager(executor Executor) *Manager {
-	return &Manager{
+func NewManager(executor Executor, dataFile string) *Manager {
+	m := &Manager{
 		jobs:     make(map[string]*Job),
 		executor: executor,
 		stopChan: make(chan struct{}),
+		dataFile: dataFile,
+	}
+	m.loadFromFile()
+	return m
+}
+
+// loadFromFile 从文件加载任务
+func (m *Manager) loadFromFile() {
+	if m.dataFile == "" {
+		return
+	}
+	data, err := os.ReadFile(m.dataFile)
+	if err != nil {
+		return // 文件不存在，跳过
+	}
+	var jobs []*Job
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		glog.Logger().Warn("[Cron] 加载任务文件失败", "err", err)
+		return
+	}
+	for _, job := range jobs {
+		job.NextRun = m.parseSchedule(job.Schedule)
+		m.jobs[job.ID] = job
+	}
+	glog.Logger().Info("[Cron] 从文件加载任务", "count", len(jobs), "file", m.dataFile)
+}
+
+// saveToFile 保存任务到文件
+func (m *Manager) saveToFile() {
+	if m.dataFile == "" {
+		return
+	}
+	m.mu.RLock()
+	jobs := make([]*Job, 0, len(m.jobs))
+	for _, j := range m.jobs {
+		jobs = append(jobs, j)
+	}
+	m.mu.RUnlock()
+
+	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		glog.Logger().Error("[Cron] 序列化任务失败", "err", err)
+		return
+	}
+	if err := os.WriteFile(m.dataFile, data, 0644); err != nil {
+		glog.Logger().Error("[Cron] 保存任务文件失败", "err", err)
 	}
 }
 
 // AddJob 添加任务
 func (m *Manager) AddJob(job *Job) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	job.NextRun = m.parseSchedule(job.Schedule)
 	m.jobs[job.ID] = job
+	m.mu.Unlock()
 
+	m.saveToFile()
 	glog.Logger().Info("[Cron] 任务已添加", "id", job.ID, "name", job.Name, "next_run", job.NextRun)
 }
 
 // RemoveJob 删除任务
 func (m *Manager) RemoveJob(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.jobs, id)
+	m.mu.Unlock()
+
+	m.saveToFile()
 	glog.Logger().Info("[Cron] 任务已删除", "id", id)
+}
+
+// UpdateJob 更新任务
+func (m *Manager) UpdateJob(job *Job) {
+	m.mu.Lock()
+	if _, exists := m.jobs[job.ID]; exists {
+		job.NextRun = m.parseSchedule(job.Schedule)
+		m.jobs[job.ID] = job
+	}
+	m.mu.Unlock()
+
+	m.saveToFile()
+	glog.Logger().Info("[Cron] 任务已更新", "id", job.ID, "name", job.Name, "next_run", job.NextRun)
 }
 
 // ListJobs 列出所有任务
@@ -93,31 +157,22 @@ func (m *Manager) ListJobs() []Job {
 // EnableJob 启用任务
 func (m *Manager) EnableJob(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if job, exists := m.jobs[id]; exists {
 		job.Enabled = true
 		job.NextRun = m.parseSchedule(job.Schedule)
 	}
+	m.mu.Unlock()
+	m.saveToFile()
 }
 
 // DisableJob 禁用任务
 func (m *Manager) DisableJob(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if job, exists := m.jobs[id]; exists {
 		job.Enabled = false
 	}
-}
-
-// UpdateJob 更新任务（通过删除再添加实现）
-func (m *Manager) UpdateJob(job *Job) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.jobs[job.ID]; exists {
-		job.NextRun = m.parseSchedule(job.Schedule)
-		m.jobs[job.ID] = job
-		glog.Logger().Info("[Cron] 任务已更新", "id", job.ID, "name", job.Name, "next_run", job.NextRun)
-	}
+	m.mu.Unlock()
+	m.saveToFile()
 }
 
 // RunJobNow 立即执行任务（独立线程，不阻塞调用方）
