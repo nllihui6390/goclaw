@@ -8,5 +8,6 @@ logs
 data.json
 go-claw
 goclaw-data/*
+clawdata/*
 skills/*
 output/*

@@ -2,7 +2,7 @@
   "gateway": {
     "default_agent": "default",
     "session_ttl": 0,
-    "data_dir": "goclaw-data",
+    "data_dir": "clawdata",
     "workspace": "workspace"
   },
   "providers": {
