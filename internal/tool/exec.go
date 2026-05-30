@@ -126,13 +126,13 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 	return string(output), nil
 }
 
-// isTmpDirCommand 检查命令是否只针对 clawdata/tmp 目录
+// isTmpDirCommand 检查命令是否只针对 clawdata/temp 目录
 func isTmpDirCommand(commandLower string) bool {
 	if globalDataDir == "" {
 		return false
 	}
-	tmpDir := strings.ToLower(globalDataDir + "/tmp")
-	tmpDirWin := strings.ToLower(globalDataDir + "\\tmp")
+	tempDir := strings.ToLower(globalDataDir + "/temp")
+	tempDirWin := strings.ToLower(globalDataDir + "\\temp")
 
-	return strings.Contains(commandLower, tmpDir) || strings.Contains(commandLower, tmpDirWin)
+	return strings.Contains(commandLower, tempDir) || strings.Contains(commandLower, tempDirWin)
 }

@@ -405,7 +405,7 @@ func (t *SendFileTool) Execute(_ context.Context, params map[string]interface{})
 	}
 
 	size := info.Size()
-	return fmt.Sprintf("[FILE_BLOCK]\n来源: 本地文件\n路径: %s\n文件名: %s\n大小: %d 字节\n类型: local\n[/FILE_BLOCK]", path, filename, size), nil
+	return fmt.Sprintf("[FILE_BLOCK]\n来源: 本地文件\n路径: %s\n文件名: %s\n大小: %d 字节\n类型: file\n[/FILE_BLOCK]", path, filename, size), nil
 }
 
 // ============================================================
