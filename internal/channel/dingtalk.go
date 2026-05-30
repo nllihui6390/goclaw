@@ -460,3 +460,15 @@ func (d *DingTalkChannel) SendProactive(ctx context.Context, userID, content str
 func (d *DingTalkChannel) SendToolEvent(event ToolEvent) error {
 	return nil
 }
+
+func mustJSON(v any) []byte {
+	data, _ := json.Marshal(v)
+	return data
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}

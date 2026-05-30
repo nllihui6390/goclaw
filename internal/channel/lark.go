@@ -5,35 +5,40 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
-	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"go-claw/pkg/log"
 
-	"github.com/gorilla/websocket"
+	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcard "github.com/larksuite/oapi-sdk-go/v3/card"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 )
 
-// LarkChannel 飞书机器人渠道（WebSocket 客户端模式）
+// LarkChannel 飞书机器人渠道（使用官方 SDK WebSocket 长连接模式）
 type LarkChannel struct {
 	*BotChannelBase
 	appID     string
 	appSecret string
 
-	conn       *websocket.Conn
-	connMu     sync.Mutex
-	tokenCache string
-	tokenExpiry time.Time
-	tokenMu    sync.RWMutex
-	stopChan   chan struct{}
+	// 官方 SDK WebSocket 客户端
+	wsClient *larkws.Client
 
-	sessionInfo   map[string]larkSession
-	sessionInfoMu sync.RWMutex
+	// HTTP 客户端（用于发送消息和上传文件，SDK 内部管理 token）
+	larkClient *lark.Client
+
+	stopChan chan struct{}
+
+	sessionInfo        map[string]larkSession
+	sessionInfoMu      sync.RWMutex
+	pendingReactions   map[string]string // open_id -> message_id (用于处理后清除 reaction)
+	pendingReactionsMu sync.Mutex
 }
 
 type larkSession struct {
@@ -43,214 +48,154 @@ type larkSession struct {
 // NewLarkChannel 创建飞书渠道
 func NewLarkChannel(appID, appSecret string, display DisplayConfig) *LarkChannel {
 	return &LarkChannel{
-		BotChannelBase: NewBotChannelBase("lark", "", display), // 不需要端口
-		appID:          appID,
-		appSecret:      appSecret,
-		stopChan:       make(chan struct{}),
-		sessionInfo:    make(map[string]larkSession),
+		BotChannelBase:   NewBotChannelBase("lark", "", display),
+		appID:            appID,
+		appSecret:        appSecret,
+		stopChan:         make(chan struct{}),
+		sessionInfo:      make(map[string]larkSession),
+		pendingReactions: make(map[string]string),
+		// larkClient 在 Start() 中创建（需要屏蔽 SDK 日志）
 	}
 }
 
 func (l *LarkChannel) Start(ctx context.Context) error {
-	log.Logger().Info("[Lark] 启动WebSocket客户端模式")
+	log.Logger().Info("[Lark] 启动官方SDK WebSocket长连接模式")
 
-	// 获取 token
-	token, err := l.getTenantAccessToken(ctx)
-	if err != nil {
-		return fmt.Errorf("获取token失败: %v", err)
-	}
+	// 飞书 SDK 内部日志硬编码输出到 os.Stdout，初始化期间临时重定向以屏蔽
+	realStdout := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
 
-	// 连接 WebSocket
-	url := "wss://open.feishu.cn/open-apis/event/v2/stream/"
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token)
+	// 创建 HTTP 客户端
+	l.larkClient = lark.NewClient(l.appID, l.appSecret)
 
-	dialer := websocket.DefaultDialer
-	dialer.HandshakeTimeout = 10 * time.Second
+	// 创建事件处理器
+	eventHandler := dispatcher.NewEventDispatcher("", "").
+		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
+			l.handleLarkMessage(ctx, event)
+			return nil
+		})
 
-	conn, _, err := dialer.Dial(url, header)
-	if err != nil {
-		return fmt.Errorf("WebSocket连接失败: %v", err)
-	}
+	// 创建 WebSocket 客户端
+	l.wsClient = larkws.NewClient(l.appID, l.appSecret,
+		larkws.WithEventHandler(eventHandler),
+		larkws.WithLogger(&noopLogger{}),
+	)
 
-	l.connMu.Lock()
-	l.conn = conn
-	l.connMu.Unlock()
+	// 恢复 stdout
+	os.Stdout = realStdout
 
-	// 启动消息接收循环
-	go l.receiveLoop(ctx)
-
-	log.Logger().Info("[Lark] WebSocket连接成功")
-	return nil
-}
-
-func (l *LarkChannel) Stop() error {
-	close(l.stopChan)
-	l.connMu.Lock()
-	if l.conn != nil {
-		l.conn.Close()
-		l.conn = nil
-	}
-	l.connMu.Unlock()
-	return nil
-}
-
-func (l *LarkChannel) receiveLoop(ctx context.Context) {
-	for {
-		select {
-		case <-l.stopChan:
-			return
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		l.connMu.Lock()
-		conn := l.conn
-		l.connMu.Unlock()
-
-		if conn == nil {
-			time.Sleep(time.Second)
-			continue
-		}
-
-		_, data, err := conn.ReadMessage()
+	// 启动客户端
+	go func() {
+		err := l.wsClient.Start(ctx)
 		if err != nil {
-			log.Logger().Error("[Lark] WebSocket读取错误", "err", err)
-			// 尝试重连
-			time.Sleep(5 * time.Second)
-			l.reconnect(ctx)
-			continue
+			log.Logger().Error("[Lark] WebSocket客户端启动失败", "err", err)
 		}
+	}()
 
-		l.handleMessage(data)
-	}
+	// 等待连接建立
+	time.Sleep(3 * time.Second)
+
+	log.Logger().Info("[Lark] WebSocket连接已启动")
+	return nil
 }
 
-func (l *LarkChannel) reconnect(ctx context.Context) {
-	token, err := l.getTenantAccessToken(ctx)
-	if err != nil {
-		log.Logger().Error("[Lark] 重连获取token失败", "err", err)
-		return
-	}
+// noopLogger 空操作日志记录器，实现 larkcore.Logger 接口，用于屏蔽 SDK 内部日志
+type noopLogger struct{}
 
-	url := "wss://open.feishu.cn/open-apis/event/v2/stream/"
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token)
+func (n *noopLogger) Debug(ctx context.Context, args ...interface{}) {}
+func (n *noopLogger) Info(ctx context.Context, args ...interface{})  {}
+func (n *noopLogger) Warn(ctx context.Context, args ...interface{})  {}
+func (n *noopLogger) Error(ctx context.Context, args ...interface{}) {}
 
-	dialer := websocket.DefaultDialer
-	dialer.HandshakeTimeout = 10 * time.Second
-
-	conn, _, err := dialer.Dial(url, header)
-	if err != nil {
-		log.Logger().Error("[Lark] 重连失败", "err", err)
-		return
-	}
-
-	l.connMu.Lock()
-	if l.conn != nil {
-		l.conn.Close()
-	}
-	l.conn = conn
-	l.connMu.Unlock()
-
-	log.Logger().Info("[Lark] WebSocket重连成功")
-}
-
-func (l *LarkChannel) handleMessage(data []byte) {
-	var payload struct {
-		Schema string `json:"schema"`
-		Header struct {
-			EventID    string `json:"event_id"`
-			EventType  string `json:"event_type"`
-			CreateTime string `json:"create_time"`
-		} `json:"header"`
-		Event map[string]any `json:"event"`
-	}
-
-	if err := json.Unmarshal(data, &payload); err != nil {
-		log.Logger().Error("[Lark] JSON解析失败", "err", err)
-		return
-	}
-
-	// 心跳响应
-	if payload.Header.EventType == "" {
-		return
-	}
-
-	// 只处理消息事件
-	if payload.Header.EventType != "im.message.receive_v1" {
-		return
-	}
-
-	event := payload.Event
-	message, _ := event["message"].(map[string]any)
-	sender, _ := event["sender"].(map[string]any)
-	senderId, _ := sender["sender_id"].(map[string]any)
-
-	openID, _ := senderId["open_id"].(string)
-	messageID, _ := message["message_id"].(string)
-	msgType, _ := message["msg_type"].(string)
+// handleLarkMessage 处理飞书消息事件
+func (l *LarkChannel) handleLarkMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) {
+	senderID := event.Event.Sender.SenderId.OpenId
+	messageID := event.Event.Message.MessageId
+	msgType := event.Event.Message.MessageType
 
 	// 只处理文本消息
-	var content string
-	if msgType == "text" {
-		contentStr, _ := message["content"].(string)
-		var contentObj map[string]any
-		if json.Unmarshal([]byte(contentStr), &contentObj) == nil {
-			content, _ = contentObj["text"].(string)
-		}
-	} else {
+	if *msgType != "text" {
+		log.Logger().Debug("[Lark] 收到非文本消息", "msg_type", *msgType)
 		return
 	}
 
-	if content == "" || openID == "" {
+	// 解析消息内容
+	contentStr := event.Event.Message.Content
+	var contentObj map[string]string
+	if err := json.Unmarshal([]byte(*contentStr), &contentObj); err != nil {
+		log.Logger().Error("[Lark] 解析消息内容失败", "err", err)
 		return
 	}
 
-	log.Logger().Info("[Lark] 收到消息", "msg_id", messageID, "open_id", openID, "content", content)
+	content, ok := contentObj["text"]
+	if !ok || content == "" {
+		return
+	}
+
+	log.Logger().Info("[Lark] 收到文本消息", "msg_id", *messageID, "open_id", *senderID, "content", content)
+
+	// 给用户消息添加处理中的 reaction 图标
+	l.addReaction(*messageID, "OK")
+
+	// 存储会话信息，记录最后收到的消息ID（用于处理后清除 reaction）
+	chatID := event.Event.Message.ChatId
+	l.sessionInfoMu.Lock()
+	l.sessionInfo[*senderID] = larkSession{
+		openID: *senderID,
+	}
+	l.sessionInfoMu.Unlock()
+
+	// 记录消息ID用于后续移除 reaction
+	l.pendingReactionsMu.Lock()
+	l.pendingReactions[*senderID] = *messageID
+	l.pendingReactionsMu.Unlock()
 
 	msg := Message{
-		ID:        messageID,
+		ID:        *messageID,
 		Channel:   l.name,
-		From:      openID,
+		From:      *senderID,
 		Content:   content,
 		Timestamp: time.Now().Unix(),
 		Metadata: map[string]any{
-			"open_id":    openID,
-			"message_id": messageID,
-			"msg_type":   msgType,
+			"open_id":    *senderID,
+			"message_id": *messageID,
+			"chat_id":    *chatID,
+			"msg_type":   *msgType,
 		},
 	}
-
-	// 存储会话信息用于主动发送
-	l.sessionInfoMu.Lock()
-	l.sessionInfo[openID] = larkSession{
-		openID: openID,
-	}
-	l.sessionInfoMu.Unlock()
 
 	l.PushMessage(msg)
 }
 
+func (l *LarkChannel) Stop() error {
+	close(l.stopChan)
+	// 官方 SDK 的 wsClient 没有 Stop 方法，关闭 stopChan 即可
+	log.Logger().Info("[Lark] 已停止")
+	return nil
+}
+
+func (l *LarkChannel) GetName() string {
+	return l.name
+}
+
+func (l *LarkChannel) Receive(ctx context.Context) (<-chan Message, error) {
+	return l.msgChan, nil
+}
+
 // Send 发送响应（调用飞书消息API）
 func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
-	token, err := l.getTenantAccessToken(ctx)
-	if err != nil {
-		return err
-	}
-
 	// 检查是否包含文件
 	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
 		fileInfo := ParseFileBlock(resp.Content)
 		if fileInfo != nil && fileInfo.Path != "" {
 			// 上传文件
-			fileKey, err := l.uploadFile(ctx, token, fileInfo.Path)
+			fileKey, err := l.uploadFile(ctx, fileInfo.Path)
 			if err == nil && fileKey != "" {
 				// 发送文件消息
-				err = l.sendFileMessage(ctx, token, resp.To, fileKey)
+				err = l.sendFileMessage(ctx, resp.To, fileKey)
 				if err == nil {
 					log.Logger().Info("[Lark] 文件消息已发送", "to", resp.To, "filename", fileInfo.Filename)
+					l.clearPendingReaction(resp.To)
 					return nil
 				}
 				log.Logger().Warn("[Lark] 文件消息发送失败，回退到文本", "err", err)
@@ -260,29 +205,43 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 		}
 	}
 
-	url := "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
-	reqBody := map[string]any{
-		"receive_id": resp.To,
-		"msg_type":   "text",
-		"content":    string(mustJSON(map[string]string{"text": resp.Content})),
+	// 发送文本消息
+	content := resp.Content
+	if strings.Contains(content, "[FILE_BLOCK]") {
+		content = ExtractFileBlockDescription(content)
 	}
 
-	jsonData, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	if detectTable(content) {
+		// 包含表格 → 混合 markdown + 原生 table 元素的卡片
+		chunks := buildCardContentChunks(content)
+		for _, chunk := range chunks {
+			if err := l.sendInteractiveCard(ctx, resp.To, chunk); err != nil {
+				log.Logger().Error("[Lark] 发送卡片消息失败", "err", err)
+				l.clearPendingReaction(resp.To)
+				return err
+			}
+		}
+		l.clearPendingReaction(resp.To)
+		log.Logger().Debug("[Lark] 消息已发送", "to", resp.To)
+		return nil
+	}
 
-	httpResp, err := l.HTTPClient().Do(req)
-	if err != nil {
+	// 无表格 → 简单卡片
+	card := larkcard.NewMessageCard().
+		Config(larkcard.NewMessageCardConfig().WideScreenMode(true).Build()).
+		Elements([]larkcard.MessageCardElement{
+			larkcard.NewMessageCardMarkdown().Content(headingToBold(content)).Build(),
+		}).
+		Build()
+	cardJSON, _ := card.String()
+
+	if err := l.sendInteractiveCard(ctx, resp.To, cardJSON); err != nil {
+		log.Logger().Error("[Lark] 发送卡片消息失败", "err", err)
+		l.clearPendingReaction(resp.To)
 		return err
 	}
-	defer httpResp.Body.Close()
 
-	if httpResp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("飞书API返回 %d: %s", httpResp.StatusCode, truncateStr(string(respBody), 200))
-	}
-
+	l.clearPendingReaction(resp.To)
 	log.Logger().Debug("[Lark] 消息已发送", "to", resp.To)
 	return nil
 }
@@ -294,20 +253,14 @@ func (l *LarkChannel) SendFile(ctx context.Context, to string, info *FileBlockIn
 		return false, nil
 	}
 
-	// 获取 tenant_access_token
-	token, err := l.getTenantAccessToken(ctx)
-	if err != nil {
-		return true, err
-	}
-
 	// 上传文件
-	fileKey, err := l.uploadFile(ctx, token, info.Path)
+	fileKey, err := l.uploadFile(ctx, info.Path)
 	if err != nil {
 		return true, fmt.Errorf("文件上传失败: %w", err)
 	}
 
 	// 发送文件消息
-	if err := l.sendFileMessage(ctx, token, to, fileKey); err != nil {
+	if err := l.sendFileMessage(ctx, to, fileKey); err != nil {
 		return true, err
 	}
 
@@ -315,73 +268,73 @@ func (l *LarkChannel) SendFile(ctx context.Context, to string, info *FileBlockIn
 	return true, nil
 }
 
-// uploadFile 上传文件到飞书，返回 file_key
-func (l *LarkChannel) uploadFile(ctx context.Context, token, filePath string) (string, error) {
+// uploadFile 上传文件到飞书，返回 file_key（使用官方 SDK）
+func (l *LarkChannel) uploadFile(ctx context.Context, filePath string) (string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("读取文件失败: %v", err)
 	}
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	filename := filepath.Base(filePath)
+
+	// 根据文件扩展名确定 file_type
+	ext := strings.ToLower(filepath.Ext(filePath))
+	fileType := "stream" // 默认使用 stream 类型
+	switch ext {
+	case ".pdf":
+		fileType = larkim.CreateFileFileTypePdf
+	case ".doc", ".docx":
+		fileType = larkim.CreateFileFileTypeDoc
+	case ".xls", ".xlsx":
+		fileType = larkim.CreateFileFileTypeXls
+	case ".ppt", ".pptx":
+		fileType = larkim.CreateFileFileTypePpt
+	case ".mp4":
+		fileType = larkim.CreateFileFileTypeMp4
+	case ".opus":
+		fileType = larkim.CreateFileFileTypeOpus
+	}
+
+	// 使用官方 SDK 上传文件
+	resp, err := l.larkClient.Im.File.Create(ctx, larkim.NewCreateFileReqBuilder().
+		Body(larkim.NewCreateFileReqBodyBuilder().
+			FileType(fileType).
+			FileName(filename).
+			File(bytes.NewReader(data)).
+			Build()).
+		Build())
+
 	if err != nil {
-		return "", err
-	}
-	part.Write(data)
-	writer.Close()
-
-	url := "https://open.feishu.cn/open-apis/im/v1/files"
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := l.HTTPClient().Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-	var result struct {
-		Code int `json:"code"`
-		Data struct {
-			FileKey string `json:"file_key"`
-		} `json:"data"`
-		Msg string `json:"msg"`
-	}
-	json.Unmarshal(respBody, &result)
-
-	if result.Code != 0 {
-		return "", fmt.Errorf("飞书上传失败: %s (code: %d)", result.Msg, result.Code)
+		return "", fmt.Errorf("飞书SDK上传失败: %v", err)
 	}
 
-	return result.Data.FileKey, nil
+	if !resp.Success() {
+		return "", fmt.Errorf("飞书上传失败: %s (code: %d)", resp.Msg, resp.Code)
+	}
+
+	return *resp.Data.FileKey, nil
 }
 
 // sendFileMessage 发送文件消息
-func (l *LarkChannel) sendFileMessage(ctx context.Context, token, receiveID, fileKey string) error {
-	url := "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
-	reqBody := map[string]any{
-		"receive_id": receiveID,
-		"msg_type":   "file",
-		"content":    string(mustJSON(map[string]string{"file_key": fileKey})),
-	}
+func (l *LarkChannel) sendFileMessage(ctx context.Context, receiveID, fileKey string) error {
+	// 使用官方 SDK 发送文件消息
+	content, _ := json.Marshal(map[string]string{"file_key": fileKey})
 
-	jsonData, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := l.larkClient.Im.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeOpenId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(receiveID).
+			MsgType(larkim.MsgTypeFile).
+			Content(string(content)).
+			Build()).
+		Build())
 
-	resp, err := l.HTTPClient().Do(req)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("飞书API返回 %d: %s", resp.StatusCode, string(respBody))
+	if !resp.Success() {
+		return fmt.Errorf("飞书API返回错误: %s (code: %d)", resp.Msg, resp.Code)
 	}
 
 	return nil
@@ -397,32 +350,25 @@ func (l *LarkChannel) SendProactive(ctx context.Context, userID, content string)
 		return fmt.Errorf("[Lark] 未找到用户 %s 的会话信息（用户需先与机器人对话一次）", userID)
 	}
 
-	token, err := l.getTenantAccessToken(ctx)
-	if err != nil {
-		return err
-	}
-
-	url := "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
-	reqBody := map[string]any{
-		"receive_id": session.openID,
-		"msg_type":   "text",
-		"content":    string(mustJSON(map[string]string{"text": content})),
-	}
-
-	jsonData, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	httpResp, err := l.HTTPClient().Do(req)
-	if err != nil {
-		return err
-	}
-	defer httpResp.Body.Close()
-
-	if httpResp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("飞书API返回 %d: %s", httpResp.StatusCode, truncateStr(string(respBody), 200))
+	// 飞书 interactive 卡片消息
+	if detectTable(content) {
+		chunks := buildCardContentChunks(content)
+		for _, chunk := range chunks {
+			if err := l.sendInteractiveCard(ctx, session.openID, chunk); err != nil {
+				return err
+			}
+		}
+	} else {
+		card := larkcard.NewMessageCard().
+			Config(larkcard.NewMessageCardConfig().WideScreenMode(true).Build()).
+			Elements([]larkcard.MessageCardElement{
+				larkcard.NewMessageCardMarkdown().Content(headingToBold(content)).Build(),
+			}).
+			Build()
+		cardJSON, _ := card.String()
+		if err := l.sendInteractiveCard(ctx, session.openID, cardJSON); err != nil {
+			return err
+		}
 	}
 
 	log.Logger().Info("[Lark] 主动消息已发送", "user", userID)
@@ -430,64 +376,348 @@ func (l *LarkChannel) SendProactive(ctx context.Context, userID, content string)
 }
 
 func (l *LarkChannel) SendToolEvent(event ToolEvent) error {
+	if !l.display.ShouldShowToolEvent(event.Type) {
+		return nil
+	}
+
+	// 需要知道发送给谁
+	if event.To == "" {
+		return nil
+	}
+
+	var content string
+	switch event.Type {
+	case "thinking":
+		if event.Thinking != "" {
+			thinking := event.Thinking
+			if len(thinking) > 200 {
+				thinking = thinking[:200] + "..."
+			}
+			content = fmt.Sprintf("💭 思考: %s", thinking)
+		}
+	case "calling":
+		content = fmt.Sprintf("🔧 调用工具: %s", event.ToolName)
+		if event.Args != "" {
+			args := event.Args
+			if len(args) > 200 {
+				args = args[:200] + "..."
+			}
+			content += fmt.Sprintf("\n参数: %s", args)
+		}
+	case "result":
+		result := event.Result
+		if len(result) > 500 {
+			result = result[:500] + "...(已截断)"
+		}
+		content = fmt.Sprintf("✅ %s 结果: %s", event.ToolName, result)
+	case "error":
+		content = fmt.Sprintf("❌ %s 错误: %s", event.ToolName, event.Error)
+	default:
+		return nil
+	}
+
+	if content == "" {
+		return nil
+	}
+
+	// 发送为轻量级卡片消息
+	card := larkcard.NewMessageCard().
+		Elements([]larkcard.MessageCardElement{
+			larkcard.NewMessageCardLarkMd().Content(content).Build(),
+		}).
+		Build()
+	cardJSON, _ := card.String()
+
+	resp, err := l.larkClient.Im.Message.Create(context.Background(), larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeOpenId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(event.To).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(string(cardJSON)).
+			Build()).
+		Build())
+
+	if err != nil {
+		log.Logger().Debug("[Lark] 发送工具事件失败", "err", err)
+		return nil // 不阻断主流程
+	}
+
+	if !resp.Success() {
+		log.Logger().Debug("[Lark] 发送工具事件失败", "code", resp.Code, "msg", resp.Msg)
+	}
+
 	return nil
 }
 
-// getTenantAccessToken 获取飞书 tenant_access_token
-func (l *LarkChannel) getTenantAccessToken(ctx context.Context) (string, error) {
-	l.tokenMu.RLock()
-	if l.tokenCache != "" && time.Now().Before(l.tokenExpiry) {
-		token := l.tokenCache
-		l.tokenMu.RUnlock()
-		return token, nil
+// ─────────────────── Markdown 表格 → 飞书原生 table 组件 ───────────────────
+
+// parseMarkdownTable 解析 GFM 表格行，返回飞书 table 元素 JSON
+func parseMarkdownTable(tableLines []string) map[string]any {
+	var lines []string
+	for _, ln := range tableLines {
+		if strings.TrimSpace(ln) != "" {
+			lines = append(lines, ln)
+		}
 	}
-	l.tokenMu.RUnlock()
-
-	url := "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-	reqBody := map[string]string{
-		"app_id":     l.appID,
-		"app_secret": l.appSecret,
+	if len(lines) < 2 {
+		return nil
 	}
-	jsonData, _ := json.Marshal(reqBody)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
+	sepIdx := -1
+	isSepRe := regexp.MustCompile(`^\s*\|[\s:\-|]+\|\s*$`)
+	for i, ln := range lines {
+		if isSepRe.MatchString(ln) {
+			sepIdx = i
+			break
+		}
+	}
+	if sepIdx <= 0 {
+		return nil
+	}
 
-	resp, err := l.HTTPClient().Do(req)
+	splitRow := func(line string) []string {
+		s := strings.TrimSpace(line)
+		s = strings.TrimPrefix(s, "|")
+		s = strings.TrimSuffix(s, "|")
+		cells := strings.Split(s, "|")
+		for i := range cells {
+			cells[i] = strings.TrimSpace(cells[i])
+		}
+		return cells
+	}
+
+	headers := splitRow(lines[0])
+	if len(headers) == 0 {
+		return nil
+	}
+
+	parseAlignment := func(sepLine string) []string {
+		var aligns []string
+		for _, cell := range splitRow(sepLine) {
+			c := strings.TrimSpace(cell)
+			if strings.HasPrefix(c, ":") && strings.HasSuffix(c, ":") {
+				aligns = append(aligns, "center")
+			} else if strings.HasSuffix(c, ":") {
+				aligns = append(aligns, "right")
+			} else {
+				aligns = append(aligns, "left")
+			}
+		}
+		return aligns
+	}
+	alignments := parseAlignment(lines[sepIdx])
+
+	cols := make([]map[string]any, len(headers))
+	for i, h := range headers {
+		align := "left"
+		if i < len(alignments) {
+			align = alignments[i]
+		}
+		cols[i] = map[string]any{
+			"name":             fmt.Sprintf("col%d", i),
+			"display_name":     h,
+			"width":            "auto",
+			"horizontal_align": align,
+		}
+	}
+
+	rows := make([]map[string]any, 0)
+	boldRe := regexp.MustCompile(`[*_]{1,2}(.+?)[*_]{1,2}`)
+	for _, line := range lines[sepIdx+1:] {
+		cells := splitRow(line)
+		row := make(map[string]any)
+		for i := range headers {
+			cellText := ""
+			if i < len(cells) {
+				cellText = cells[i]
+			}
+			cellText = boldRe.ReplaceAllString(cellText, "$1")
+			row[cols[i]["name"].(string)] = cellText
+		}
+		rows = append(rows, row)
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	pageSize := len(rows)
+	if pageSize < 10 {
+		pageSize = 10
+	}
+	if pageSize > 50 {
+		pageSize = 50
+	}
+
+	return map[string]any{
+		"tag":       "table",
+		"page_size": pageSize,
+		"columns":   cols,
+		"rows":      rows,
+	}
+}
+
+var headingRe = regexp.MustCompile(`(?m)^#{1,6}\s+(.+)$`)
+
+func headingToBold(text string) string {
+	return headingRe.ReplaceAllString(text, "**$1**")
+}
+
+const maxTablesPerCard = 5
+
+func buildCardContent(text string) []map[string]any {
+	lines := strings.Split(text, "\n")
+	var elements []map[string]any
+	tableStartRe := regexp.MustCompile(`^\s*\|`)
+
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if tableStartRe.MatchString(line) {
+			var tableBlock []string
+			for i < len(lines) && tableStartRe.MatchString(lines[i]) {
+				tableBlock = append(tableBlock, lines[i])
+				i++
+			}
+			tableElem := parseMarkdownTable(tableBlock)
+			if tableElem != nil {
+				elements = append(elements, tableElem)
+			} else {
+				fallback := headingToBold(strings.Join(tableBlock, "\n"))
+				elements = append(elements, map[string]any{
+					"tag": "markdown", "content": fallback,
+				})
+			}
+		} else {
+			var textBlock []string
+			for i < len(lines) && !tableStartRe.MatchString(lines[i]) {
+				textBlock = append(textBlock, lines[i])
+				i++
+			}
+			content := strings.TrimSpace(strings.Join(textBlock, "\n"))
+			if content != "" {
+				content = headingToBold(content)
+				elements = append(elements, map[string]any{
+					"tag": "markdown", "content": content,
+				})
+			}
+		}
+	}
+
+	if len(elements) == 0 {
+		elements = append(elements, map[string]any{
+			"tag": "markdown", "content": headingToBold(text),
+		})
+	}
+	return elements
+}
+
+func buildCardContentChunks(text string) []string {
+	elements := buildCardContent(text)
+
+	var chunks [][]map[string]any
+	var cur []map[string]any
+	tableCount := 0
+	for _, elem := range elements {
+		if elem["tag"] == "table" {
+			tableCount++
+			if tableCount > maxTablesPerCard && len(chunks) > 0 {
+				chunks = append(chunks, cur)
+				cur = nil
+				tableCount = 1
+			}
+			cur = append(cur, elem)
+		} else {
+			cur = append(cur, elem)
+		}
+	}
+	chunks = append(chunks, cur)
+
+	var result []string
+	for _, chunk := range chunks {
+		if len(chunk) == 0 {
+			continue
+		}
+		card := map[string]any{"elements": chunk}
+		jsonBytes, _ := json.Marshal(card)
+		result = append(result, string(jsonBytes))
+	}
+	return result
+}
+
+func detectTable(text string) bool {
+	r, _ := regexp.Compile(`(?m)^\s*\|`)
+	return r.MatchString(text)
+}
+
+func (l *LarkChannel) sendInteractiveCard(ctx context.Context, receiveID, cardJSON string) error {
+	resp, err := l.larkClient.Im.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeOpenId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(receiveID).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(cardJSON).
+			Build()).
+		Build())
+
 	if err != nil {
-		return "", err
+		return err
 	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Code             int    `json:"code"`
-		Message          string `json:"message"`
-		TenantAccessToken string `json:"tenant_access_token"`
-		Expire           int    `json:"expire"`
+	if !resp.Success() {
+		return fmt.Errorf("飞书API返回错误: %s (code: %d)", resp.Msg, resp.Code)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	if result.Code != 0 {
-		return "", fmt.Errorf("飞书token错误: %s", result.Message)
-	}
-
-	l.tokenMu.Lock()
-	l.tokenCache = result.TenantAccessToken
-	l.tokenExpiry = time.Now().Add(time.Duration(result.Expire-300) * time.Second)
-	l.tokenMu.Unlock()
-
-	return result.TenantAccessToken, nil
+	return nil
 }
 
-func mustJSON(v any) []byte {
-	data, _ := json.Marshal(v)
-	return data
+// ─────────────────── 消息回执 (Reaction) ───────────────────
+
+// addReaction 给消息添加表情回复（非阻塞）
+func (l *LarkChannel) addReaction(messageID, emojiType string) {
+	go func() {
+		resp, err := l.larkClient.Im.MessageReaction.Create(context.Background(),
+			larkim.NewCreateMessageReactionReqBuilder().
+				MessageId(messageID).
+				Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+					ReactionType(larkim.NewEmojiBuilder().EmojiType(emojiType).Build()).
+					Build()).
+				Build())
+		if err != nil {
+			log.Logger().Debug("[Lark] 添加 reaction 失败", "err", err)
+			return
+		}
+		if !resp.Success() {
+			log.Logger().Debug("[Lark] 添加 reaction 失败", "code", resp.Code, "msg", resp.Msg)
+		}
+	}()
 }
 
-func truncateStr(s string, n int) string {
-	if len(s) <= n {
-		return s
+// removeReaction 移除消息上的表情回复（非阻塞）
+func (l *LarkChannel) removeReaction(messageID, emojiType string) {
+	go func() {
+		resp, err := l.larkClient.Im.MessageReaction.Delete(context.Background(),
+			larkim.NewDeleteMessageReactionReqBuilder().
+				MessageId(messageID).
+				ReactionId(emojiType).
+				Build())
+		if err != nil {
+			log.Logger().Debug("[Lark] 移除 reaction 失败", "err", err)
+			return
+		}
+		if !resp.Success() {
+			log.Logger().Debug("[Lark] 移除 reaction 失败", "code", resp.Code, "msg", resp.Msg)
+		}
+	}()
+}
+
+// clearPendingReaction 根据 open_id 移除之前添加的 reaction
+func (l *LarkChannel) clearPendingReaction(openID string) {
+	l.pendingReactionsMu.Lock()
+	msgID, ok := l.pendingReactions[openID]
+	if ok {
+		delete(l.pendingReactions, openID)
 	}
-	return s[:n] + "..."
+	l.pendingReactionsMu.Unlock()
+	if ok {
+		l.removeReaction(msgID, "OK")
+	}
 }
