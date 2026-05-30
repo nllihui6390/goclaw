@@ -263,6 +263,7 @@ func RunWizard() *Config {
 			DenyShellInject:   true,
 			DenySensitivePath: true,
 		},
+		Cron: CronConfig{Enabled: true},
 	}
 
 	// ── 保存配置 ──
@@ -287,9 +288,9 @@ func RunWizard() *Config {
 		fmt.Println("╔══════════════════════════════════════════════════════════╗")
 		fmt.Println("║  配置完成！已保存到 config.json                            ║")
 		fmt.Println("║                                                          ║")
-		fmt.Printf("║  供应商: %s\n                                             ║", titleCase(providerName))
-		fmt.Printf("║  模型:   %s\n                                             ║", model)
-		fmt.Printf("║  渠道:   %s\n                                             ║", channels)
+		fmt.Printf("║  供应商: %s 		    									║\n", titleCase(providerName))
+		fmt.Printf("║  模型:   %s                                               ║\n", model)
+		fmt.Printf("║  渠道:   %s                                               ║\n", channels)
 		fmt.Println("╚══════════════════════════════════════════════════════════╝")
 		fmt.Println()
 		fmt.Println("正在启动 go-claw...")

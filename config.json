@@ -53,9 +53,7 @@
         "append_file",
         "send_file",
         "browser_use",
-        "get_current_time",
-        "set_user_timezone",
-        "cron_status"
+        "set_user_timezone"
       ],
       "max_iterations": 20
     },
@@ -73,9 +71,7 @@
         "append_file",
         "send_file",
         "browser_use",
-        "get_current_time",
-        "set_user_timezone",
-        "cron_status"
+        "set_user_timezone"
       ],
       "max_iterations": 20
     }

@@ -12,15 +12,15 @@ import (
 	glog "go-claw/pkg/log"
 )
 
-// FileStore 基于目录的持久化存储
+// FileStore 于目录的持久化存储
 // sessions/ 目录下每个会话一个 JSON 文件
-// memories.json 存放所有记忆数据
+// sessions/memories.json 存放所有记忆数据
 type FileStore struct {
 	mu       sync.RWMutex
 	sessions map[string]SessionData
 	memories map[string]MemoryEntry
 	sessDir  string // sessions 目录路径
-	memFile  string // memories.json 文件路径
+	memFile  string // memories.json 文件路径（在 sessions 目录内）
 }
 
 func NewFileStore(sessDir string) (*FileStore, error) {
@@ -29,7 +29,7 @@ func NewFileStore(sessDir string) (*FileStore, error) {
 		sessions: make(map[string]SessionData),
 		memories: make(map[string]MemoryEntry),
 		sessDir:  sessDir,
-		memFile:  filepath.Join(filepath.Dir(sessDir), "memories.json"),
+		memFile:  filepath.Join(sessDir, "memories.json"),
 	}
 
 	// 确保 sessions 目录存在

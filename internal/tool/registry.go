@@ -18,16 +18,18 @@ type ToolFactory func() Tool
 
 // ToolRegistry 工具注册表
 type ToolRegistry struct {
-	mu       sync.RWMutex
-	factories map[string]ToolFactory
-	skills    map[string]*Skill
+	mu           sync.RWMutex
+	factories    map[string]ToolFactory
+	skills       map[string]*Skill
+	defaultTools []string // 默认加载的工具列表
 }
 
 // NewToolRegistry 创建工具注册表
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
-		factories: make(map[string]ToolFactory),
-		skills:    make(map[string]*Skill),
+		factories:    make(map[string]ToolFactory),
+		skills:       make(map[string]*Skill),
+		defaultTools: []string{},
 	}
 }
 
@@ -43,6 +45,28 @@ func (r *ToolRegistry) RegisterSkill(skill Skill) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.skills[skill.Name] = &skill
+}
+
+// RegisterDefault 注册默认工具（所有 Agent 自动加载，无需在 tools 中显式声明）
+func (r *ToolRegistry) RegisterDefault(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// 避免重复注册
+	for _, n := range r.defaultTools {
+		if n == name {
+			return
+		}
+	}
+	r.defaultTools = append(r.defaultTools, name)
+}
+
+// DefaultTools 返回默认工具名称列表
+func (r *ToolRegistry) DefaultTools() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]string, len(r.defaultTools))
+	copy(result, r.defaultTools)
+	return result
 }
 
 // Create 创建工具实例
@@ -145,6 +169,29 @@ func init() {
 		Description: "浏览器自动化操作（导航、点击、输入、截图等）",
 		ToolNames:   []string{"browser_use"},
 	})
+
+	// 注册默认工具（所有 Agent 自动加载，无需在 tools 中显式声明）
+	// 系统/时间类
+	GlobalRegistry.RegisterDefault("cron_status")
+	GlobalRegistry.RegisterDefault("get_current_time")
+	GlobalRegistry.RegisterDefault("system_info")
+	GlobalRegistry.RegisterDefault("network_check")
+	// 网络/信息类
+	GlobalRegistry.RegisterDefault("http_request")
+	GlobalRegistry.RegisterDefault("web_search")
+	GlobalRegistry.RegisterDefault("url_summary")
+	// 计算/代码类
+	GlobalRegistry.RegisterDefault("calculate")
+	GlobalRegistry.RegisterDefault("run_code")
+	// 文件/文档类
+	GlobalRegistry.RegisterDefault("list_files")
+	GlobalRegistry.RegisterDefault("read_pdf")
+	GlobalRegistry.RegisterDefault("ocr_image")
+	GlobalRegistry.RegisterDefault("generate_image")
+	// 数据库类
+	GlobalRegistry.RegisterDefault("database_query")
+	// 配置管理类
+	GlobalRegistry.RegisterDefault("manage_config")
 }
 
 // MemoryTool 记忆工具

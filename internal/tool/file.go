@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -407,7 +408,230 @@ func (t *SendFileTool) Execute(_ context.Context, params map[string]interface{})
 	return fmt.Sprintf("[FILE_BLOCK]\n来源: 本地文件\n路径: %s\n文件名: %s\n大小: %d 字节\n类型: local\n[/FILE_BLOCK]", path, filename, size), nil
 }
 
+// ============================================================
+// ListFilesTool — 列出目录文件
+// ============================================================
+
+// ListFilesTool 文件列表工具
+type ListFilesTool struct{}
+
+func NewListFilesTool() *ListFilesTool {
+	return &ListFilesTool{}
+}
+
+func (t *ListFilesTool) Name() string {
+	return "list_files"
+}
+
+func (t *ListFilesTool) Description() string {
+	return `列出目录下的文件和子目录，支持递归遍历。
+比 exec ls/dir 更安全可控，支持过滤和深度限制。
+
+调用格式：
+- list_files(path=".")  # 列出当前目录
+- list_files(path="/home/user", recursive=true)  # 递归列出
+- list_files(path=".", pattern="*.go")  # 过滤文件类型
+- list_files(path=".", depth=2)  # 限制递归深度
+
+参数说明：
+- path: 目录路径（必填）
+- recursive: 是否递归，默认 false
+- pattern: 文件名匹配模式（如 *.go）
+- depth: 递归深度限制，默认无限制
+- show_hidden: 是否显示隐藏文件，默认 false`
+}
+
+func (t *ListFilesTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "目录路径",
+			},
+			"recursive": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否递归遍历",
+			},
+			"pattern": map[string]interface{}{
+				"type":        "string",
+				"description": "文件名匹配模式，如 *.go",
+			},
+			"depth": map[string]interface{}{
+				"type":        "integer",
+				"description": "递归深度限制",
+			},
+			"show_hidden": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否显示隐藏文件",
+			},
+		},
+		"required": []string{"path"},
+	}
+}
+
+func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok || path == "" {
+		return "", fmt.Errorf("缺少 path 参数")
+	}
+
+	recursive := false
+	if r, ok := params["recursive"].(bool); ok {
+		recursive = r
+	}
+
+	pattern, _ := params["pattern"].(string)
+
+	depth := -1
+	if d, ok := params["depth"].(float64); ok && d > 0 {
+		depth = int(d)
+	}
+
+	showHidden := false
+	if s, ok := params["show_hidden"].(bool); ok {
+		showHidden = s
+	}
+
+	// 安全检查
+	if isSensitivePath(path) {
+		return "", fmt.Errorf("禁止访问敏感路径: %s", path)
+	}
+
+	// 检查路径是否存在
+	dirInfo, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("路径不存在: %v", err)
+	}
+
+	if !dirInfo.IsDir() {
+		return "", fmt.Errorf("路径不是目录: %s", path)
+	}
+
+	// 收集文件
+	var files []listFileInfo
+	if recursive {
+		err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			relPath, _ := filepath.Rel(path, p)
+			currentDepth := strings.Count(relPath, string(filepath.Separator))
+			if depth > 0 && currentDepth > depth {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !showHidden && isHiddenFile(d.Name()) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if pattern != "" && !d.IsDir() {
+				matched, _ := filepath.Match(pattern, d.Name())
+				if !matched {
+					return nil
+				}
+			}
+			fi, _ := d.Info()
+			files = append(files, listFileInfo{
+				Path:  p,
+				IsDir: d.IsDir(),
+				Size:  fi.Size(),
+			})
+			return nil
+		})
+	} else {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return "", fmt.Errorf("读取目录失败: %v", err)
+		}
+		for _, entry := range entries {
+			if !showHidden && isHiddenFile(entry.Name()) {
+				continue
+			}
+			if pattern != "" && !entry.IsDir() {
+				matched, _ := filepath.Match(pattern, entry.Name())
+				if !matched {
+					continue
+				}
+			}
+			fi, _ := entry.Info()
+			files = append(files, listFileInfo{
+				Path:  filepath.Join(path, entry.Name()),
+				IsDir: entry.IsDir(),
+				Size:  fi.Size(),
+			})
+		}
+	}
+
+	if len(files) == 0 {
+		return fmt.Sprintf("目录 %s 为空", path), nil
+	}
+
+	// 格式化输出
+	result := fmt.Sprintf("## 目录列表: %s\n\n", path)
+	result += "| 类型 | 大小 | 路径 |\n"
+	result += "|------|------|------|\n"
+
+	dirCount := 0
+	fileCount := 0
+	totalSize := int64(0)
+
+	for _, f := range files {
+		typeStr := "📄"
+		if f.IsDir {
+			typeStr = "📁"
+			dirCount++
+		} else {
+			fileCount++
+			totalSize += f.Size
+		}
+
+		displayPath := f.Path
+		if rel, err := filepath.Rel(path, f.Path); err == nil {
+			displayPath = rel
+		}
+
+		result += fmt.Sprintf("| %s | %s | %s |\n", typeStr, formatFileSize(f.Size), displayPath)
+	}
+
+	result += fmt.Sprintf("\n**统计**: %d 个目录, %d 个文件, 总大小 %s", dirCount, fileCount, formatFileSize(totalSize))
+
+	return result, nil
+}
+
+// listFileInfo 目录文件信息
+type listFileInfo struct {
+	Path  string
+	IsDir bool
+	Size  int64
+}
+
+func isHiddenFile(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "__")
+}
+
+func formatFileSize(size int64) string {
+	if size == 0 {
+		return "-"
+	}
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	if size < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(size)/1024)
+	}
+	if size < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", float64(size)/1024/1024)
+	}
+	return fmt.Sprintf("%.1f GB", float64(size)/1024/1024/1024)
+}
+
 func init() {
 	GlobalRegistry.Register("append_file", func() Tool { return &AppendFileTool{} })
 	GlobalRegistry.Register("send_file", func() Tool { return NewSendFileTool() })
+	GlobalRegistry.Register("list_files", func() Tool { return NewListFilesTool() })
 }

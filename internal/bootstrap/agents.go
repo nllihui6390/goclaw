@@ -282,10 +282,20 @@ func initDataDirs(workspaceDir, sessionsDir, skillsDir string, logger *slog.Logg
 	logger.Info("数据目录已初始化", "workspace", workspaceDir)
 }
 
-// loadTools 使用注册表加载工具
+// loadTools 使用注册表加载工具（合并默认工具 + agent 配置的显式工具）
 func loadTools(toolNames []string) []tool.Tool {
+	// 收集所有要加载的工具名：默认工具 + agent 显式配置
+	defaults := tool.GlobalRegistry.DefaultTools()
+	allNames := make(map[string]bool)
+	for _, n := range defaults {
+		allNames[n] = true
+	}
+	for _, n := range toolNames {
+		allNames[n] = true
+	}
+
 	var tools []tool.Tool
-	for _, name := range toolNames {
+	for name := range allNames {
 		t, err := tool.GlobalRegistry.Create(name)
 		if err != nil {
 			continue
