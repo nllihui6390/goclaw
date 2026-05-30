@@ -106,11 +106,41 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
 
 ```json
 "channels": {
-  "lark":      { "enabled": true, "app_id": "cli_xxx", "app_secret": "xxx" },
-  "dingtalk":  { "enabled": true, "client_id": "xxx", "client_secret": "xxx" },
-  "wecom":     { "enabled": true, "bot_id": "xxx", "secret": "xxx" }
+  "console": {
+    "enabled": true,
+    "show_tool_messages": true,   // 显示工具调用和输出消息
+    "show_thinking": true,        // 显示模型思考/推理内容
+    "stream_output": true         // 流式输出
+  },
+  "webhook": {
+    "enabled": true,
+    "port": "8080",
+    "show_tool_messages": true,
+    "show_thinking": true,
+    "stream_output": true
+  },
+  "websocket": {
+    "enabled": false,
+    "port": "8081",
+    "show_tool_messages": true,
+    "show_thinking": true,
+    "stream_output": true
+  },
+  "lark":      { "enabled": false, "app_id": "", "app_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
+  "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
+  "wecom":     { "enabled": true, "bot_id": "xxx", "secret": "xxx", "show_tool_messages": false, "show_thinking": false, "stream_output": true }
 }
 ```
+
+每个渠道支持 3 个显示控制开关：
+
+| 配置项 | 说明 | 关闭效果 |
+|-------|------|---------|
+| `show_tool_messages` | 显示工具调用和输出消息 | 隐藏工具调用、结果、错误 |
+| `show_thinking` | 显示模型思考/推理内容 | 隐藏思考过程 |
+| `stream_output` | 流式输出 | 一次性返回完整响应 |
+
+Console/Webhook/WebSocket 默认全开，Bot 渠道（飞书/钉钉/企微）默认关闭工具和思考显示。
 
 所有 Bot 渠道自动心跳保活（30秒 ping）、断线自动重连。
 
@@ -308,22 +338,61 @@ Model Context Protocol 客户端，连接外部工具服务：
 
 ## 内置工具
 
+### 默认工具（所有 Agent 自动加载）
+
+以下工具无需在 `tools` 配置中声明，所有 Agent 自动拥有：
+
+| 工具名 | 说明 |
+|--------|------|
+| `cron_status` | 查询/管理内部定时任务 |
+| `get_current_time` | 获取当前日期时间 |
+| `http_request` | HTTP 请求（GET/POST/PUT/DELETE） |
+| `web_search` | 网页搜索（Bing/Sogou） |
+| `url_summary` | 提取网页正文摘要 |
+| `calculate` | 数学表达式计算 |
+| `run_code` | 运行 Python/JavaScript 代码片段 |
+| `list_files` | 列出目录文件（支持递归/过滤） |
+| `read_pdf` | 读取 PDF 文件内容 |
+| `ocr_image` | 图片文字识别（OCR） |
+| `generate_image` | AI 图片生成（DALL-E/SiliconFlow/CogView） |
+| `system_info` | 系统信息（CPU/内存/磁盘） |
+| `network_check` | 网络检测（ping/DNS/端口） |
+| `database_query` | SQLite 数据库查询 |
+| `manage_config` | 读写配置文件 |
+
+### 可选工具（需在 `tools` 中声明）
+
 | 工具名 | 说明 |
 |--------|------|
 | `weather` | 天气查询（和风/OpenWeather/Seniverse） |
-| `exec` | Shell 命令执行（安全过滤） |
+| `execute_command` | Shell 命令执行（自动识别操作系统类型） |
 | `write_file` | 写文件（自动创建目录） |
 | `read_file` | 读文件（支持行号/偏移） |
 | `edit_file` | 编辑文件（精确字符串替换） |
 | `append_file` | 追加文件（增量写入） |
 | `send_file` | 发送文件给用户 |
 | `browser_use` | 浏览器自动化 (rod) |
-| `get_current_time` | 获取当前时间 |
 | `set_user_timezone` | 设置用户时区 |
 | `list_agents` | 列出所有 Agent |
 | `chat_with_agent` | 与其他 Agent 对话 |
 | `submit_to_agent` | 提交后台任务 |
-| `cron_status` | 查询内部定时任务状态 |
+
+### 命令执行工具说明
+
+`execute_command` 工具会自动告诉模型当前操作系统类型：
+
+```
+⚠️ 系统环境: windows/amd64
+请使用 Windows 命令（dir、type、tasklist、findstr、ipconfig 等）
+
+⚠️ 系统环境: darwin/arm64
+请使用 macOS 命令（ls、cat、sw_vers 等）
+
+⚠️ 系统环境: linux/amd64
+请使用 Linux 命令（ls、cat、uname 等）
+```
+
+模型根据系统类型生成正确的命令，本地不做转换。
 
 ## 工作空间人设系统
 
@@ -404,12 +473,26 @@ go-claw/
 │   │   └── wecom.go                     # 企业微信机器人
 │   ├── tool/
 │   │   ├── tool.go                      # 工具接口
-│   │   ├── registry.go                  # 工具注册表
+│   │   ├── registry.go                  # 工具注册表 + 默认工具
+│   │   ├── utils.go                     # 共享工具函数
 │   │   ├── weather.go                   # 天气工具
-│   │   ├── exec.go                      # 命令执行
-│   │   ├── file.go                      # 文件读写编辑追加发送
+│   │   ├── exec.go                      # 命令执行（OS 类型提示）
+│   │   ├── file.go                      # 文件读写编辑追加发送 + 目录列表
 │   │   ├── browser.go                   # 浏览器自动化
-│   │   └── time.go                      # 时间/时区工具
+│   │   ├── time.go                      # 时间/时区工具
+│   │   ├── cron_status.go              # 定时任务管理
+│   │   ├── http.go                      # HTTP 请求工具
+│   │   ├── websearch.go                # 网页搜索工具
+│   │   ├── url_summary.go              # 网页正文提取
+│   │   ├── calculate.go                # 数学计算工具
+│   │   ├── run_code.go                 # 代码执行工具
+│   │   ├── database.go                 # SQLite 查询工具
+│   │   ├── pdf.go                       # PDF 读取工具
+│   │   ├── ocr.go                       # OCR 图片识别工具
+│   │   ├── generate_image.go           # AI 图片生成工具
+│   │   ├── system_info.go              # 系统信息工具
+│   │   ├── network_check.go            # 网络检测工具
+│   │   ├── manage_config.go            # 配置管理工具
 │   ├── skill/
 │   │   ├── skill.go                     # SKILL.md 解析
 │   │   └── registry.go                  # 注册中心 + 热重载 + Prompt 生成
@@ -453,8 +536,10 @@ go-claw/
 │       └── <agent-name>/
 │           ├── AGENTS.md / SOUL.md / PROFILE.md
 │           ├── MEMORY.md / HEARTBEAT.md / BOOTSTRAP.md
-│           ├── memories.json
 │           ├── sessions/
+│           │   ├── memories.json        # 记忆持久化数据
+│           │   ├── *.json               # 会话文件
+│           │   └── dialogs/YYYY-MM-DD.jsonl
 │           ├── memory/YYYY-MM-DD.md      # 每日记忆
 │           ├── cache/*.txt               # 工具结果缓存
 │           ├── plans/*.json              # 任务规划
@@ -492,7 +577,7 @@ go-claw/
       "provider": "deepseek",
       "model": "deepseek-v4-oc",
       "system_prompt": "你是一个有用的AI助手。",
-      "tools": ["weather", "exec", "write_file", "read_file", "edit_file", "append_file", "browser_use", "get_current_time"],
+      "tools": ["weather", "execute_command", "write_file", "read_file", "edit_file", "append_file", "browser_use"],
       "max_iterations": 20,
       "max_tokens": 32000,
       "compact_threshold_ratio": 0.8,
@@ -505,12 +590,12 @@ go-claw/
     }
   ],
   "channels": {
-    "console":   { "enabled": true },
-    "webhook":   { "enabled": true, "port": "8080" },
-    "websocket": { "enabled": false, "port": "8081" },
-    "lark":      { "enabled": false, "app_id": "", "app_secret": "" },
-    "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "" },
-    "wecom":     { "enabled": false, "bot_id": "", "secret": "" }
+    "console":   { "enabled": true, "show_tool_messages": true, "show_thinking": true, "stream_output": true },
+    "webhook":   { "enabled": true, "port": "8080", "show_tool_messages": true, "show_thinking": true, "stream_output": true },
+    "websocket": { "enabled": false, "port": "8081", "show_tool_messages": true, "show_thinking": true, "stream_output": true },
+    "lark":      { "enabled": false, "app_id": "", "app_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
+    "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
+    "wecom":     { "enabled": false, "bot_id": "", "secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": true }
   },
   "logging": { "level": "info", "json_mode": false, "file_path": "logs/app.log", "console": true },
   "auth": { "enabled": false, "token": "" },

@@ -111,9 +111,8 @@ func (t *RunCodeTool) Execute(ctx context.Context, params map[string]interface{}
 		return "", fmt.Errorf("代码包含危险操作，禁止执行")
 	}
 
-	// 写入临时文件
-	tmpDir := os.TempDir()
-	tmpFile := tmpDir + "/goclaw_run_" + fmt.Sprintf("%d", time.Now().UnixNano()) + fileExt
+	// 写入临时文件（在 clawdata/tmp 目录）
+	tmpFile := getTmpFile("goclaw_run_"+fmt.Sprintf("%d", time.Now().UnixNano()), fileExt)
 	if err := os.WriteFile(tmpFile, []byte(wrapper), 0644); err != nil {
 		return "", fmt.Errorf("创建临时文件失败: %v", err)
 	}

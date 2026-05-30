@@ -88,8 +88,8 @@ func (t *ReadPDFTool) Execute(ctx context.Context, params map[string]interface{}
 }
 
 func (t *ReadPDFTool) extractWithPdftotext(path, pages string) (string, error) {
-	// 创建临时输出文件
-	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("pdf_%d.txt", os.Getpid()))
+	// 创建临时输出文件（在 clawdata/tmp 目录）
+	tmpFile := getTmpFile("pdf_"+fmt.Sprintf("%d", os.Getpid()), ".txt")
 	defer os.Remove(tmpFile)
 
 	args := []string{"-layout", path, tmpFile}

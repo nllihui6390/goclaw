@@ -116,15 +116,15 @@ func getImageData(path string) ([]byte, error) {
 }
 
 func (t *OCRImageTool) ocrWithTesseract(imageData []byte, language, source string) (string, error) {
-	// 保存临时图片文件
-	tmpImg := fmt.Sprintf("%s/goclaw_ocr_%d.png", os.TempDir(), time.Now().UnixNano())
+	// 保存临时图片文件（在 clawdata/tmp 目录）
+	tmpImg := getTmpFile("goclaw_ocr_"+fmt.Sprintf("%d", time.Now().UnixNano()), ".png")
 	if err := os.WriteFile(tmpImg, imageData, 0644); err != nil {
 		return "", fmt.Errorf("保存临时图片失败: %v", err)
 	}
 	defer os.Remove(tmpImg)
 
 	// 保存临时输出文件
-	tmpOut := fmt.Sprintf("%s/goclaw_ocr_%d", os.TempDir(), time.Now().UnixNano())
+	tmpOut := getTmpFile("goclaw_ocr_"+fmt.Sprintf("%d", time.Now().UnixNano()), "")
 	defer os.Remove(tmpOut + ".txt")
 
 	cmd := exec.Command("tesseract", tmpImg, tmpOut, "-l", language, "--psm", "6")
@@ -150,8 +150,8 @@ func (t *OCRImageTool) ocrWithTesseract(imageData []byte, language, source strin
 func (t *OCRImageTool) ocrWithPython(imageData []byte, language, source string) (string, error) {
 	pyCmd := pythonCmd()
 
-	// 保存临时图片
-	tmpImg := fmt.Sprintf("%s/goclaw_ocr_%d.png", os.TempDir(), time.Now().UnixNano())
+	// 保存临时图片（在 clawdata/tmp 目录）
+	tmpImg := getTmpFile("goclaw_ocr_"+fmt.Sprintf("%d", time.Now().UnixNano()), ".png")
 	if err := os.WriteFile(tmpImg, imageData, 0644); err != nil {
 		return "", fmt.Errorf("保存临时图片失败: %v", err)
 	}

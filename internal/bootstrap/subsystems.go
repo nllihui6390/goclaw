@@ -23,6 +23,8 @@ import (
 // initInbox 初始化 Inbox 系统
 func (app *App) initInbox() {
 	inbox.NewStore(app.DataDir)
+	// 设置全局数据目录（用于工具的临时文件）
+	tool.SetGlobalDataDir(app.DataDir)
 	app.logger.Info("Inbox 系统已初始化")
 }
 

@@ -3,8 +3,35 @@ package tool
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
+
+// globalDataDir 全局数据目录（在 bootstrap 中设置）
+var globalDataDir string
+
+// SetGlobalDataDir 设置全局数据目录
+func SetGlobalDataDir(dataDir string) {
+	globalDataDir = dataDir
+	// 确保 tmp 目录存在
+	tmpDir := filepath.Join(dataDir, "tmp")
+	os.MkdirAll(tmpDir, 0755)
+}
+
+// getTmpDir 获取临时目录路径（优先使用 clawdata/tmp，回退到系统临时目录）
+func getTmpDir() string {
+	if globalDataDir != "" {
+		tmpDir := filepath.Join(globalDataDir, "tmp")
+		os.MkdirAll(tmpDir, 0755)
+		return tmpDir
+	}
+	return os.TempDir()
+}
+
+// getTmpFile 在临时目录生成临时文件路径
+func getTmpFile(prefix, ext string) string {
+	return filepath.Join(getTmpDir(), prefix+ext)
+}
 
 // pythonCmd 返回可用的 Python 命令
 func pythonCmd() string {
