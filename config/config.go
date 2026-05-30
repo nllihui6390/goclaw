@@ -159,38 +159,56 @@ type SkillsConfig struct {
 }
 
 type ConsoleConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled          bool `json:"enabled"`
+	ShowToolMessages bool `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool `json:"stream_output"`      // 流式输出
 }
 
 type WebhookConfig struct {
-	Enabled bool   `json:"enabled"`
-	Port    string `json:"port"`
+	Enabled          bool   `json:"enabled"`
+	Port             string `json:"port"`
+	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool   `json:"stream_output"`      // 流式输出
 }
 
 type WebSocketConfig struct {
-	Enabled bool   `json:"enabled"`
-	Port    string `json:"port"`
+	Enabled          bool   `json:"enabled"`
+	Port             string `json:"port"`
+	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool   `json:"stream_output"`      // 流式输出
 }
 
 // LarkConfig 飞书机器人配置
 type LarkConfig struct {
-	Enabled   bool   `json:"enabled"`
-	AppID     string `json:"app_id"`
-	AppSecret string `json:"app_secret"`
+	Enabled          bool   `json:"enabled"`
+	AppID            string `json:"app_id"`
+	AppSecret        string `json:"app_secret"`
+	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool   `json:"stream_output"`      // 流式输出
 }
 
 // DingTalkConfig 钉钉机器人配置
 type DingTalkConfig struct {
-	Enabled      bool   `json:"enabled"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
+	Enabled          bool   `json:"enabled"`
+	ClientID         string `json:"client_id"`
+	ClientSecret     string `json:"client_secret"`
+	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool   `json:"stream_output"`      // 流式输出
 }
 
 // WeComConfig 企业微信机器人配置
 type WeComConfig struct {
-	Enabled bool   `json:"enabled"`
-	BotID   string `json:"bot_id"`
-	Secret  string `json:"secret"`
+	Enabled          bool   `json:"enabled"`
+	BotID            string `json:"bot_id"`
+	Secret           string `json:"secret"`
+	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool   `json:"stream_output"`      // 流式输出
 }
 
 // LoadConfig 加载配置

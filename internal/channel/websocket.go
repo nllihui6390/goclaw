@@ -21,6 +21,7 @@ type WebSocketChannel struct {
 	mu       sync.RWMutex
 	upgrader websocket.Upgrader
 	conns    map[string]*wsConn
+	display  DisplayConfig // 显示控制配置
 }
 
 type wsConn struct {
@@ -29,12 +30,13 @@ type wsConn struct {
 }
 
 // NewWebSocketChannel 创建WebSocket渠道
-func NewWebSocketChannel(port string) *WebSocketChannel {
+func NewWebSocketChannel(port string, display DisplayConfig) *WebSocketChannel {
 	return &WebSocketChannel{
 		name:    "websocket",
 		port:    port,
 		msgChan: make(chan Message, 100),
 		conns:   make(map[string]*wsConn),
+		display: display,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -112,8 +114,11 @@ func (w *WebSocketChannel) SendProactive(ctx context.Context, userID, content st
 	return nil
 }
 
-// SendToolEvent 发送工具执行事件（WebSocket实时推送）
+// SendToolEvent 发送工具执行事件（根据显示配置过滤）
 func (w *WebSocketChannel) SendToolEvent(event ToolEvent) error {
+	if !w.display.ShouldShowToolEvent(event.Type) {
+		return nil
+	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	for _, wc := range w.conns {
@@ -122,13 +127,13 @@ func (w *WebSocketChannel) SendToolEvent(event ToolEvent) error {
 		}
 		wc.mu.Lock()
 		wc.conn.WriteJSON(map[string]interface{}{
-			"type":      "tool_event",
+			"type":       "tool_event",
 			"event_type": event.Type,
-			"tool_name": event.ToolName,
-			"args":      event.Args,
-			"result":    event.Result,
-			"error":     event.Error,
-			"thinking":  event.Thinking,
+			"tool_name":  event.ToolName,
+			"args":       event.Args,
+			"result":     event.Result,
+			"error":      event.Error,
+			"thinking":   event.Thinking,
 		})
 		wc.mu.Unlock()
 	}

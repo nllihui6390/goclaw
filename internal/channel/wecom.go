@@ -74,9 +74,9 @@ type sessionData struct {
 }
 
 // NewWeComChannel 创建企业微信渠道
-func NewWeComChannel(botID, secret string) *WeComChannel {
+func NewWeComChannel(botID, secret string, display DisplayConfig) *WeComChannel {
 	return &WeComChannel{
-		BotChannelBase:       NewBotChannelBase("wecom", ""),
+		BotChannelBase:       NewBotChannelBase("wecom", "", display),
 		botID:                botID,
 		secret:               secret,
 		stopChan:             make(chan struct{}),

@@ -34,9 +34,9 @@ type dingtalkSession struct {
 }
 
 // NewDingTalkChannel 创建钉钉渠道
-func NewDingTalkChannel(clientID, clientSecret string) *DingTalkChannel {
+func NewDingTalkChannel(clientID, clientSecret string, display DisplayConfig) *DingTalkChannel {
 	return &DingTalkChannel{
-		BotChannelBase: NewBotChannelBase("dingtalk", ""), // 不需要端口
+		BotChannelBase: NewBotChannelBase("dingtalk", "", display), // 不需要端口
 		clientID:       clientID,
 		clientSecret:   clientSecret,
 		stopChan:       make(chan struct{}),

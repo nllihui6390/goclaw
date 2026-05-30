@@ -22,6 +22,7 @@ type WebhookChannel struct {
 	responses   map[string]chan Response
 	streamResps map[string]chan string
 	authToken   string
+	display     DisplayConfig // 显示控制配置
 
 	// Metrics
 	reqCount   int64
@@ -31,7 +32,7 @@ type WebhookChannel struct {
 }
 
 // NewWebhookChannel 创建Webhook渠道
-func NewWebhookChannel(port, authToken string) *WebhookChannel {
+func NewWebhookChannel(port, authToken string, display DisplayConfig) *WebhookChannel {
 	return &WebhookChannel{
 		name:        "webhook",
 		port:        port,
@@ -39,6 +40,7 @@ func NewWebhookChannel(port, authToken string) *WebhookChannel {
 		responses:   make(map[string]chan Response),
 		streamResps: make(map[string]chan string),
 		authToken:   authToken,
+		display:     display,
 	}
 }
 

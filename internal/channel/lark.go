@@ -37,9 +37,9 @@ type larkSession struct {
 }
 
 // NewLarkChannel 创建飞书渠道
-func NewLarkChannel(appID, appSecret string) *LarkChannel {
+func NewLarkChannel(appID, appSecret string, display DisplayConfig) *LarkChannel {
 	return &LarkChannel{
-		BotChannelBase: NewBotChannelBase("lark", ""), // 不需要端口
+		BotChannelBase: NewBotChannelBase("lark", "", display), // 不需要端口
 		appID:          appID,
 		appSecret:      appSecret,
 		stopChan:       make(chan struct{}),

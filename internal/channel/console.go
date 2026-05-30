@@ -11,20 +11,22 @@ import (
 
 // ConsoleChannel 控制台渠道
 type ConsoleChannel struct {
-	name       string
-	msgChan    chan Message
-	stopChan   chan struct{}
-	ctrlChan   chan ControlResponse // 控制响应通道
-	currentAgent string              // 当前选中的Agent
+	name         string
+	msgChan      chan Message
+	stopChan     chan struct{}
+	ctrlChan     chan ControlResponse // 控制响应通道
+	currentAgent string               // 当前选中的Agent
+	display      DisplayConfig        // 显示控制配置
 }
 
 // NewConsoleChannel 创建控制台渠道
-func NewConsoleChannel() *ConsoleChannel {
+func NewConsoleChannel(display DisplayConfig) *ConsoleChannel {
 	return &ConsoleChannel{
 		name:     "console",
 		msgChan:  make(chan Message, 100),
 		stopChan: make(chan struct{}),
 		ctrlChan: make(chan ControlResponse, 10),
+		display:  display,
 	}
 }
 
@@ -59,8 +61,12 @@ func (c *ConsoleChannel) SendProactive(ctx context.Context, userID, content stri
 	return nil
 }
 
-// SendToolEvent 发送工具执行事件（实时输出工具调用过程）
+// SendToolEvent 发送工具执行事件（根据显示配置过滤）
 func (c *ConsoleChannel) SendToolEvent(event ToolEvent) error {
+	if !c.display.ShouldShowToolEvent(event.Type) {
+		return nil
+	}
+
 	switch event.Type {
 	case "thinking":
 		if event.Thinking != "" {
@@ -69,7 +75,6 @@ func (c *ConsoleChannel) SendToolEvent(event ToolEvent) error {
 	case "calling":
 		fmt.Printf("\n  🔧 调用工具: %s\n", event.ToolName)
 		if event.Args != "" {
-			// 格式化参数，截断过长的内容
 			args := event.Args
 			if len(args) > 200 {
 				args = args[:200] + "..."
@@ -77,7 +82,6 @@ func (c *ConsoleChannel) SendToolEvent(event ToolEvent) error {
 			fmt.Printf("     参数: %s\n", args)
 		}
 	case "result":
-		// 截断过长的结果
 		result := event.Result
 		if len(result) > 500 {
 			result = result[:500] + "...(已截断)"
@@ -125,7 +129,7 @@ func (c *ConsoleChannel) readLoop(ctx context.Context) {
 						Channel:   c.name,
 						From:      "user",
 						Content:   text,
-						Agent:     c.currentAgent, // 携带当前选中的Agent
+						Agent:     c.currentAgent,
 						Timestamp: timeNow(),
 					}
 					c.msgChan <- msg
@@ -136,7 +140,6 @@ func (c *ConsoleChannel) readLoop(ctx context.Context) {
 	}
 }
 
-// handleCommand 处理控制台命令，返回true表示已处理
 func (c *ConsoleChannel) handleCommand(text string) bool {
 	if !strings.HasPrefix(text, "/") {
 		return false

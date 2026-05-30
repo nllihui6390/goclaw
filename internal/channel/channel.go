@@ -2,6 +2,38 @@ package channel
 
 import "context"
 
+// DisplayConfig 渠道显示控制配置
+type DisplayConfig struct {
+	ShowToolMessages bool // 显示工具调用和输出消息
+	ShowThinking    bool // 显示模型思考/推理内容
+	StreamOutput    bool // 流式输出
+}
+
+// DefaultDisplayConfig 默认显示配置（全开）
+func DefaultDisplayConfig() DisplayConfig {
+	return DisplayConfig{
+		ShowToolMessages: true,
+		ShowThinking:    true,
+		StreamOutput:    true,
+	}
+}
+
+// ShouldShowToolMessage 判断是否应显示工具类事件
+func (d DisplayConfig) ShouldShowToolEvent(eventType ToolEventType) bool {
+	if !d.ShowToolMessages {
+		// 关闭时：不显示 calling、result、error
+		if eventType == ToolEventCalling || eventType == ToolEventResult || eventType == ToolEventError {
+			return false
+		}
+	}
+	if !d.ShowThinking {
+		if eventType == ToolEventThinking {
+			return false
+		}
+	}
+	return true
+}
+
 // Message 标准化消息
 type Message struct {
 	ID        string

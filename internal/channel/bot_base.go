@@ -18,17 +18,24 @@ type BotChannelBase struct {
 	mu               sync.RWMutex
 	pendingResponses map[string]chan Response
 	client           *http.Client
+	display          DisplayConfig // 显示控制配置
 }
 
 // NewBotChannelBase 创建机器人渠道基础
-func NewBotChannelBase(name, port string) *BotChannelBase {
+func NewBotChannelBase(name, port string, display DisplayConfig) *BotChannelBase {
 	return &BotChannelBase{
 		name:             name,
 		port:             port,
 		msgChan:          make(chan Message, 100),
 		pendingResponses: make(map[string]chan Response),
 		client:           &http.Client{Timeout: 10 * time.Second},
+		display:          display,
 	}
+}
+
+// GetDisplay 获取显示配置
+func (b *BotChannelBase) GetDisplay() DisplayConfig {
+	return b.display
 }
 
 func (b *BotChannelBase) GetName() string                                       { return b.name }

@@ -78,30 +78,48 @@
   ],
   "channels": {
     "console": {
-      "enabled": true
+      "enabled": true,
+      "show_tool_messages": true,
+      "show_thinking": true,
+      "stream_output": true
     },
     "webhook": {
       "enabled": false,
-      "port": "8080"
+      "port": "8080",
+      "show_tool_messages": true,
+      "show_thinking": true,
+      "stream_output": true
     },
     "websocket": {
       "enabled": false,
-      "port": "8081"
+      "port": "8081",
+      "show_tool_messages": true,
+      "show_thinking": true,
+      "stream_output": true
     },
     "lark": {
       "enabled": false,
       "app_id": "",
-      "app_secret": ""
+      "app_secret": "",
+      "show_tool_messages": false,
+      "show_thinking": false,
+      "stream_output": false
     },
     "dingtalk": {
       "enabled": false,
       "client_id": "",
-      "client_secret": ""
+      "client_secret": "",
+      "show_tool_messages": false,
+      "show_thinking": false,
+      "stream_output": false
     },
     "wecom": {
       "enabled": true,
       "bot_id": "aibuzW2brot2Dm0D7_7cCDulznfLbppvErq",
-      "secret": "LGSYO230IPJ75ipnxZPwOfQHWOb78SNArbOQBsgjflw"
+      "secret": "LGSYO230IPJ75ipnxZPwOfQHWOb78SNArbOQBsgjflw",
+      "show_tool_messages": false,
+      "show_thinking": false,
+      "stream_output": true
     }
   },
   "cron": {
