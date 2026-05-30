@@ -5,7 +5,9 @@ logs
 *.exe~
 .env
 .claude
+config.json
 data.json
+
 go-claw
 clawdata/*
 skills/*
