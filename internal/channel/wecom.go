@@ -3,9 +3,13 @@ package channel
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +28,16 @@ const (
 	WsCmdSendMsg         = "aibot_send_msg"            // 主动发送消息
 	WsCmdCallback        = "aibot_msg_callback"        // 消息推送回调
 	WsCmdEventCallback   = "aibot_event_callback"      // 事件推送回调
+
+	// 文件上传命令（长连接模式分片上传）
+	WsCmdUploadInit   = "aibot_upload_media_init"   // 初始化上传
+	WsCmdUploadChunk  = "aibot_upload_media_chunk"  // 上传分片
+	WsCmdUploadFinish = "aibot_upload_media_finish" // 完成上传
+)
+
+const (
+	maxChunkSize = 512 * 1024 // 单个分片最大 512KB（Base64 编码前）
+	maxChunks    = 100        // 最多 100 个分片
 )
 
 const DefaultWsURL = "wss://openws.work.weixin.qq.com"
@@ -62,6 +76,10 @@ type WeComChannel struct {
 
 	sessionInfo   map[string]sessionData
 	sessionInfoMu sync.RWMutex
+
+	// 文件上传相关（WebSocket 分片上传）
+	pendingUploadResponses   map[string]chan map[string]any
+	pendingUploadResponsesMu sync.Mutex
 }
 
 type sessionData struct {
@@ -76,18 +94,19 @@ type sessionData struct {
 // NewWeComChannel 创建企业微信渠道
 func NewWeComChannel(botID, secret string, display DisplayConfig) *WeComChannel {
 	return &WeComChannel{
-		BotChannelBase:       NewBotChannelBase("wecom", "", display),
-		botID:                botID,
-		secret:               secret,
-		stopChan:             make(chan struct{}),
-		heartbeatInterval:    30 * time.Second,
-		maxMissedPong:        2,
-		reconnectBaseDelay:   1 * time.Second,
-		reconnectMaxDelay:    30 * time.Second,
-		maxReconnectAttempts: 10,
-		pendingAcks:          make(map[string]chan error),
-		replyAckTimeout:      5 * time.Second,
-		sessionInfo:          make(map[string]sessionData),
+		BotChannelBase:         NewBotChannelBase("wecom", "", display),
+		botID:                  botID,
+		secret:                 secret,
+		stopChan:               make(chan struct{}),
+		heartbeatInterval:      30 * time.Second,
+		maxMissedPong:          2,
+		reconnectBaseDelay:     1 * time.Second,
+		reconnectMaxDelay:      30 * time.Second,
+		maxReconnectAttempts:   10,
+		pendingAcks:            make(map[string]chan error),
+		replyAckTimeout:        5 * time.Second,
+		sessionInfo:            make(map[string]sessionData),
+		pendingUploadResponses: make(map[string]chan map[string]any),
 	}
 }
 
@@ -258,9 +277,22 @@ func (w *WeComChannel) handleFrame(data []byte) {
 		return
 	}
 
-	// 无 cmd 的帧：认证响应、心跳响应或回复回执
+	// 无 cmd 的帧：认证响应、心跳响应、回复回执或上传响应
 	headers, _ := frame["headers"].(map[string]any)
 	reqID, _ := headers["req_id"].(string)
+
+	// 检查是否是上传响应
+	w.pendingUploadResponsesMu.Lock()
+	uploadChan, hasUploadPending := w.pendingUploadResponses[reqID]
+	w.pendingUploadResponsesMu.Unlock()
+
+	if hasUploadPending {
+		uploadChan <- frame
+		w.pendingUploadResponsesMu.Lock()
+		delete(w.pendingUploadResponses, reqID)
+		w.pendingUploadResponsesMu.Unlock()
+		return
+	}
 
 	// 检查是否是回复消息的回执
 	w.pendingAcksMu.Lock()
@@ -549,6 +581,41 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 		streamID = w.generateReqID("stream")
 	}
 
+	// 检查是否包含 [FILE_BLOCK] 且是本地文件
+	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
+		fileInfo := ParseFileBlock(resp.Content)
+		if fileInfo != nil && fileInfo.FileType != "url" && fileInfo.Path != "" {
+			// 尝试上传并发送文件
+			mediaID, err := w.uploadFile(fileInfo.Path)
+			if err == nil && mediaID != "" {
+				// 发送文件消息
+				fileFrame := map[string]any{
+					"cmd": WsCmdResponse,
+					"headers": map[string]string{
+						"req_id": reqID,
+					},
+					"body": map[string]any{
+						"msgtype": "file",
+						"file": map[string]any{
+							"media_id": mediaID,
+						},
+					},
+				}
+				log.Logger().Info("[WeCom] 发送文件消息", "user", resp.To, "filename", fileInfo.Filename, "media_id", mediaID)
+				if err := w.sendAndWaitAck(reqID, fileFrame); err != nil {
+					log.Logger().Warn("[WeCom] 文件消息发送失败，回退到文本", "err", err)
+				} else {
+					return nil
+				}
+			} else {
+				log.Logger().Warn("[WeCom] 文件上传失败，回退到文本发送", "err", err)
+			}
+		}
+	}
+
+	// 普通文本消息
+	sendContent := extractFileContent(resp.Content)
+
 	frame := map[string]any{
 		"cmd": WsCmdResponse,
 		"headers": map[string]string{
@@ -559,13 +626,248 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 			"stream": map[string]any{
 				"id":      streamID,
 				"finish":  true,
-				"content": resp.Content,
+				"content": sendContent,
 			},
 		},
 	}
 
-	log.Logger().Info("[WeCom] 发送最终响应", "user", resp.To, "content_len", len(resp.Content))
+	log.Logger().Info("[WeCom] 发送最终响应", "user", resp.To, "content_len", len(sendContent))
 	return w.sendAndWaitAck(reqID, frame)
+}
+
+// SendFile 实现 FileSender 接口 - 直接发送文件
+func (w *WeComChannel) SendFile(ctx context.Context, to string, info *FileBlockInfo) (bool, error) {
+	// URL 类型暂不支持直接发送，走回退
+	if info.FileType == "url" {
+		return false, nil
+	}
+
+	// 上传文件
+	mediaID, err := w.uploadFile(info.Path)
+	if err != nil {
+		return true, fmt.Errorf("文件上传失败: %w", err)
+	}
+
+	// 获取用户的 session 信息（用于发送 WebSocket 消息）
+	w.sessionInfoMu.RLock()
+	session, ok := w.sessionInfo[to]
+	w.sessionInfoMu.RUnlock()
+
+	if !ok {
+		return true, fmt.Errorf("用户会话不存在: %s", to)
+	}
+
+	reqID := session.reqID
+	fileFrame := map[string]any{
+		"cmd": WsCmdResponse,
+		"headers": map[string]string{
+			"req_id": reqID,
+		},
+		"body": map[string]any{
+			"msgtype": "file",
+			"file": map[string]any{
+				"media_id": mediaID,
+			},
+		},
+	}
+
+	log.Logger().Info("[WeCom] 发送文件消息", "user", to, "filename", info.Filename, "media_id", mediaID)
+	if err := w.sendAndWaitAck(reqID, fileFrame); err != nil {
+		return true, err
+	}
+
+	return true, nil
+}
+
+// uploadFile 上传文件到企业微信（通过 WebSocket 分片上传），返回 media_id
+func (w *WeComChannel) uploadFile(filePath string) (string, error) {
+	// 读取文件
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("读取文件失败: %v", err)
+	}
+
+	totalSize := len(data)
+	if totalSize < 5 {
+		return "", fmt.Errorf("文件太小，至少需要 5 字节")
+	}
+	if totalSize > 20*1024*1024 { // 20MB
+		return "", fmt.Errorf("文件太大，最大支持 20MB")
+	}
+
+	filename := filepath.Base(filePath)
+
+	// 计算分片数量
+	totalChunks := (totalSize + maxChunkSize - 1) / maxChunkSize
+	if totalChunks > maxChunks {
+		return "", fmt.Errorf("文件分片数 %d 超过最大限制 %d", totalChunks, maxChunks)
+	}
+
+	log.Logger().Info("[WeCom] 开始分片上传", "filename", filename, "total_size", totalSize, "total_chunks", totalChunks)
+
+	// 1. 初始化上传
+	uploadID, err := w.uploadMediaInit(filename, totalSize, totalChunks)
+	if err != nil {
+		return "", fmt.Errorf("初始化上传失败: %v", err)
+	}
+
+	log.Logger().Debug("[WeCom] 上传初始化成功", "upload_id", uploadID)
+
+	// 2. 逐片上传
+	for i := 0; i < totalChunks; i++ {
+		start := i * maxChunkSize
+		end := start + maxChunkSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		chunkData := data[start:end]
+		if err := w.uploadMediaChunk(uploadID, i, chunkData); err != nil {
+			return "", fmt.Errorf("上传分片 %d 失败: %v", i, err)
+		}
+
+		log.Logger().Debug("[WeCom] 分片上传成功", "chunk_index", i, "upload_id", uploadID)
+	}
+
+	// 3. 完成上传
+	mediaID, err := w.uploadMediaFinish(uploadID)
+	if err != nil {
+		return "", fmt.Errorf("完成上传失败: %v", err)
+	}
+
+	log.Logger().Info("[WeCom] 文件上传成功", "media_id", mediaID, "filename", filename)
+	return mediaID, nil
+}
+
+// uploadMediaInit 初始化上传，返回 upload_id
+func (w *WeComChannel) uploadMediaInit(filename string, totalSize, totalChunks int) (string, error) {
+	reqID := w.generateReqID(WsCmdUploadInit)
+
+	frame := map[string]any{
+		"cmd": WsCmdUploadInit,
+		"headers": map[string]string{
+			"req_id": reqID,
+		},
+		"body": map[string]any{
+			"type":         "file",
+			"filename":     filename,
+			"total_size":   totalSize,
+			"total_chunks": totalChunks,
+		},
+	}
+
+	resp, err := w.sendFrameAndWaitResponse(reqID, frame)
+	if err != nil {
+		return "", err
+	}
+
+	body, _ := resp["body"].(map[string]any)
+	uploadID, _ := body["upload_id"].(string)
+	if uploadID == "" {
+		return "", fmt.Errorf("响应中缺少 upload_id: %v", resp)
+	}
+
+	return uploadID, nil
+}
+
+// uploadMediaChunk 上传单个分片
+func (w *WeComChannel) uploadMediaChunk(uploadID string, chunkIndex int, data []byte) error {
+	reqID := w.generateReqID(WsCmdUploadChunk)
+
+	// Base64 编码（使用标准库）
+	base64Data := base64.StdEncoding.EncodeToString(data)
+
+	frame := map[string]any{
+		"cmd": WsCmdUploadChunk,
+		"headers": map[string]string{
+			"req_id": reqID,
+		},
+		"body": map[string]any{
+			"upload_id":   uploadID,
+			"chunk_index": chunkIndex,
+			"base64_data": base64Data,
+		},
+	}
+
+	resp, err := w.sendFrameAndWaitResponse(reqID, frame)
+	if err != nil {
+		return err
+	}
+
+	errcode, _ := resp["errcode"].(float64)
+	if int(errcode) != 0 {
+		errmsg, _ := resp["errmsg"].(string)
+		return fmt.Errorf("分片上传失败: %s (code: %d)", errmsg, int(errcode))
+	}
+
+	return nil
+}
+
+// uploadMediaFinish 完成上传，返回 media_id
+func (w *WeComChannel) uploadMediaFinish(uploadID string) (string, error) {
+	reqID := w.generateReqID(WsCmdUploadFinish)
+
+	frame := map[string]any{
+		"cmd": WsCmdUploadFinish,
+		"headers": map[string]string{
+			"req_id": reqID,
+		},
+		"body": map[string]any{
+			"upload_id": uploadID,
+		},
+	}
+
+	resp, err := w.sendFrameAndWaitResponse(reqID, frame)
+	if err != nil {
+		return "", err
+	}
+
+	body, _ := resp["body"].(map[string]any)
+	mediaID, _ := body["media_id"].(string)
+	if mediaID == "" {
+		return "", fmt.Errorf("响应中缺少 media_id: %v", resp)
+	}
+
+	return mediaID, nil
+}
+
+// sendFrameAndWaitResponse 发送帧并通过 pendingUploadResponses 等待响应
+func (w *WeComChannel) sendFrameAndWaitResponse(reqID string, frame map[string]any) (map[string]any, error) {
+	// 注册响应等待
+	respChan := make(chan map[string]any, 1)
+
+	w.pendingUploadResponsesMu.Lock()
+	w.pendingUploadResponses[reqID] = respChan
+	w.pendingUploadResponsesMu.Unlock()
+
+	// 发送帧
+	if err := w.sendFrame(frame); err != nil {
+		w.pendingUploadResponsesMu.Lock()
+		delete(w.pendingUploadResponses, reqID)
+		w.pendingUploadResponsesMu.Unlock()
+		return nil, fmt.Errorf("发送帧失败: %v", err)
+	}
+
+	// 等待响应（由 receiveLoop 中的 handleFrame 处理）
+	select {
+	case resp := <-respChan:
+		errcode, _ := resp["errcode"].(float64)
+		if int(errcode) != 0 {
+			errmsg, _ := resp["errmsg"].(string)
+			return nil, fmt.Errorf("%s (code: %d)", errmsg, int(errcode))
+		}
+		return resp, nil
+	case <-time.After(30 * time.Second):
+		w.pendingUploadResponsesMu.Lock()
+		delete(w.pendingUploadResponses, reqID)
+		w.pendingUploadResponsesMu.Unlock()
+		return nil, fmt.Errorf("等待上传响应超时")
+	}
+}
+
+// extractFileContent 从响应中提取 [FILE_BLOCK] 的内容，转为可发送的文本（用于回退）
+func extractFileContent(content string) string {
+	return ExtractFileBlockDescription(content)
 }
 
 // SendToolEvent 发送工具事件（流式中间帧）
@@ -653,7 +955,6 @@ func (w *WeComChannel) sendAndWaitAck(reqID string, frame map[string]any) error 
 		return fmt.Errorf("[WeCom] 回复回执超时 (%v)", w.replyAckTimeout)
 	}
 }
-
 
 // SendProactive 主动发送消息（不需要用户先发消息）
 // 使用 aibot_send_msg 命令，严格遵循官方文档格式

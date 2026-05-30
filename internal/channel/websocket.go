@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"go-claw/pkg/log"
+
+	"github.com/gorilla/websocket"
 )
 
 // WebSocketChannel WebSocket渠道
@@ -47,8 +49,10 @@ func NewWebSocketChannel(port string, display DisplayConfig) *WebSocketChannel {
 	}
 }
 
-func (w *WebSocketChannel) GetName() string       { return w.name }
-func (w *WebSocketChannel) Receive(ctx context.Context) (<-chan Message, error) { return w.msgChan, nil }
+func (w *WebSocketChannel) GetName() string { return w.name }
+func (w *WebSocketChannel) Receive(ctx context.Context) (<-chan Message, error) {
+	return w.msgChan, nil
+}
 
 func (w *WebSocketChannel) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
@@ -77,6 +81,32 @@ func (w *WebSocketChannel) Stop() error {
 }
 
 func (w *WebSocketChannel) Send(ctx context.Context, resp Response) error {
+	// 处理文件发送
+	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
+		fileInfo := ParseFileBlock(resp.Content)
+		if fileInfo != nil {
+			w.mu.RLock()
+			defer w.mu.RUnlock()
+			for sid, wc := range w.conns {
+				if wc == nil {
+					continue
+				}
+				if resp.To == "" || resp.To == sid {
+					wc.mu.Lock()
+					wc.conn.WriteJSON(map[string]interface{}{
+						"type":     "file",
+						"filename": fileInfo.Filename,
+						"path":     fileInfo.Path,
+						"size":     fileInfo.Size,
+						"fileType": fileInfo.FileType,
+					})
+					wc.mu.Unlock()
+				}
+			}
+			return nil
+		}
+	}
+
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	for sid, wc := range w.conns {
@@ -90,6 +120,32 @@ func (w *WebSocketChannel) Send(ctx context.Context, resp Response) error {
 		}
 	}
 	return nil
+}
+
+// SendFile 实现 FileSender 接口 - 直接发送文件
+func (w *WebSocketChannel) SendFile(ctx context.Context, to string, info *FileBlockInfo) (bool, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	for sid, wc := range w.conns {
+		if wc == nil {
+			continue
+		}
+		if to == "" || to == sid {
+			wc.mu.Lock()
+			wc.conn.WriteJSON(map[string]interface{}{
+				"type":     "file",
+				"filename": info.Filename,
+				"path":     info.Path,
+				"size":     info.Size,
+				"fileType": info.FileType,
+			})
+			wc.mu.Unlock()
+		}
+	}
+
+	log.Logger().Info("[WebSocket] 文件消息已发送", "to", to, "filename", info.Filename)
+	return true, nil
 }
 
 // SendProactive 主动发送消息到指定 WebSocket 连接

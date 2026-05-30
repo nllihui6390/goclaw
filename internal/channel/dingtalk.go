@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +31,11 @@ type DingTalkChannel struct {
 
 	sessionInfo   map[string]dingtalkSession
 	sessionInfoMu sync.RWMutex
+
+	// 文件上传相关
+	accessToken    string
+	accessTokenExp time.Time
+	accessTokenMu  sync.RWMutex
 }
 
 type dingtalkSession struct {
@@ -219,12 +228,28 @@ func (d *DingTalkChannel) handleMessage(data []byte) {
 	d.PushMessage(msg)
 }
 
-// Send 发送响应（通过 sessionWebhook）
+// Send 发送响应（通过钉钉 API）
 func (d *DingTalkChannel) Send(ctx context.Context, resp Response) error {
-	// 优先使用 sessionWebhook（从 metadata 获取）
-	// 如果没有，则通过钉钉 API 发送
+	// 检查是否包含文件
+	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
+		fileInfo := ParseFileBlock(resp.Content)
+		if fileInfo != nil && fileInfo.Path != "" {
+			// 上传文件
+			mediaID, err := d.uploadFile(ctx, fileInfo.Path)
+			if err == nil && mediaID != "" {
+				// 发送文件消息
+				err = d.sendFileMessage(ctx, resp.To, mediaID)
+				if err == nil {
+					log.Logger().Info("[DingTalk] 文件消息已发送", "to", resp.To, "filename", fileInfo.Filename)
+					return nil
+				}
+				log.Logger().Warn("[DingTalk] 文件消息发送失败，回退到文本", "err", err)
+			} else {
+				log.Logger().Warn("[DingTalk] 文件上传失败，回退到文本", "err", err)
+			}
+		}
+	}
 
-	// 使用 HTTP POST 发送消息到钉钉
 	url := "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
 
 	reqBody := map[string]any{
@@ -250,6 +275,146 @@ func (d *DingTalkChannel) Send(ctx context.Context, resp Response) error {
 	}
 
 	log.Logger().Debug("[DingTalk] 消息已发送", "to", resp.To)
+	return nil
+}
+
+// SendFile 实现 FileSender 接口 - 直接发送文件
+func (d *DingTalkChannel) SendFile(ctx context.Context, to string, info *FileBlockInfo) (bool, error) {
+	// URL 类型暂不支持直接发送，走回退
+	if info.FileType == "url" {
+		return false, nil
+	}
+
+	// 上传文件
+	mediaID, err := d.uploadFile(ctx, info.Path)
+	if err != nil {
+		return true, fmt.Errorf("文件上传失败: %w", err)
+	}
+
+	// 发送文件消息
+	if err := d.sendFileMessage(ctx, to, mediaID); err != nil {
+		return true, err
+	}
+
+	log.Logger().Info("[DingTalk] 文件消息已发送", "to", to, "filename", info.Filename)
+	return true, nil
+}
+
+// getAccessToken 获取钉钉 access_token
+func (d *DingTalkChannel) getAccessToken(ctx context.Context) (string, error) {
+	d.accessTokenMu.RLock()
+	if d.accessToken != "" && time.Now().Before(d.accessTokenExp) {
+		token := d.accessToken
+		d.accessTokenMu.RUnlock()
+		return token, nil
+	}
+	d.accessTokenMu.RUnlock()
+
+	url := "https://api.dingtalk.com/v1.0/oauth2/accessToken"
+	reqBody := map[string]string{
+		"appKey":    d.clientID,
+		"appSecret": d.clientSecret,
+	}
+	jsonData, _ := json.Marshal(reqBody)
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.HTTPClient().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result struct {
+		AccessToken string `json:"accessToken"`
+		ExpireIn    int64  `json:"expireIn"`
+	}
+	json.Unmarshal(body, &result)
+
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("获取钉钉 access_token 失败")
+	}
+
+	d.accessTokenMu.Lock()
+	d.accessToken = result.AccessToken
+	d.accessTokenExp = time.Now().Add(time.Duration(result.ExpireIn-300) * time.Second)
+	d.accessTokenMu.Unlock()
+
+	return result.AccessToken, nil
+}
+
+// uploadFile 上传文件到钉钉，返回 mediaId
+func (d *DingTalkChannel) uploadFile(ctx context.Context, filePath string) (string, error) {
+	token, err := d.getAccessToken(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("读取文件失败: %v", err)
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("media", filepath.Base(filePath))
+	if err != nil {
+		return "", err
+	}
+	part.Write(data)
+	writer.Close()
+
+	url := "https://api.dingtalk.com/v1.0/robot/oToMessages/mediaUpload?access_token=" + token
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := d.HTTPClient().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result struct {
+		MediaId string `json:"mediaId"`
+	}
+	json.Unmarshal(respBody, &result)
+
+	if result.MediaId == "" {
+		return "", fmt.Errorf("钉钉上传文件失败: %s", string(respBody))
+	}
+
+	return result.MediaId, nil
+}
+
+// sendFileMessage 发送文件消息
+func (d *DingTalkChannel) sendFileMessage(ctx context.Context, userID, mediaID string) error {
+	url := "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
+
+	reqBody := map[string]any{
+		"robotCode": d.clientID,
+		"userIds":   []string{userID},
+		"msgType":   "file",
+		"msgParam":  string(mustJSON(map[string]string{"mediaId": mediaID})),
+	}
+
+	jsonData, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.HTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("钉钉API返回 %d: %s", resp.StatusCode, truncateStr(string(respBody), 200))
+	}
+
 	return nil
 }
 

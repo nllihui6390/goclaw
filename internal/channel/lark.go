@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -236,6 +240,26 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 		return err
 	}
 
+	// 检查是否包含文件
+	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
+		fileInfo := ParseFileBlock(resp.Content)
+		if fileInfo != nil && fileInfo.Path != "" {
+			// 上传文件
+			fileKey, err := l.uploadFile(ctx, token, fileInfo.Path)
+			if err == nil && fileKey != "" {
+				// 发送文件消息
+				err = l.sendFileMessage(ctx, token, resp.To, fileKey)
+				if err == nil {
+					log.Logger().Info("[Lark] 文件消息已发送", "to", resp.To, "filename", fileInfo.Filename)
+					return nil
+				}
+				log.Logger().Warn("[Lark] 文件消息发送失败，回退到文本", "err", err)
+			} else {
+				log.Logger().Warn("[Lark] 文件上传失败，回退到文本", "err", err)
+			}
+		}
+	}
+
 	url := "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
 	reqBody := map[string]any{
 		"receive_id": resp.To,
@@ -260,6 +284,106 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 	}
 
 	log.Logger().Debug("[Lark] 消息已发送", "to", resp.To)
+	return nil
+}
+
+// SendFile 实现 FileSender 接口 - 直接发送文件
+func (l *LarkChannel) SendFile(ctx context.Context, to string, info *FileBlockInfo) (bool, error) {
+	// URL 类型暂不支持直接发送，走回退
+	if info.FileType == "url" {
+		return false, nil
+	}
+
+	// 获取 tenant_access_token
+	token, err := l.getTenantAccessToken(ctx)
+	if err != nil {
+		return true, err
+	}
+
+	// 上传文件
+	fileKey, err := l.uploadFile(ctx, token, info.Path)
+	if err != nil {
+		return true, fmt.Errorf("文件上传失败: %w", err)
+	}
+
+	// 发送文件消息
+	if err := l.sendFileMessage(ctx, token, to, fileKey); err != nil {
+		return true, err
+	}
+
+	log.Logger().Info("[Lark] 文件消息已发送", "to", to, "filename", info.Filename)
+	return true, nil
+}
+
+// uploadFile 上传文件到飞书，返回 file_key
+func (l *LarkChannel) uploadFile(ctx context.Context, token, filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("读取文件失败: %v", err)
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return "", err
+	}
+	part.Write(data)
+	writer.Close()
+
+	url := "https://open.feishu.cn/open-apis/im/v1/files"
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := l.HTTPClient().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			FileKey string `json:"file_key"`
+		} `json:"data"`
+		Msg string `json:"msg"`
+	}
+	json.Unmarshal(respBody, &result)
+
+	if result.Code != 0 {
+		return "", fmt.Errorf("飞书上传失败: %s (code: %d)", result.Msg, result.Code)
+	}
+
+	return result.Data.FileKey, nil
+}
+
+// sendFileMessage 发送文件消息
+func (l *LarkChannel) sendFileMessage(ctx context.Context, token, receiveID, fileKey string) error {
+	url := "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"
+	reqBody := map[string]any{
+		"receive_id": receiveID,
+		"msg_type":   "file",
+		"content":    string(mustJSON(map[string]string{"file_key": fileKey})),
+	}
+
+	jsonData, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := l.HTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("飞书API返回 %d: %s", resp.StatusCode, string(respBody))
+	}
+
 	return nil
 }
 

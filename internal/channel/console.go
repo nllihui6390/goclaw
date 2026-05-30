@@ -49,7 +49,14 @@ func (c *ConsoleChannel) Receive(ctx context.Context) (<-chan Message, error) {
 }
 
 func (c *ConsoleChannel) Send(ctx context.Context, resp Response) error {
-	fmt.Printf("\n[Assistant] %s\n", resp.Content)
+	content := resp.Content
+
+	// 检查是否包含文件
+	if strings.Contains(content, "[FILE_BLOCK]") {
+		content = ExtractFileBlockDescription(content)
+	}
+
+	fmt.Printf("\n[Assistant] %s\n", content)
 	fmt.Print("> ")
 	return nil
 }

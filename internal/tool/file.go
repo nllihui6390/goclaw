@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"go-claw/internal/channel"
 )
 
 // WriteFileTool 写文件工具
@@ -355,7 +357,7 @@ func (t *SendFileTool) Name() string {
 }
 
 func (t *SendFileTool) Description() string {
-	return "发送文件给用户。支持本地文件路径或URL。返回文件信息供渠道发送。" +
+	return "发送文件给用户。支持本地文件路径或URL。" +
 		"\n调用格式: send_file(path=\"文件路径或URL\") 或 send_file(path=\"文件路径\", filename=\"显示名\")" +
 		"\nfilename 可选，用于指定显示给用户的文件名（默认取路径中的文件名）" +
 		"\n示例: send_file(path=\"output/report.pdf\") 或 send_file(path=\"https://example.com/data.csv\", filename=\"数据表\")"
@@ -378,7 +380,7 @@ func (t *SendFileTool) Parameters() map[string]interface{} {
 	}
 }
 
-func (t *SendFileTool) Execute(_ context.Context, params map[string]interface{}) (string, error) {
+func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
 	if !ok || path == "" {
 		return "", fmt.Errorf("缺少 path 参数")
@@ -389,23 +391,59 @@ func (t *SendFileTool) Execute(_ context.Context, params map[string]interface{})
 		filename = fn
 	}
 
-	// 检查是URL还是本地文件
+	// 构建 FileBlockInfo
+	info := &channel.FileBlockInfo{
+		Filename: filename,
+	}
+
+	// 检查是 URL 还是本地文件
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
-		return fmt.Sprintf("[FILE_BLOCK]\n来源: URL\n路径: %s\n文件名: %s\n类型: url\n[/FILE_BLOCK]", path, filename), nil
+		info.FileType = "url"
+		info.Path = path
+	} else {
+		// 本地文件
+		if isSensitivePath(path) {
+			return "", fmt.Errorf("禁止发送敏感文件: %s", path)
+		}
+
+		fileStat, err := os.Stat(path)
+		if err != nil {
+			return "", fmt.Errorf("文件不存在: %v", err)
+		}
+
+		info.FileType = "file"
+		info.Path = path
+		info.Size = fileStat.Size()
 	}
 
-	// 本地文件
-	if isSensitivePath(path) {
-		return "", fmt.Errorf("禁止发送敏感文件: %s", path)
+	// 尝试从 context 获取 FileSender 直接发送文件
+	ch := channel.GetChannelFromCtx(ctx)
+	to := channel.GetToUserFromCtx(ctx)
+
+	if ch != nil && to != "" {
+		if fs, ok := ch.(channel.FileSender); ok {
+			supported, err := fs.SendFile(ctx, to, info)
+			if supported {
+				if err != nil {
+					return "", fmt.Errorf("文件发送失败: %v", err)
+				}
+				// 文件已直接发送成功，返回纯文本结果给 LLM
+				return fmt.Sprintf("文件 %s 已成功发送给用户", filename), nil
+			}
+			// 不支持该类型文件（如 URL），走回退路径
+		}
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("文件不存在: %v", err)
-	}
+	// 回退路径：返回 [FILE_BLOCK] 标记（频道在 Send 时解析）
+	return t.buildFileBlock(info)
+}
 
-	size := info.Size()
-	return fmt.Sprintf("[FILE_BLOCK]\n来源: 本地文件\n路径: %s\n文件名: %s\n大小: %d 字节\n类型: file\n[/FILE_BLOCK]", path, filename, size), nil
+// buildFileBlock 构建 [FILE_BLOCK] 回退响应
+func (t *SendFileTool) buildFileBlock(info *channel.FileBlockInfo) (string, error) {
+	if info.FileType == "url" {
+		return fmt.Sprintf("[FILE_BLOCK]\n类型: url\n路径: %s\n文件名: %s\n[/FILE_BLOCK]", info.Path, info.Filename), nil
+	}
+	return fmt.Sprintf("[FILE_BLOCK]\n类型: file\n路径: %s\n文件名: %s\n大小: %d 字节\n[/FILE_BLOCK]", info.Path, info.Filename, info.Size), nil
 }
 
 // ============================================================

@@ -85,6 +85,9 @@ func (w *WebhookChannel) Stop() error {
 }
 
 func (w *WebhookChannel) Send(ctx context.Context, resp Response) error {
+	// 处理文件发送：在响应中标记文件信息
+	resp.Content = ExtractFileBlockDescription(resp.Content)
+
 	w.mu.RLock()
 	ch, exists := w.responses[resp.To]
 	streamCh := w.streamResps[resp.To]

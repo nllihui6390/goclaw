@@ -176,6 +176,10 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 			// 处理消息（带工具事件回调）
 			sessionID := fmt.Sprintf("%s:%s", msg.Channel, msg.From)
 
+			// 注入 Channel 和目标用户到 context，供工具直接发送文件等操作使用
+			msgCtx := channel.WithChannel(g.ctx, ch)
+			msgCtx = channel.WithToUser(msgCtx, msg.From)
+
 			handler := func(event agent.ToolEvent) {
 				ch.SendToolEvent(channel.ToolEvent{
 					Type:     channel.ToolEventType(event.Type),
@@ -188,7 +192,7 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				})
 			}
 
-			response, err := ag.ProcessWithHandler(g.ctx, sessionID, msg.Content, handler)
+			response, err := ag.ProcessWithHandler(msgCtx, sessionID, msg.Content, handler)
 			if err != nil {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)

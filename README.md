@@ -12,7 +12,7 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **多渠道接入**: 控制台、REST API (HTTP)、WebSocket、飞书、钉钉、企业微信（均为 WebSocket 客户端模式）
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索、JSON 文件持久化
-- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑追加、浏览器自动化、时间/时区、文件发送
+- **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑追加、浏览器自动化、时间/时区、文件发送（FileSender 接口直接发送）
 - **智能运行时**: Auto-continue、Summarizing、API 重试（429/5xx 自动重试+指数退避）、Token 预算管理、智能终止、推理标签剥离
 - **上下文压缩**: 对话接近 token 阈值时自动压缩旧消息为摘要
 - **工具结果裁剪**: 超长结果截断并缓存到文件，支持豁免规则
@@ -143,6 +143,20 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
 Console/Webhook/WebSocket 默认全开，Bot 渠道（飞书/钉钉/企微）默认关闭工具和思考显示。
 
 所有 Bot 渠道自动心跳保活（30秒 ping）、断线自动重连。
+
+### 文件发送机制
+
+`send_file` 工具支持直接发送文件给用户：
+
+| 渠道 | 发送方式 | 说明 |
+|------|----------|------|
+| **企业微信** | WebSocket 分片上传 | `aibot_upload_media_init/chunk/finish` 三步上传，单分片 ≤512KB，最大 20MB |
+| **钉钉** | HTTP API 上传 | `robot/oToMessages/mediaUpload` 获取 mediaId 后发送 |
+| **飞书** | HTTP API 上传 | `im/v1/files` 获取 file_key 后发送 |
+| **WebSocket** | JSON 消息 | 直接发送文件元信息 JSON |
+| **Console/Webhook** | 文本描述 | 不支持直接发送，回退为文本描述 |
+
+文件发送流程：`SendFileTool` → 从 context 获取 `FileSender` 接口 → 直接上传发送 → 返回纯文本结果给 LLM。不支持的渠道回退到 `[FILE_BLOCK]` 标记由 `Channel.Send()` 处理。
 
 ## Skill 技能系统
 
@@ -370,7 +384,7 @@ Model Context Protocol 客户端，连接外部工具服务：
 | `read_file` | 读文件（支持行号/偏移） |
 | `edit_file` | 编辑文件（精确字符串替换） |
 | `append_file` | 追加文件（增量写入） |
-| `send_file` | 发送文件给用户 |
+| `send_file` | 发送文件给用户（支持本地文件/URL，FileSender 接口直接发送） |
 | `browser_use` | 浏览器自动化 (rod) |
 | `set_user_timezone` | 设置用户时区 |
 | `list_agents` | 列出所有 Agent |
@@ -464,20 +478,21 @@ go-claw/
 │   │   └── supervisor.go               # 监督者 Agent
 │   ├── channel/
 │   │   ├── channel.go                   # 渠道接口 + Message
+│   │   ├── file.go                      # FileSender 接口 + FileBlockInfo + 文件块解析
 │   │   ├── console.go                   # 控制台渠道
 │   │   ├── webhook.go                   # REST API + SSE + 指标
 │   │   ├── websocket.go                 # WebSocket 渠道
 │   │   ├── bot_base.go                  # Bot 共享基础
 │   │   ├── lark.go                      # 飞书机器人
 │   │   ├── dingtalk.go                  # 钉钉机器人
-│   │   └── wecom.go                     # 企业微信机器人
+│   │   └── wecom.go                     # 企业微信机器人（WebSocket 分片上传）
 │   ├── tool/
 │   │   ├── tool.go                      # 工具接口
 │   │   ├── registry.go                  # 工具注册表 + 默认工具
 │   │   ├── utils.go                     # 共享工具函数
 │   │   ├── weather.go                   # 天气工具
 │   │   ├── exec.go                      # 命令执行（OS 类型提示）
-│   │   ├── file.go                      # 文件读写编辑追加发送 + 目录列表
+│   │   ├── file.go                      # 文件读写编辑追加发送（FileSender 直发） + 目录列表
 │   │   ├── browser.go                   # 浏览器自动化
 │   │   ├── time.go                      # 时间/时区工具
 │   │   ├── cron_status.go              # 定时任务管理
@@ -532,6 +547,7 @@ go-claw/
 │       └── rate_limit.go                # 限流中间件
 ├── goclaw-data/
 │   ├── skills/                          # 全局技能
+│   ├── temp/                            # 临时文件（脚本、OCR图片等）
 │   └── workspaces/
 │       └── <agent-name>/
 │           ├── AGENTS.md / SOUL.md / PROFILE.md
