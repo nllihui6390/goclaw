@@ -132,34 +132,47 @@ func (l *LarkChannel) handleLarkMessage(ctx context.Context, event *larkim.P2Mes
 		return
 	}
 
-	log.Logger().Info("[Lark] 收到文本消息", "msg_id", *messageID, "open_id", *senderID, "content", content)
+	chatID := event.Event.Message.ChatId
+	chatType := event.Event.Message.ChatType
+
+	log.Logger().Info("[Lark] 收到文本消息", "msg_id", *messageID, "open_id", *senderID, "chat_id", *chatID, "chat_type", *chatType, "content", content)
 
 	// 给用户消息添加处理中的 reaction 图标
 	l.addReaction(*messageID, "OK")
 
-	// 存储会话信息，记录最后收到的消息ID（用于处理后清除 reaction）
-	chatID := event.Event.Message.ChatId
+	// 会话ID区分单聊和群聊，群聊加 app 后缀防止多机器人冲突
+	sessionKey := *senderID
+	if chatType != nil && *chatType == "group" {
+		appSuffix := l.appID
+		if len(appSuffix) > 4 {
+			appSuffix = appSuffix[len(appSuffix)-4:]
+		}
+		sessionKey = fmt.Sprintf("%s_%s", appSuffix, *chatID)
+	}
+
+	// 存储会话信息（用 sessionKey 索引，包含 open_id 用于发送回复）
 	l.sessionInfoMu.Lock()
-	l.sessionInfo[*senderID] = larkSession{
+	l.sessionInfo[sessionKey] = larkSession{
 		openID: *senderID,
 	}
 	l.sessionInfoMu.Unlock()
 
 	// 记录消息ID用于后续移除 reaction
 	l.pendingReactionsMu.Lock()
-	l.pendingReactions[*senderID] = *messageID
+	l.pendingReactions[sessionKey] = *messageID
 	l.pendingReactionsMu.Unlock()
 
 	msg := Message{
 		ID:        *messageID,
 		Channel:   l.name,
-		From:      *senderID,
+		From:      sessionKey,
 		Content:   content,
 		Timestamp: time.Now().Unix(),
 		Metadata: map[string]any{
 			"open_id":    *senderID,
 			"message_id": *messageID,
 			"chat_id":    *chatID,
+			"chat_type":  *chatType,
 			"msg_type":   *msgType,
 		},
 	}
@@ -184,6 +197,9 @@ func (l *LarkChannel) Receive(ctx context.Context) (<-chan Message, error) {
 
 // Send 发送响应（调用飞书消息API）
 func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
+	// 解析 sessionKey → open_id（群聊时 resp.To 是 chat_id，单聊时是 open_id）
+	sendTo := l.resolveOpenID(resp.To)
+
 	// 检查是否包含文件
 	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
 		fileInfo := ParseFileBlock(resp.Content)
@@ -192,9 +208,9 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 			fileKey, err := l.uploadFile(ctx, fileInfo.Path)
 			if err == nil && fileKey != "" {
 				// 发送文件消息
-				err = l.sendFileMessage(ctx, resp.To, fileKey)
+				err = l.sendFileMessage(ctx, sendTo, fileKey)
 				if err == nil {
-					log.Logger().Info("[Lark] 文件消息已发送", "to", resp.To, "filename", fileInfo.Filename)
+					log.Logger().Info("[Lark] 文件消息已发送", "to", sendTo, "filename", fileInfo.Filename)
 					l.clearPendingReaction(resp.To)
 					return nil
 				}
@@ -215,14 +231,14 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 		// 包含表格 → 混合 markdown + 原生 table 元素的卡片
 		chunks := buildCardContentChunks(content)
 		for _, chunk := range chunks {
-			if err := l.sendInteractiveCard(ctx, resp.To, chunk); err != nil {
+			if err := l.sendInteractiveCard(ctx, sendTo, chunk); err != nil {
 				log.Logger().Error("[Lark] 发送卡片消息失败", "err", err)
 				l.clearPendingReaction(resp.To)
 				return err
 			}
 		}
 		l.clearPendingReaction(resp.To)
-		log.Logger().Debug("[Lark] 消息已发送", "to", resp.To)
+		log.Logger().Debug("[Lark] 消息已发送", "to", sendTo)
 		return nil
 	}
 
@@ -235,19 +251,32 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 		Build()
 	cardJSON, _ := card.String()
 
-	if err := l.sendInteractiveCard(ctx, resp.To, cardJSON); err != nil {
+	if err := l.sendInteractiveCard(ctx, sendTo, cardJSON); err != nil {
 		log.Logger().Error("[Lark] 发送卡片消息失败", "err", err)
 		l.clearPendingReaction(resp.To)
 		return err
 	}
 
 	l.clearPendingReaction(resp.To)
-	log.Logger().Debug("[Lark] 消息已发送", "to", resp.To)
+	log.Logger().Debug("[Lark] 消息已发送", "to", sendTo)
 	return nil
+}
+
+// resolveOpenID 将 sessionKey 解析为发送消息用的 open_id
+func (l *LarkChannel) resolveOpenID(sessionKey string) string {
+	l.sessionInfoMu.RLock()
+	session, ok := l.sessionInfo[sessionKey]
+	l.sessionInfoMu.RUnlock()
+	if ok {
+		return session.openID
+	}
+	// 如果 sessionInfo 中没有，可能是单聊场景，sessionKey 本身就是 open_id
+	return sessionKey
 }
 
 // SendFile 实现 FileSender 接口 - 直接发送文件
 func (l *LarkChannel) SendFile(ctx context.Context, to string, info *FileBlockInfo) (bool, error) {
+	sendTo := l.resolveOpenID(to)
 	// URL 类型暂不支持直接发送，走回退
 	if info.FileType == "url" {
 		return false, nil
@@ -260,11 +289,11 @@ func (l *LarkChannel) SendFile(ctx context.Context, to string, info *FileBlockIn
 	}
 
 	// 发送文件消息
-	if err := l.sendFileMessage(ctx, to, fileKey); err != nil {
+	if err := l.sendFileMessage(ctx, sendTo, fileKey); err != nil {
 		return true, err
 	}
 
-	log.Logger().Info("[Lark] 文件消息已发送", "to", to, "filename", info.Filename)
+	log.Logger().Info("[Lark] 文件消息已发送", "to", sendTo, "filename", info.Filename)
 	return true, nil
 }
 

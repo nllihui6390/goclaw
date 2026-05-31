@@ -174,6 +174,7 @@ func (app *App) initProactive() {
 // startSessionCleanup 启动会话清理协程
 func (app *App) startSessionCleanup() {
 	if app.Config.Gateway.SessionTTL <= 0 {
+		app.logger.Info("会话持久化模式: 永不过期")
 		return
 	}
 	app.logger.Info("会话清理已启用", "ttl_minutes", app.Config.Gateway.SessionTTL)

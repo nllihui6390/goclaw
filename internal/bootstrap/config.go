@@ -54,7 +54,7 @@ func getDefaultConfig() *config.Config {
 			DefaultProvider: "openai",
 			DefaultModel:    "gpt-3.5-turbo",
 			DefaultAgent:    "default",
-			SessionTTL:      60,
+			SessionTTL:      0, // 0=永不过期，>0 才定时清理
 			DataDir:         "clawdata",
 			Workspace:       "workspaces",
 		},
