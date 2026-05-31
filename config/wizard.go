@@ -225,7 +225,7 @@ func RunWizard() *Config {
 			DefaultProvider: providerName,
 			DefaultModel:    model,
 			DefaultAgent:    "default",
-			SessionTTL:      60,
+			SessionTTL:      0,
 			DataDir:         "clawdata",
 			Workspace:       "workspaces",
 		},
@@ -255,7 +255,7 @@ func RunWizard() *Config {
 			Lark:      LarkConfig{Enabled: larkEnabled, AppID: larkAppID, AppSecret: larkAppSecret},
 			DingTalk:  DingTalkConfig{Enabled: dingtalkEnabled, ClientID: dingtalkClientID, ClientSecret: dingtalkClientSecret},
 			WeCom:     WeComConfig{Enabled: wecomEnabled, BotID: wecomBotID, Secret: wecomSecret},
-			WeChat:    WeChatConfig{Enabled: wechatEnabled, BotTokenFile: "clawdata/wechat_bot_token"},
+			WeChat:    WeChatConfig{Enabled: wechatEnabled, BotTokenFile: "clawdata/wechat_bot_token", MediaDir: "clawdata/media/wechat"},
 		},
 		Logging: LoggingConfig{
 			Level:    "info",
