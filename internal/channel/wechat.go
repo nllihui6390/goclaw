@@ -131,43 +131,57 @@ func (w *WeChatChannel) qrCodeLogin(ctx context.Context) error {
 	qrcodeStr, _ := resp["qrcode"].(string)
 	w.qrCode = qrcodeStr
 
-	// 打印完整响应用于调试
-	respJSON, _ := json.Marshal(resp)
-	log.Logger().Info("[WeChat] 二维码API响应", "resp", string(respJSON))
-
+	// 在控制台显示二维码
 	qrURL, _ := resp["url"].(string)
 	qrImgField, _ := resp["qrcode_img_content"].(string)
 
 	if qrURL != "" {
-		log.Logger().Info("[WeChat] 扫码登录二维码", "url", qrURL)
+		fmt.Println()
+		fmt.Println("╔══════════════════════════════════════════════════════════╗")
+		fmt.Println("║          WeChat iLink Bot 扫码登录                        ║")
+		fmt.Println("╠══════════════════════════════════════════════════════════╣")
+		fmt.Printf("║  QR Code URL: %-44s ║\n", qrURL)
+		fmt.Println("║                                                          ║")
+		fmt.Println("║  请用手机微信扫描上述链接中的二维码完成登录                    ║")
+		fmt.Println("╚══════════════════════════════════════════════════════════╝")
+		fmt.Println()
+		log.Logger().Info("[WeChat] 请在控制台扫描二维码登录", "url", qrURL)
 	} else if qrImgField != "" {
-		// 检查是否是 URL（以 http 开头）
 		if strings.HasPrefix(qrImgField, "http") {
-			log.Logger().Info("[WeChat] 扫码登录二维码", "url", qrImgField)
+			fmt.Println()
+			fmt.Println("╔══════════════════════════════════════════════════════════╗")
+			fmt.Println("║          WeChat iLink Bot 扫码登录                        ║")
+			fmt.Println("╠══════════════════════════════════════════════════════════╣")
+			fmt.Printf("║  QR Code URL: %-44s ║\n", qrImgField)
+			fmt.Println("║                                                          ║")
+			fmt.Println("║  请用手机微信扫描上述链接中的二维码完成登录                    ║")
+			fmt.Println("╚══════════════════════════════════════════════════════════╝")
+			fmt.Println()
 		} else {
-			// 尝试 base64 解码
+			// base64 解码保存为文件
 			imgData, err := base64.StdEncoding.DecodeString(qrImgField)
 			if err != nil {
 				imgData, err = base64.RawStdEncoding.DecodeString(qrImgField)
 			}
 			if err != nil {
-				previewLen := 100
-				if len(qrImgField) < previewLen {
-					previewLen = len(qrImgField)
-				}
-				log.Logger().Warn("[WeChat] 二维码解码失败", "preview", qrImgField[:previewLen])
+				log.Logger().Warn("[WeChat] 二维码解码失败", "preview", qrImgField[:min(100, len(qrImgField))])
 			} else {
 				qrFile := filepath.Join(filepath.Dir(w.tokenFile), "wechat_qrcode.png")
 				os.MkdirAll(filepath.Dir(qrFile), 0755)
-				if err := os.WriteFile(qrFile, imgData, 0644); err != nil {
-					log.Logger().Error("[WeChat] 保存二维码文件失败", "err", err)
-				} else {
-					log.Logger().Info("[WeChat] 二维码已保存", "file", qrFile)
-				}
+				os.WriteFile(qrFile, imgData, 0644)
+				fmt.Println()
+				fmt.Println("╔══════════════════════════════════════════════════════════╗")
+				fmt.Println("║          WeChat iLink Bot 扫码登录                        ║")
+				fmt.Println("╠══════════════════════════════════════════════════════════╣")
+				fmt.Printf("║  二维码已保存到: %-40s ║\n", qrFile)
+				fmt.Println("║                                                          ║")
+				fmt.Println("║  请用手机微信扫描该二维码文件完成登录                         ║")
+				fmt.Println("╚══════════════════════════════════════════════════════════╝")
+				fmt.Println()
 			}
 		}
 	} else {
-		log.Logger().Warn("[WeChat] 未获取到二维码URL或图片")
+		log.Logger().Warn("[WeChat] 未获取到二维码，API 响应", "resp", fmt.Sprintf("%v", resp))
 	}
 	log.Logger().Info("[WeChat] 等待扫码确认...", "qrcode", qrcodeStr[:8]+"...")
 

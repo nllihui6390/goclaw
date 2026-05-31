@@ -214,6 +214,11 @@ func RunWizard() *Config {
 		wecomSecret = readLine(reader)
 	}
 
+	wechatEnabled := askYesNo(reader, "启用微信个人 Bot (iLink)?", false)
+	if wechatEnabled {
+		fmt.Println("  提示: 首次启动时会自动弹出扫码登录，无需预先配置 Token")
+	}
+
 	// ── 构建配置 ──
 	cfg := &Config{
 		Gateway: GatewayConfig{
@@ -250,6 +255,7 @@ func RunWizard() *Config {
 			Lark:      LarkConfig{Enabled: larkEnabled, AppID: larkAppID, AppSecret: larkAppSecret},
 			DingTalk:  DingTalkConfig{Enabled: dingtalkEnabled, ClientID: dingtalkClientID, ClientSecret: dingtalkClientSecret},
 			WeCom:     WeComConfig{Enabled: wecomEnabled, BotID: wecomBotID, Secret: wecomSecret},
+			WeChat:    WeChatConfig{Enabled: wechatEnabled, BotTokenFile: "clawdata/wechat_bot_token"},
 		},
 		Logging: LoggingConfig{
 			Level:    "info",
@@ -282,6 +288,9 @@ func RunWizard() *Config {
 		}
 		if wecomEnabled {
 			channels += ", 企业微信"
+		}
+		if wechatEnabled {
+			channels += ", 微信个人"
 		}
 
 		fmt.Println()
