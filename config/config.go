@@ -150,6 +150,7 @@ type ChannelsConfig struct {
 	Lark      LarkConfig      `json:"lark"`
 	DingTalk  DingTalkConfig  `json:"dingtalk"`
 	WeCom     WeComConfig     `json:"wecom"`
+	WeChat    WeChatConfig    `json:"wechat"`
 }
 
 // SkillsConfig Skill 系统配置
@@ -209,6 +210,19 @@ type WeComConfig struct {
 	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
 	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
 	StreamOutput     bool   `json:"stream_output"`      // 流式输出
+}
+
+// WeChatConfig 微信个人 iLink Bot 配置
+type WeChatConfig struct {
+	Enabled          bool   `json:"enabled"`
+	BotToken         string `json:"bot_token"`
+	BotTokenFile     string `json:"bot_token_file"`
+	BotPrefix        string `json:"bot_prefix"`
+	BaseURL          string `json:"base_url"`
+	MediaDir         string `json:"media_dir"`
+	ShowToolMessages bool   `json:"show_tool_messages"`
+	ShowThinking     bool   `json:"show_thinking"`
+	StreamOutput     bool   `json:"stream_output"`
 }
 
 // LoadConfig 加载配置

@@ -99,5 +99,25 @@ func (app *App) initChannels() {
 		}
 	}
 
+
+	if app.Config.Channels.WeChat.Enabled {
+		display := toDisplayConfig(
+			app.Config.Channels.WeChat.ShowToolMessages,
+			app.Config.Channels.WeChat.ShowThinking,
+			app.Config.Channels.WeChat.StreamOutput,
+		)
+		wechatChan := channel.NewWeChatChannel(
+			app.Config.Channels.WeChat.BotToken,
+			app.Config.Channels.WeChat.BotPrefix,
+			app.Config.Channels.WeChat.BaseURL,
+			app.Config.Channels.WeChat.MediaDir,
+			app.Config.Channels.WeChat.BotTokenFile,
+			display,
+		)
+		if err := app.Gateway.RegisterChannel(wechatChan); err != nil {
+			app.logger.Error("注册微信渠道失败", "err", err)
+		}
+	}
+
 	app.Gateway.SetDefaultAgent("default")
 }

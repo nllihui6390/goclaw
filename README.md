@@ -9,7 +9,7 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **三层架构**: Gateway（路由协调）→ Agent（LLM 交互）→ Session（会话管理）
 - **多模型供应商**: 支持 OpenAI/DeepSeek 等云 API + 本地 Ollama，一个配置多个供应商
 - **手动 Agent 路由**: `/agent <name>` 切换、API `agent` 字段指定，无自动关键词匹配
-- **多渠道接入**: 控制台、REST API (HTTP)、WebSocket、飞书、钉钉、企业微信（均为 WebSocket 客户端模式）
+- **多渠道接入**: 控制台、REST API (HTTP)、WebSocket、飞书、钉钉、企业微信、微信个人 (iLink Bot)
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索、JSON 文件持久化
 - **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑追加、浏览器自动化、时间/时区、文件发送（FileSender 接口直接发送）
@@ -94,13 +94,16 @@ docker compose up -d
 
 ## 机器人渠道
 
-go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主动连接对方服务器，无需本地开端口，无需消息加解密：
+go-claw 支持四种 IM 机器人：
 
-| 渠道 | 连接地址 | 配置字段 |
-|------|---------|----------|
-| 飞书 | `wss://open.feishu.cn/open-apis/event/v2/stream/` | `app_id`, `app_secret` |
-| 钉钉 | `wss://stream.dingtalk.com` | `client_id`, `client_secret` |
-| 企业微信 | `wss://openws.work.weixin.qq.com` | `bot_id`, `secret` |
+| 渠道 | 连接方式 | 配置字段 |
+|------|----------|----------|
+| 飞书 | WebSocket 长连接 | `app_id`, `app_secret` |
+| 钉钉 | WebSocket Stream | `client_id`, `client_secret` |
+| 企业微信 | WebSocket 长连接 | `bot_id`, `secret` |
+| 微信个人 | HTTP 长轮询 (iLink Bot) | `bot_token`（可选，留空扫码登录） |
+
+飞书、钉钉、企业微信为 **WebSocket 客户端模式** — 主动连接对方服务器，无需本地开端口。微信为 HTTP 长轮询模式。
 
 配置示例：
 
@@ -128,7 +131,8 @@ go-claw 支持三种 IM 机器人，均为 **WebSocket 客户端模式** — 主
   },
   "lark":      { "enabled": false, "app_id": "", "app_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
   "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
-  "wecom":     { "enabled": true, "bot_id": "xxx", "secret": "xxx", "show_tool_messages": false, "show_thinking": false, "stream_output": true }
+  "wecom":     { "enabled": true, "bot_id": "xxx", "secret": "xxx", "show_tool_messages": false, "show_thinking": false, "stream_output": true },
+  "wechat":    { "enabled": false, "bot_token": "", "bot_token_file": "clawdata/wechat_bot_token", "bot_prefix": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false }
 }
 ```
 
@@ -144,6 +148,27 @@ Console/Webhook/WebSocket 默认全开，Bot 渠道（飞书/钉钉/企微）默
 
 所有 Bot 渠道自动心跳保活（30秒 ping）、断线自动重连。
 
+### 微信个人 Bot (iLink)
+
+微信个人 Bot 使用微信官方的 iLink Bot HTTP API，无需企业资质：
+
+- **长轮询接收**: HTTP POST `getupdates` 拉取消息（服务端保持 35 秒）
+- **文本回复**: HTTP POST `sendmessage` 发送文本（需 `context_token`）
+- **文件/图片发送**: AES-ECB 加密后上传 CDN，`getuploadurl` → CDN PUT → `sendmessage`
+- **扫码登录**: 首次启动时自动获取二维码，微信扫码确认后 Token 持久化到 `bot_token_file`
+- **会话区分**: 私聊 `wechat:<user_id>`，群聊 `wechat:group:<group_id>`
+
+```json
+"wechat": {
+  "enabled": true,
+  "bot_token": "",                       // 留空 = 扫码登录
+  "bot_token_file": "clawdata/wechat_bot_token",
+  "bot_prefix": "",
+  "base_url": "",                        // API 地址，默认 ilinkai.weixin.qq.com
+  "media_dir": "clawdata/media/wechat"
+}
+```
+
 ### 文件发送机制
 
 `send_file` 工具支持直接发送文件给用户：
@@ -153,6 +178,7 @@ Console/Webhook/WebSocket 默认全开，Bot 渠道（飞书/钉钉/企微）默
 | **企业微信** | WebSocket 分片上传 | `aibot_upload_media_init/chunk/finish` 三步上传，单分片 ≤512KB，最大 20MB |
 | **钉钉** | HTTP API 上传 | `robot/oToMessages/mediaUpload` 获取 mediaId 后发送 |
 | **飞书** | HTTP API 上传 | `im/v1/files` 获取 file_key 后发送 |
+| **微信 iLink** | CDN 加密上传 | AES-ECB 加密 + `getuploadurl` + CDN PUT，支持 image/file |
 | **WebSocket** | JSON 消息 | 直接发送文件元信息 JSON |
 | **Console/Webhook** | 文本描述 | 不支持直接发送，回退为文本描述 |
 
@@ -485,7 +511,8 @@ go-claw/
 │   │   ├── bot_base.go                  # Bot 共享基础
 │   │   ├── lark.go                      # 飞书机器人
 │   │   ├── dingtalk.go                  # 钉钉机器人
-│   │   └── wecom.go                     # 企业微信机器人（WebSocket 分片上传）
+│   │   ├── wecom.go                     # 企业微信机器人（WebSocket 分片上传）
+│   │   └── wechat.go                    # 微信个人 iLink Bot（HTTP 长轮询）
 │   ├── tool/
 │   │   ├── tool.go                      # 工具接口
 │   │   ├── registry.go                  # 工具注册表 + 默认工具
