@@ -7,7 +7,7 @@ logs
 .claude
 config.json
 data.json
-
+CLAUDE.md
 go-claw
 clawdata/*
 skills/*
