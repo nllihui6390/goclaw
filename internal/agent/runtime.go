@@ -959,6 +959,10 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		{Role: "system", Content: systemContent},
 	}
 
+	// 注入当前会话信息（LLM 可据此自动设置定时任务的发送目标）
+	sessionCtx := fmt.Sprintf("[会话信息]\n当前渠道: %s\n你的会话ID: %s\n（cron_status 的 session_id 参数使用此值可将结果发送到当前会话）", session.Channel, session.ID)
+	messages = append(messages, ChatMessage{Role: "system", Content: sessionCtx})
+
 	// 如果有压缩摘要，注入到系统提示后面
 	if session.CompressedSummary != "" {
 		messages = append(messages, ChatMessage{

@@ -134,12 +134,14 @@ func (t *CronStatusTool) Execute(ctx context.Context, params map[string]interfac
 		return t.getJob(mgr, params)
 	case "add":
 		return t.addJob(mgr, params)
+	case "update":
+		return t.updateJob(mgr, params)
 	case "delete":
 		return t.deleteJob(mgr, params)
 	case "run":
 		return t.runJob(ctx, mgr, params)
 	default:
-		return "", fmt.Errorf("未知操作: %s (支持: list, run, get, add, delete)", action)
+		return "", fmt.Errorf("未知操作: %s (支持: list, get, add, update, delete, run)", action)
 	}
 }
 
