@@ -278,14 +278,14 @@ func (w *WeChatChannel) pollLoop(ctx context.Context) {
 		default:
 		}
 
-		log.Logger().Info("[WeChat] 开始拉取消息", "cursor", cursor)
+		log.Logger().Debug("[WeChat] 开始拉取消息", "cursor", cursor)
 		msgs, newCursor, err := w.getUpdates(ctx, cursor)
 		if err != nil {
 			log.Logger().Error("[WeChat] 拉取消息失败", "err", err)
 			time.Sleep(time.Duration(wechatPollInterval) * time.Second)
 			continue
 		}
-		log.Logger().Info("[WeChat] 拉取消息返回", "msgs_count", len(msgs), "new_cursor", newCursor)
+		log.Logger().Debug("[WeChat] 拉取消息返回", "msgs_count", len(msgs), "new_cursor", newCursor)
 		cursor = newCursor
 
 		for _, msg := range msgs {
@@ -309,7 +309,7 @@ func (w *WeChatChannel) getUpdates(ctx context.Context, cursor string) ([]map[st
 
 	// 记录返回的关键字段用于调试
 	retVal, _ := resp["ret"].(float64)
-	log.Logger().Info("[WeChat] getUpdates 响应", "ret", int(retVal), "has_msgs", resp["msgs"] != nil)
+	log.Logger().Debug("[WeChat] getUpdates 响应", "ret", int(retVal), "has_msgs", resp["msgs"] != nil)
 
 	msgsRaw, _ := resp["msgs"].([]any)
 	var msgs []map[string]any
@@ -403,7 +403,7 @@ func (w *WeChatChannel) handleMessage(msg map[string]any) {
 	m := w.parseMessage(msg)
 
 	// 打印解析结果用于调试
-	log.Logger().Info("[WeChat] 消息解析结果", "msg_id", m.MsgID[:min(16, len(m.MsgID))],
+	log.Logger().Debug("[WeChat] 消息解析结果", "msg_id", m.MsgID[:min(16, len(m.MsgID))],
 		"from", m.FromUserID[:min(20, len(m.FromUserID))],
 		"type", m.MsgType, "content_len", len(m.Content), "has_token", m.ContextToken != "")
 
@@ -502,7 +502,7 @@ func (w *WeChatChannel) Send(ctx context.Context, resp Response) error {
 		}
 	}
 
-	log.Logger().Info("[WeChat] 消息已发送", "to", resp.To[:20]+"...")
+	log.Logger().Debug("[WeChat] 消息已发送", "to", resp.To[:20]+"...")
 	return nil
 }
 
