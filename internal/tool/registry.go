@@ -179,7 +179,7 @@ func init() {
 	// 网络/信息类
 	GlobalRegistry.RegisterDefault("http_request")
 	GlobalRegistry.RegisterDefault("web_search")
-	GlobalRegistry.RegisterDefault("url_summary")
+	// GlobalRegistry.RegisterDefault("url_summary")
 	// 计算/代码类
 	GlobalRegistry.RegisterDefault("calculate")
 	GlobalRegistry.RegisterDefault("run_code")

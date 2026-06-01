@@ -27,7 +27,7 @@ type Runtime struct {
 func NewRuntime(cfg *Config) *Runtime {
 	return &Runtime{
 		config: cfg,
-		client: &http.Client{Timeout: 60 * time.Second},
+		client: &http.Client{Timeout: 180 * time.Second},
 	}
 }
 
