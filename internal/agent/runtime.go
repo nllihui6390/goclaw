@@ -399,12 +399,15 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
 	logger := glog.Logger()
 	logger.Debug("[Runtime] callLLM", "provider", r.config.ProviderType, "model", r.config.Model, "messages", len(messages))
-	switch r.config.ProviderType {
-	case "ollama":
-		return r.callOllama(ctx, messages, tools)
-	default:
-		return r.callOpenAI(ctx, messages, tools)
+	if r.config.ProviderType == "ollama" {
+		// Ollama 通过 OpenAI 兼容 API (/v1/chat/completions) 调用，避免原生 API 的模型兼容问题
+		savedURL := r.config.BaseURL
+		if !strings.HasSuffix(savedURL, "/v1") && !strings.HasSuffix(savedURL, "/v1/") {
+			r.config.BaseURL = strings.TrimRight(savedURL, "/") + "/v1"
+		}
+		defer func() { r.config.BaseURL = savedURL }()
 	}
+	return r.callOpenAI(ctx, messages, tools)
 }
 
 // callLLMWithRetry 带重试的LLM调用（429/5xx自动重试 + 指数退避）
@@ -531,129 +534,6 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	return msg, nil
 }
 
-// callOllama Ollama API调用
-func (r *Runtime) callOllama(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
-	logger := glog.Logger()
-	reqBody := r.buildOllamaRequest(messages, tools)
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		logger.Error("[Runtime] 构建Ollama请求JSON失败", "err", err)
-		return nil, err
-	}
-
-	url := r.config.BaseURL + "/api/chat"
-	logger.Debug("[Runtime] 发送Ollama请求", "url", url, "model", r.config.Model, "request_len", len(jsonData))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		logger.Error("[Runtime] 创建Ollama HTTP请求失败", "url", url, "err", err)
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	startTime := time.Now()
-	resp, err := r.client.Do(req)
-	if err != nil {
-		logger.Error("[Runtime] Ollama HTTP请求失败", "url", url, "err", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(startTime)
-	logger.Debug("[Runtime] Ollama响应收到", "status", resp.StatusCode, "elapsed_ms", elapsed.Milliseconds())
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		logger.Error("[Runtime] Ollama返回非200状态码", "status", resp.StatusCode, "body", truncate(string(body), 500))
-		return nil, fmt.Errorf("Ollama返回状态码 %d", resp.StatusCode)
-	}
-
-	// Ollama 返回的是流式JSON行，每行一个JSON对象
-	var lastLine struct {
-		Message struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"message"`
-		Done bool `json:"done"`
-	}
-
-	lineCount := 0
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		lineCount++
-		if err := json.Unmarshal([]byte(line), &lastLine); err != nil {
-			logger.Debug("[Runtime] Ollama行解析跳过", "line", lineCount, "err", err)
-			continue
-		}
-		if lastLine.Done {
-			break
-		}
-	}
-
-	logger.Debug("[Runtime] Ollama响应解析完成", "lines_read", lineCount, "elapsed_ms", elapsed.Milliseconds())
-
-	if lastLine.Message.Content == "" {
-		logger.Error("[Runtime] Ollama返回空内容")
-		return nil, fmt.Errorf("no response from Ollama")
-	}
-
-	msg := &ChatMessage{
-		Role:    lastLine.Message.Role,
-		Content: lastLine.Message.Content,
-	}
-
-	logger.Info("[Runtime] Ollama响应成功",
-		"content_len", len(msg.Content),
-		"elapsed_ms", elapsed.Milliseconds())
-
-	return msg, nil
-}
-
-func (r *Runtime) buildOllamaRequest(messages []ChatMessage, tools []tool.Tool) map[string]interface{} {
-	// 转换消息格式为 Ollama 格式
-	var ollamaMessages []map[string]interface{}
-	for _, m := range messages {
-		ollamaMessages = append(ollamaMessages, map[string]interface{}{
-			"role":    m.Role,
-			"content": m.Content,
-		})
-	}
-
-	reqBody := map[string]interface{}{
-		"model":    r.config.Model,
-		"messages": ollamaMessages,
-		"stream":   false,
-		"options": map[string]interface{}{
-			"temperature": 0.7,
-			"num_ctx":     4096,
-		},
-	}
-
-	// Ollama 工具支持（如果模型支持）
-	if len(tools) > 0 {
-		reqBody["tools"] = r.convertOllamaTools(tools)
-	}
-
-	return reqBody
-}
-
-// convertOllamaTools 转换工具为 Ollama 格式
-func (r *Runtime) convertOllamaTools(tools []tool.Tool) []map[string]interface{} {
-	var ollamaTools []map[string]interface{}
-	for _, t := range tools {
-		ollamaTools = append(ollamaTools, map[string]interface{}{
-			"type": "function",
-			"function": map[string]interface{}{
-				"name":        t.Name(),
-				"description": t.Description(),
-				"parameters":  t.Parameters(),
-			},
-		})
-	}
-	return ollamaTools
-}
 
 // buildOpenAIRequest 构建 OpenAI 请求体
 func (r *Runtime) buildOpenAIRequest(messages []ChatMessage, tools []tool.Tool) map[string]interface{} {
@@ -722,7 +602,7 @@ func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb 
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content  string `json:"content"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
