@@ -90,6 +90,9 @@ func (w *WeChatChannel) Start(ctx context.Context) error {
 		}
 	}
 
+	// 加载持久化的 context_tokens
+	w.loadContextTokens()
+
 	log.Logger().Info("[WeChat] iLink Bot 已启动", "base_url", w.baseURL)
 	go w.pollLoop(ctx)
 	return nil
@@ -118,6 +121,36 @@ func (w *WeChatChannel) loadTokenFromFile() {
 func (w *WeChatChannel) saveTokenToFile() {
 	os.MkdirAll(filepath.Dir(w.tokenFile), 0755)
 	os.WriteFile(w.tokenFile, []byte(w.botToken), 0600)
+}
+
+// contextTokenFile 返回 context_tokens 持久化文件路径
+func (w *WeChatChannel) contextTokenFile() string {
+	return filepath.Join(filepath.Dir(w.tokenFile), "wechat_context_tokens.json")
+}
+
+func (w *WeChatChannel) loadContextTokens() {
+	data, err := os.ReadFile(w.contextTokenFile())
+	if err != nil {
+		return
+	}
+	var tokens map[string]string
+	if err := json.Unmarshal(data, &tokens); err != nil {
+		return
+	}
+	w.contextTokensMu.Lock()
+	for k, v := range tokens {
+		w.contextTokens[k] = v
+	}
+	w.contextTokensMu.Unlock()
+	log.Logger().Info("[WeChat] 已加载 context_tokens", "count", len(tokens))
+}
+
+func (w *WeChatChannel) saveContextTokens() {
+	w.contextTokensMu.RLock()
+	data, _ := json.Marshal(w.contextTokens)
+	w.contextTokensMu.RUnlock()
+	os.MkdirAll(filepath.Dir(w.contextTokenFile()), 0755)
+	os.WriteFile(w.contextTokenFile(), data, 0644)
 }
 
 // ─────────────────── 扫码登录 ───────────────────
@@ -452,11 +485,12 @@ func (w *WeChatChannel) handleMessage(msg map[string]any) {
 	}
 	w.processedIDsMu.Unlock()
 
-	// 保存 context_token
+	// 保存 context_token 并持久化
 	if m.ContextToken != "" {
 		w.contextTokensMu.Lock()
 		w.contextTokens[m.FromUserID] = m.ContextToken
 		w.contextTokensMu.Unlock()
+		w.saveContextTokens()
 	}
 
 	// 确定会话 ID
@@ -558,9 +592,26 @@ func (w *WeChatChannel) sendText(ctx context.Context, toUserID, text, contextTok
 	return nil
 }
 
-// SendProactive 主动发送消息（目前不支持，需要 context_token）
+// SendProactive 主动发送消息（使用持久化的 context_token）
 func (w *WeChatChannel) SendProactive(ctx context.Context, userID, content string) error {
-	return fmt.Errorf("[WeChat] 主动消息暂不支持（需要用户先发消息获取 context_token）")
+	w.contextTokensMu.RLock()
+	contextToken := w.contextTokens[userID]
+	w.contextTokensMu.RUnlock()
+
+	if contextToken == "" {
+		return fmt.Errorf("[WeChat] 未找到 %s 的 context_token（需要用户先发一条消息）", userID[:min(20, len(userID))])
+	}
+
+	content = w.botPrefix + content
+	chunks := splitWechatText(content, 2000)
+	for _, chunk := range chunks {
+		if err := w.sendText(ctx, userID, chunk, contextToken); err != nil {
+			return err
+		}
+	}
+
+	log.Logger().Info("[WeChat] 主动消息已发送", "user", userID[:20]+"...")
+	return nil
 }
 
 func (w *WeChatChannel) SendToolEvent(event ToolEvent) error {
