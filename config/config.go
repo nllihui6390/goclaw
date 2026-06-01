@@ -144,13 +144,11 @@ type AgentConfig struct {
 }
 
 type ChannelsConfig struct {
-	Console   ConsoleConfig   `json:"console"`
-	Webhook   WebhookConfig   `json:"webhook"`
-	WebSocket WebSocketConfig `json:"websocket"`
-	Lark      LarkConfig      `json:"lark"`
-	DingTalk  DingTalkConfig  `json:"dingtalk"`
-	WeCom     WeComConfig     `json:"wecom"`
-	WeChat    WeChatConfig    `json:"wechat"`
+	Console  ConsoleConfig  `json:"console"`
+	Lark     LarkConfig     `json:"lark"`
+	DingTalk DingTalkConfig `json:"dingtalk"`
+	WeCom    WeComConfig    `json:"wecom"`
+	WeChat   WeChatConfig   `json:"wechat"`
 }
 
 // SkillsConfig Skill 系统配置

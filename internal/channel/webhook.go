@@ -173,6 +173,11 @@ type chatRequest struct {
 }
 
 // handleChat POST /api/v1/chat
+// HandleChat 公开的 chat handler（供外部 mux 注册）
+func (w *WebhookChannel) HandleChat(rw http.ResponseWriter, r *http.Request) {
+	w.handleChat(rw, r)
+}
+
 func (w *WebhookChannel) handleChat(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")

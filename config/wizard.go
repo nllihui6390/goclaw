@@ -250,8 +250,6 @@ func RunWizard() *Config {
 		},
 		Channels: ChannelsConfig{
 			Console:   ConsoleConfig{Enabled: true},
-			Webhook:   WebhookConfig{Enabled: webhookEnabled, Port: webhookPort},
-			WebSocket: WebSocketConfig{Enabled: false},
 			Lark:      LarkConfig{Enabled: larkEnabled, AppID: larkAppID, AppSecret: larkAppSecret},
 			DingTalk:  DingTalkConfig{Enabled: dingtalkEnabled, ClientID: dingtalkClientID, ClientSecret: dingtalkClientSecret},
 			WeCom:     WeComConfig{Enabled: wecomEnabled, BotID: wecomBotID, Secret: wecomSecret},

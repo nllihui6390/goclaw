@@ -89,8 +89,6 @@ func getDefaultConfig() *config.Config {
 		},
 		Channels: config.ChannelsConfig{
 			Console:   config.ConsoleConfig{Enabled: true},
-			Webhook:   config.WebhookConfig{Enabled: true, Port: "8080"},
-			WebSocket: config.WebSocketConfig{Enabled: false, Port: "8081"},
 			Lark:      config.LarkConfig{Enabled: false},
 			DingTalk:  config.DingTalkConfig{Enabled: false},
 			WeCom:     config.WeComConfig{Enabled: false},

@@ -9,7 +9,9 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 - **三层架构**: Gateway（路由协调）→ Agent（LLM 交互）→ Session（会话管理）
 - **多模型供应商**: 支持 OpenAI/DeepSeek 等云 API + 本地 Ollama，一个配置多个供应商
 - **手动 Agent 路由**: `/agent <name>` 切换、API `agent` 字段指定，无自动关键词匹配
-- **多渠道接入**: 控制台、REST API (HTTP)、WebSocket、飞书、钉钉、企业微信、微信个人 (iLink Bot)
+- **多渠道接入**: Console、Web 管理后台、飞书、钉钉、企业微信、微信个人 (iLink Bot)
+- **Web 管理后台**: Vue 3 + Element Plus，AI 对话 + 15 个管理页面，单文件部署
+- **桌面应用**: Wails3 编译独立窗口 EXE，Go 函数直接调用，无 HTTP 端口
 - **流式输出**: SSE (Server-Sent Events) 流式响应，WebSocket 逐块推送
 - **记忆系统**: 短期/长期记忆、关键词检索、向量语义检索、JSON 文件持久化
 - **工具系统**: 插件模式、动态注册、Skill 分组、内置天气查询、命令执行、文件读写编辑追加、浏览器自动化、时间/时区、文件发送（FileSender 接口直接发送）
@@ -42,25 +44,64 @@ Go 语言仿照 OpenClaw 架构思想实现的 AI Agent 框架。核心保留 Ga
 ## 快速开始
 
 ```bash
-# 1. 克隆并进入项目
-git clone <repo> && cd go-claw
+# 1. 构建前端
+cd frontend && npm install && npm run build && cd ..
 
-# 2. 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入 OPENAI_API_KEY 等
+# 2. 配置 API Key（编辑 config.json 或在 .env 中设置）
 
 # 3. 构建
-go build -o go-claw .
+go build -tags server -o go-claw-server.exe .
 
-# 4. 运行
-./go-claw
+# 4. 运行 → http://localhost:8080
+./go-claw-server.exe
 ```
 
-### Docker 部署
+### 开发模式
 
 ```bash
-docker compose up -d
+# 终端 1: Go 后端
+go run .
+
+# 终端 2: 前端热重载
+cd frontend && npm run dev    # http://localhost:5173
 ```
+
+### 构建模式
+
+| 命令 | 产物 | 大小 | 说明 |
+|------|------|------|------|
+| `go build -tags server` | `go-claw-server.exe` | 20MB | Web 服务，HTTP API + 前端 SPA |
+| `wails3 build` | `bin/go-claw.exe` | 34MB | 桌面应用，WebView2 窗口 + Go 函数绑定 |
+
+### 桌面应用 (Wails3)
+
+编译独立窗口桌面 EXE，前端通过 Wails3 Bridge 直接调用 Go 函数，**无 HTTP 端口**：
+
+```
+WebView2 窗口 → Wails3 Bridge → Go Service 函数（进程内调用）
+```
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+wails3 dev                   # 开发（前端热重载 + WebView2 窗口）
+wails3 build                 # 构建 → bin/go-claw.exe (34MB)
+```
+
+当前导出的 Go Services：
+
+| Service | 方法 | 说明 |
+|---------|------|------|
+| `ChatService` | `SendMessage()` | 流式对话 |
+| `AppService` | `GetConfig()` `SaveConfig()` `GetLogs()` | 配置/日志管理 |
+
+### 双模式适配器
+
+前端 `main.js` 自动检测环境切换适配器：
+
+| 模式 | 检测条件 | 适配器 | 通信方式 |
+|------|----------|--------|----------|
+| 桌面 | `window.go.main.ChatService` 存在 | `WailsAdapter` | Go 函数直接调用 |
+| Web | 否则 | `HttpAdapter` | axios + SSE 流式 |
 
 ## 控制台命令
 
@@ -94,7 +135,7 @@ docker compose up -d
 
 ## 机器人渠道
 
-go-claw 支持四种 IM 机器人：
+go-claw 内置 Web 管理后台，同时支持四种 IM 机器人：
 
 | 渠道 | 连接方式 | 配置字段 |
 |------|----------|----------|
@@ -115,20 +156,6 @@ go-claw 支持四种 IM 机器人：
     "show_thinking": true,        // 显示模型思考/推理内容
     "stream_output": true         // 流式输出
   },
-  "webhook": {
-    "enabled": true,
-    "port": "8080",
-    "show_tool_messages": true,
-    "show_thinking": true,
-    "stream_output": true
-  },
-  "websocket": {
-    "enabled": false,
-    "port": "8081",
-    "show_tool_messages": true,
-    "show_thinking": true,
-    "stream_output": true
-  },
   "lark":      { "enabled": false, "app_id": "", "app_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
   "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
   "wecom":     { "enabled": true, "bot_id": "xxx", "secret": "xxx", "show_tool_messages": false, "show_thinking": false, "stream_output": true },
@@ -144,7 +171,7 @@ go-claw 支持四种 IM 机器人：
 | `show_thinking` | 显示模型思考/推理内容 | 隐藏思考过程 |
 | `stream_output` | 流式输出 | 一次性返回完整响应 |
 
-Console/Webhook/WebSocket 默认全开，Bot 渠道（飞书/钉钉/企微）默认关闭工具和思考显示。
+Console 默认全开，Bot 渠道（飞书/钉钉/企微）默认关闭工具和思考显示。
 
 所有 Bot 渠道自动心跳保活（30秒 ping）、断线自动重连。
 
@@ -179,8 +206,7 @@ Console/Webhook/WebSocket 默认全开，Bot 渠道（飞书/钉钉/企微）默
 | **钉钉** | HTTP API 上传 | `robot/oToMessages/mediaUpload` 获取 mediaId 后发送 |
 | **飞书** | HTTP API 上传 | `im/v1/files` 获取 file_key 后发送 |
 | **微信 iLink** | CDN 加密上传 | AES-ECB 加密 + `getuploadurl` + CDN PUT，支持 image/file |
-| **WebSocket** | JSON 消息 | 直接发送文件元信息 JSON |
-| **Console/Webhook** | 文本描述 | 不支持直接发送，回退为文本描述 |
+| **Console** | 文本描述 | 不支持直接发送，回退为文本描述 |
 
 文件发送流程：`SendFileTool` → 从 context 获取 `FileSender` 接口 → 直接上传发送 → 返回纯文本结果给 LLM。不支持的渠道回退到 `[FILE_BLOCK]` 标记由 `Channel.Send()` 处理。
 
@@ -471,24 +497,66 @@ AGENTS.md 支持 `<!-- heartbeat:start -->` 和 `<!-- memory:start -->` 条件�
 
 ## API 端点
 
+### 对话
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/v1/chat` | 发送消息（`agent` 字段、`stream=true` SSE） |
-| GET | `/api/v1/sessions` | 列出会话 |
-| GET | `/api/v1/sessions/{id}` | 查看会话详情 |
-| DELETE | `/api/v1/sessions/{id}` | 删除会话 |
-| POST | `/webhook` | 旧版 webhook |
+| GET | `/ws` | WebSocket 实时通信 |
+
+### 管理后台
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/agents` | Agent 列表 |
+| PUT | `/api/v1/agents/:name` | 更新 Agent |
+| GET | `/api/v1/channels` | 渠道列表 + 状态 |
+| PUT | `/api/v1/channels/:name` | 更新渠道 |
+| GET | `/api/v1/providers` | LLM 供应商列表 |
+| GET | `/api/v1/tools` | 工具列表 |
+| GET | `/api/v1/skills` | Skill 列表 |
+| GET | `/api/v1/sessions` | 会话列表 |
+| DELETE | `/api/v1/sessions/:id` | 删除会话 |
+| GET | `/api/v1/cron/jobs` | 定时任务列表 |
+| POST | `/api/v1/cron/jobs` | 添加任务 |
+| PUT | `/api/v1/cron/jobs/:id` | 更新任务 |
+| DELETE | `/api/v1/cron/jobs/:id` | 删除任务 |
+| POST | `/api/v1/cron/jobs/:id/run` | 立即执行 |
+| GET | `/api/v1/config` | 读取配置 |
+| PUT | `/api/v1/config` | 保存配置 |
+| POST | `/api/v1/config/reload` | 热重载 |
+| GET | `/api/v1/logs` | 日志 tail |
+| GET | `/api/v1/status` | 系统状态 |
+
+### 其他
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/health` | 健康检查 |
-| GET | `/metrics` | Prometheus 指标 |
-| GET | `/ws` | WebSocket (`?session=xxx`) |
+| GET | `/metrics` | Prometheus 指标 | |
 
 ## 项目结构
 
 ```
 go-claw/
-├── main.go                              # 主入口
+├── main.go                              # 入口 (//go:build !production)
+├── main_desktop.go                      # 桌面入口 (//go:build production)
+├── run.go                               # 共享 runServer()
+├── embed.go                             # 前端静态文件嵌入
+├── services/                            # Wails3 Go Services
+│   ├── chat.go                          # ChatService (桌面模式 Go 函数绑定)
+│   └── app.go                           # AppService (配置/日志/状态)
 ├── config.json                          # 配置文件
 ├── config/config.go                     # 配置管理
+├── server/                              # Web 服务（管理后台 + 前端 SPA）
+│   ├── server.go                        # HTTP 服务器 + 路由 + CORS/鉴权
+│   ├── api.go                           # 管理 API
+│   └── frontend.go                      # 前端静态文件 + SPA fallback
+├── frontend/                            # Vue 3 + Element Plus Web 管理后台
+│   ├── src/
+│   │   ├── views/chat/                  # AI 对话页面（流式输出 + Markdown）
+│   │   ├── views/control/               # 渠道/会话/定时任务管理
+│   │   ├── views/agent/                 # Agent 配置/工作空间/技能/工具
+│   │   ├── views/settings/              # 模型/安全/调试
+│   │   └── components/                  # 侧边栏/消息组件
+│   └── vite.config.js
 ├── pkg/log/log.go                       # 结构化日志 + 按日分割
 ├── internal/
 │   ├── gateway/
@@ -506,8 +574,7 @@ go-claw/
 │   │   ├── channel.go                   # 渠道接口 + Message
 │   │   ├── file.go                      # FileSender 接口 + FileBlockInfo + 文件块解析
 │   │   ├── console.go                   # 控制台渠道
-│   │   ├── webhook.go                   # REST API + SSE + 指标
-│   │   ├── websocket.go                 # WebSocket 渠道
+│   │   ├── webhook.go                   # Chat API handler（供 Web 后台使用）
 │   │   ├── bot_base.go                  # Bot 共享基础
 │   │   ├── lark.go                      # 飞书机器人
 │   │   ├── dingtalk.go                  # 钉钉机器人
@@ -634,8 +701,6 @@ go-claw/
   ],
   "channels": {
     "console":   { "enabled": true, "show_tool_messages": true, "show_thinking": true, "stream_output": true },
-    "webhook":   { "enabled": true, "port": "8080", "show_tool_messages": true, "show_thinking": true, "stream_output": true },
-    "websocket": { "enabled": false, "port": "8081", "show_tool_messages": true, "show_thinking": true, "stream_output": true },
     "lark":      { "enabled": false, "app_id": "", "app_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
     "dingtalk":  { "enabled": false, "client_id": "", "client_secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": false },
     "wecom":     { "enabled": false, "bot_id": "", "secret": "", "show_tool_messages": false, "show_thinking": false, "stream_output": true }

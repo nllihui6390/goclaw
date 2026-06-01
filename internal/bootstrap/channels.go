@@ -27,29 +27,7 @@ func (app *App) initChannels() {
 		}
 	}
 
-	if app.Config.Channels.Webhook.Enabled {
-		display := toDisplayConfig(
-			app.Config.Channels.Webhook.ShowToolMessages,
-			app.Config.Channels.Webhook.ShowThinking,
-			app.Config.Channels.Webhook.StreamOutput,
-		)
-		webhookChan := channel.NewWebhookChannel(app.Config.Channels.Webhook.Port, app.Config.Auth.Token, display)
-		if err := app.Gateway.RegisterChannel(webhookChan); err != nil {
-			app.logger.Error("注册Webhook渠道失败", "err", err)
-		}
-	}
-
-	if app.Config.Channels.WebSocket.Enabled {
-		display := toDisplayConfig(
-			app.Config.Channels.WebSocket.ShowToolMessages,
-			app.Config.Channels.WebSocket.ShowThinking,
-			app.Config.Channels.WebSocket.StreamOutput,
-		)
-		wsChan := channel.NewWebSocketChannel(app.Config.Channels.WebSocket.Port, display)
-		if err := app.Gateway.RegisterChannel(wsChan); err != nil {
-			app.logger.Error("注册WebSocket渠道失败", "err", err)
-		}
-	}
+	// Webhook/WebSocket 已被 Web 管理后台取代，不再从配置注册
 
 	if app.Config.Channels.Lark.Enabled {
 		display := toDisplayConfig(

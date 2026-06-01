@@ -99,6 +99,14 @@ func (g *Gateway) RegisterChannel(ch channel.Channel) error {
 	return nil
 }
 
+// RegisterChannelWithoutServer 注册渠道但不启动其自带 HTTP 服务器（共用外部 mux）
+func (g *Gateway) RegisterChannelWithoutServer(ch channel.Channel) {
+	g.channels[ch.GetName()] = ch
+	g.wg.Add(1)
+	go g.handleChannel(ch.GetName(), ch)
+	log.Logger().Info("渠道已注册(无自带服务)", "name", ch.GetName())
+}
+
 // AddRoute 添加路由规则
 func (g *Gateway) AddRoute(rule RouteRule) {
 	g.router.AddRule(rule)
