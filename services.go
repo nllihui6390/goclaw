@@ -456,6 +456,52 @@ func (a *AppService) DeleteCronJob(id string) string {
 	return `{"status":"deleted"}`
 }
 
+// ─────────── Agent 文件管理 ───────────
+
+// GetAgentFiles 列出 Agent 工作空间的 .md 文件
+func (a *AppService) GetAgentFiles(agentName string) string {
+	agentDir := filepath.Join("clawdata", "workspaces", agentName)
+	files := []map[string]any{}
+	entries, err := os.ReadDir(agentDir)
+	if err != nil {
+		data, _ := json.Marshal(files)
+		return string(data)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		info, _ := e.Info()
+		files = append(files, map[string]any{
+			"name": e.Name(),
+			"size": info.Size(),
+		})
+	}
+	data, _ := json.Marshal(files)
+	return string(data)
+}
+
+// ReadAgentFile 读取 Agent 工作空间的文件内容
+func (a *AppService) ReadAgentFile(agentName, fileName string) string {
+	filePath := filepath.Join("clawdata", "workspaces", agentName, fileName)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// WriteAgentFile 写入 Agent 工作空间的文件
+func (a *AppService) WriteAgentFile(agentName, fileName, content string) string {
+	agentDir := filepath.Join("clawdata", "workspaces", agentName)
+	os.MkdirAll(agentDir, 0755)
+	filePath := filepath.Join(agentDir, fileName)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return `{"error":"write failed"}`
+	}
+	return `{"status":"saved"}`
+}
+
 // RunCronJob 异步立即执行定时任务
 func (a *AppService) RunCronJob(id string) string {
 	// 从文件读取任务配置

@@ -175,6 +175,18 @@ export class WailsAdapter {
     }
   }
 
+  // Agent 文件管理
+  async getAgentFiles(agent) {
+    const json = await Call.ByName('main.AppService.GetAgentFiles', agent)
+    return JSON.parse(json)
+  }
+  async readAgentFile(agent, file) {
+    return await Call.ByName('main.AppService.ReadAgentFile', agent, file)
+  }
+  async writeAgentFile(agent, file, content) {
+    return await Call.ByName('main.AppService.WriteAgentFile', agent, file, content)
+  }
+
   // 状态
   async getStatus() {
     try {

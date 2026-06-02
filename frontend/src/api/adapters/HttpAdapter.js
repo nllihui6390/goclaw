@@ -89,6 +89,15 @@ export class HttpAdapter {
   // 日志
   getLogs(params) { return http.get('/logs', { params }).then(r => r.data) }
 
+  // Agent 文件管理
+  getAgentFiles(agent) { return http.get(`/agent-files/${encodeURIComponent(agent)}`).then(r => r.data) }
+  readAgentFile(agent, file) {
+    return http.get(`/agent-files/${encodeURIComponent(agent)}/${encodeURIComponent(file)}`, { responseType: 'text' }).then(r => r.data)
+  }
+  writeAgentFile(agent, file, content) {
+    return http.put(`/agent-files/${encodeURIComponent(agent)}/${encodeURIComponent(file)}`, { content }).then(r => r.data)
+  }
+
   // 状态
   getStatus() { return http.get('/status').then(r => r.data) }
 }

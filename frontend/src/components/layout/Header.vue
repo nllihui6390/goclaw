@@ -44,7 +44,7 @@ const pageTitle = computed(() => {
     '/': '聊天', '/inbox': '收件箱', '/channels': '渠道管理',
     '/sessions': '会话管理', '/cron-jobs': '定时任务',
     '/agent-config': 'Agent 配置', '/workspace': '工作空间',
-    '/skills': '技能管理', '/tools': '工具列表', '/mcp': 'MCP 集成',
+    '/skills': '技能管理', '/tools': '工具列表', '/files': '文件管理', '/mcp': 'MCP 集成',
     '/models': '模型供应商', '/security': '安全设置', '/debug': '调试日志'
   }
   return pathMap[route.path] || 'go-claw'

@@ -9,6 +9,7 @@ const routes = [
   { path: '/agent-config', name: 'AgentConfig', component: () => import('@/views/agent/AgentConfig.vue') },
   { path: '/workspace', name: 'Workspace', component: () => import('@/views/agent/Workspace.vue') },
   { path: '/skills', name: 'Skills', component: () => import('@/views/agent/Skills.vue') },
+  { path: '/files', name: 'Files', component: () => import('@/views/agent/FileManager.vue') },
   { path: '/tools', name: 'Tools', component: () => import('@/views/agent/Tools.vue') },
   { path: '/mcp', name: 'Mcp', component: () => import('@/views/agent/Mcp.vue') },
   { path: '/models', name: 'Models', component: () => import('@/views/settings/Models.vue') },

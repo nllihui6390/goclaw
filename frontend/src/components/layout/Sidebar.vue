@@ -31,6 +31,7 @@ const menuGroups = [
       { path: '/agent-config', icon: 'Setting', label: 'Agent 配置' },
       { path: '/skills', icon: 'MagicStick', label: '技能管理' },
       { path: '/tools', icon: 'SetUp', label: '工具列表' },
+      { path: '/files', icon: 'Document', label: '文件管理' },
     ]
   },
   {

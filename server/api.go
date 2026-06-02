@@ -499,3 +499,69 @@ func handleSessionByID(rw http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(rw, http.StatusOK, map[string]any{})
 }
+
+// ─────────── Agent 文件管理 ───────────
+
+// handleAgentFiles 列出/读写 Agent 工作空间文件
+func handleAgentFiles(rw http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/agent-files/")
+	parts := strings.SplitN(path, "/", 2)
+	agentName := parts[0]
+	fileName := ""
+	if len(parts) > 1 {
+		fileName = parts[1]
+	}
+
+	agentDir := filepath.Join("clawdata", "workspaces", agentName)
+	if _, err := os.Stat(agentDir); os.IsNotExist(err) {
+		writeError(rw, http.StatusNotFound, "agent workspace not found")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		if fileName == "" {
+			files := []map[string]any{}
+			entries, err := os.ReadDir(agentDir)
+			if err != nil {
+				writeError(rw, http.StatusInternalServerError, "read dir failed")
+				return
+			}
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+					continue
+				}
+				info, _ := e.Info()
+				files = append(files, map[string]any{
+					"name": e.Name(),
+					"size": info.Size(),
+				})
+			}
+			writeJSON(rw, http.StatusOK, files)
+		} else {
+			filePath := filepath.Join(agentDir, fileName)
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				writeError(rw, http.StatusNotFound, "file not found")
+				return
+			}
+			rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			rw.Write(data)
+		}
+
+	case http.MethodPut:
+		if fileName == "" {
+			writeError(rw, http.StatusBadRequest, "filename required")
+			return
+		}
+		filePath := filepath.Join(agentDir, fileName)
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		content := body["content"]
+		os.WriteFile(filePath, []byte(content), 0644)
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "saved"})
+
+	default:
+		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
