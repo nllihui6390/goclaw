@@ -1,10 +1,14 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import logoImage from '@/assets/logo.png'
+import logo1Image from '@/assets/logo1.png'
 
 const route = useRoute()
 const router = useRouter()
+const sidebarCollapsed = inject('sidebarCollapsed')
+
+const currentLogo = computed(() => sidebarCollapsed.value ? logoImage : logo1Image)
 
 const menuGroups = [
   {
@@ -48,7 +52,7 @@ function navigate(path) {
 <template>
   <aside class="sidebar">
     <div class="sidebar-header" @click="navigate('/')">
-      <img :src="logoImage" alt="go-claw" class="logo-icon" />
+      <img :src="currentLogo" alt="go-claw" class="logo-icon" />
     </div>
     <div class="sidebar-menu">
       <template v-for="group in menuGroups" :key="group.label">

@@ -46,9 +46,13 @@ func main() {
 	forceQuit := false
 	var win *application.WebviewWindow
 
+	// 读取应用图标
+	appIcon, _ := os.ReadFile("logo.png")
+
 	wailsApp := application.New(application.Options{
 		Name:        "go-claw",
 		Description: "AI Agent Framework",
+		Icon:        appIcon,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(desktopAssets),
 		},
@@ -88,6 +92,7 @@ func main() {
 		forceQuit = true
 		win.Close()
 	})
+	tray.SetIcon(appIcon)
 	tray.SetMenu(trayMenu)
 	tray.SetLabel("go-claw")
 	tray.SetTooltip("go-claw AI Agent - 双击显示窗口")
