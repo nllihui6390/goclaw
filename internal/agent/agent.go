@@ -112,22 +112,24 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 		}
 	}
 
-	enhancedMessage := userMessage
+	// 构建发送给 LLM 的消息（原始消息 + 记忆上下文）
+	llmMessage := userMessage
 	if len(relevantMemories) > 0 {
 		memoryContext := "相关记忆:\n" + strings.Join(relevantMemories, "\n")
-		enhancedMessage = memoryContext + "\n\n用户问题: " + userMessage
+		llmMessage = memoryContext + "\n\n用户问题: " + userMessage
 		logger.Debug("[Agent] 消息已增强，加入记忆上下文")
 	}
 
-	session.AddMessage("user", enhancedMessage)
+	// 会话历史只保存原始用户消息，不保存增强后的记忆上下文
+	session.AddMessage("user", userMessage)
 	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages))
 
-	// 执行运行时
+	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）
 	logger.Info("[Agent] 开始执行Runtime",
 		"tools_count", len(a.config.Tools),
 		"max_iterations", a.config.MaxIterations)
 
-	finalResponse, err := a.runtime.Execute(ctx, session, a.config.Tools, a.config.MaxIterations, handler)
+	finalResponse, err := a.runtime.ExecuteWithEnhancedMessage(ctx, session, llmMessage, a.config.Tools, a.config.MaxIterations, handler)
 	if err != nil {
 		logger.Error("[Agent] Runtime执行失败", "err", err)
 		return "", err
