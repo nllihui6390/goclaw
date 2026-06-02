@@ -17,104 +17,130 @@ var (
 	rotateWriter  *DailyRotateWriter
 )
 
-// DailyRotateWriter 按日期自动分割日志文件
-// 文件名格式: basePath去掉扩展名 + "-YYYY-MM-DD" + 扩展名
-// 例如: logs/app.log → logs/app-2026-05-27.log
+// DailyRotateWriter 日志写入器
+// 实时写入 logs/app.log，日期切换时归档到 logs/app-YYYY-MM-DD.log 并清空实时文件
 type DailyRotateWriter struct {
-	mu       sync.Mutex
-	basePath string   // 原始配置路径，如 logs/app.log
-	dir      string   // 目录，如 logs
-	prefix   string   // 文件名前缀，如 app
-	ext      string   // 扩展名，如 .log
-	current  string   // 当前日期字符串 YYYY-MM-DD
-	file     *os.File // 当前文件句柄
+	mu sync.Mutex
+
+	// 实时日志 — 日常只写这一个文件
+	realtimePath string   // logs/app.log
+	realtimeFile *os.File
+
+	// 归档配置
+	dir     string // logs
+	prefix  string // app
+	ext     string // .log
+	current string // 当前日期 YYYY-MM-DD
 }
 
-// NewDailyRotateWriter 创建按日期分割的日志写入器
+// NewDailyRotateWriter 创建日志写入器
 func NewDailyRotateWriter(basePath string) (*DailyRotateWriter, error) {
 	dir := filepath.Dir(basePath)
 	base := filepath.Base(basePath)
-	ext := filepath.Ext(base) // .log
-	prefix := strings.TrimSuffix(base, ext) // app
+	ext := filepath.Ext(base)
+	prefix := strings.TrimSuffix(base, ext)
 
-	// 确保目录存在
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("创建日志目录失败: %w", err)
 	}
 
 	w := &DailyRotateWriter{
-		basePath: basePath,
-		dir:      dir,
-		prefix:   prefix,
-		ext:      ext,
+		realtimePath: basePath,
+		dir:          dir,
+		prefix:       prefix,
+		ext:          ext,
+		current:      time.Now().Format("2006-01-02"),
 	}
 
-	// 打开当天文件
-	if err := w.rotate(); err != nil {
-		return nil, err
+	f, err := os.OpenFile(basePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("打开实时日志文件失败: %w", err)
 	}
+	w.realtimeFile = f
 
 	return w, nil
 }
 
-// todayFileName 生成当天的日志文件名
-func (w *DailyRotateWriter) todayFileName() string {
-	return filepath.Join(w.dir, w.prefix+"-"+time.Now().Format("2006-01-02")+w.ext)
-}
+// archive 将当前实时日志归档到日期文件，然后清空实时文件
+func (w *DailyRotateWriter) archive(today string) error {
+	// 关闭实时文件（确保所有数据刷盘）
+	w.realtimeFile.Close()
 
-// rotate 切换到当天的日志文件
-func (w *DailyRotateWriter) rotate() error {
-	today := time.Now().Format("2006-01-02")
-	fileName := filepath.Join(w.dir, w.prefix+"-"+today+w.ext)
-
-	f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	// 读取实时日志内容
+	data, err := os.ReadFile(w.realtimePath)
 	if err != nil {
-		return fmt.Errorf("打开日志文件失败: %w", err)
+		// 读不到就重新打开，不阻塞
+		f, _ := os.OpenFile(w.realtimePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		w.realtimeFile = f
+		return fmt.Errorf("读取实时日志失败: %w", err)
 	}
 
-	// 关闭旧文件
-	if w.file != nil {
-		w.file.Close()
+	// 写入归档文件
+	archiveName := filepath.Join(w.dir, w.prefix+"-"+w.current+w.ext)
+	if len(data) > 0 {
+		af, err := os.OpenFile(archiveName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			af.Write(data)
+			af.Close()
+		}
 	}
 
-	w.file = f
+	// 清空实时文件，重新打开
+	f, err := os.OpenFile(w.realtimePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("清空实时日志失败: %w", err)
+	}
+	w.realtimeFile = f
 	w.current = today
 	return nil
 }
 
-// Write 实现 io.Writer，每次写入检查日期是否变化
+// Write 只写实时日志，日期变化时自动归档
 func (w *DailyRotateWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	today := time.Now().Format("2006-01-02")
 	if today != w.current {
-		if err := w.rotate(); err != nil {
-			// 切换失败，仍然写入旧文件（降级）
-			slog.Error("日志日期分割失败", "err", err)
+		if err := w.archive(today); err != nil {
+			slog.Error("日志归档失败", "err", err)
 		}
 	}
 
-	if w.file == nil {
+	if w.realtimeFile == nil {
 		return 0, fmt.Errorf("日志文件未打开")
 	}
-	return w.file.Write(p)
+	return w.realtimeFile.Write(p)
 }
 
-// Close 关闭当前日志文件
+// Close 关闭实时日志文件
 func (w *DailyRotateWriter) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.file != nil {
-		w.file.Close()
-		w.file = nil
+	if w.realtimeFile != nil {
+		w.realtimeFile.Close()
 	}
+}
+
+// ClearRealtime 清空实时日志文件
+func (w *DailyRotateWriter) ClearRealtime() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.realtimeFile != nil {
+		w.realtimeFile.Close()
+		f, err := os.OpenFile(w.realtimePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return err
+		}
+		w.realtimeFile = f
+	}
+	return nil
 }
 
 // Init 初始化日志器。
 // level: "debug", "info", "warn", "error"
 // jsonMode: true 输出 JSON 格式
-// filePath: 日志文件路径，为空则不写文件（按日期分割）
+// filePath: 实时日志文件路径，为空则不写文件
 // console: 是否同时输出到控制台
 func Init(level string, jsonMode bool, filePath string, console bool) {
 	once.Do(func() {
@@ -172,6 +198,14 @@ func Close() {
 	if rotateWriter != nil {
 		rotateWriter.Close()
 	}
+}
+
+// ClearLogs 清空实时日志文件
+func ClearLogs() error {
+	if rotateWriter != nil {
+		return rotateWriter.ClearRealtime()
+	}
+	return nil
 }
 
 // Logger 返回默认日志器
