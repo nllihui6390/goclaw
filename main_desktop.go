@@ -11,6 +11,7 @@ import (
 	"go-claw/internal/bootstrap"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -42,6 +43,9 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 	chatSvc.SetAgents(app.Gateway.GetAgents())
 
+	forceQuit := false
+	var win *application.WebviewWindow
+
 	wailsApp := application.New(application.Options{
 		Name:        "go-claw",
 		Description: "AI Agent Framework",
@@ -55,12 +59,40 @@ func main() {
 		OnShutdown: func() { app.Gateway.Stop() },
 	})
 
-	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "go-claw AI Agent",
-		Width:  1200,
-		Height: 800,
-		URL:    "/",
+	win = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:     "go-claw AI Agent",
+		Width:     1200,
+		Height:    800,
+		URL:       "/",
+		MinWidth:  400,
+		MinHeight: 300,
 	})
+
+	// 拦截窗口关闭 → 隐藏到托盘
+	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if forceQuit {
+			return // 允许关闭
+		}
+		e.Cancel()  // 阻止关闭
+		win.Hide()  // 隐藏到托盘
+	})
+
+	// 系统托盘：仅在托盘中退出才真正销毁
+	tray := wailsApp.SystemTray.New()
+	trayMenu := application.NewMenu()
+	trayMenu.Add("显示窗口").OnClick(func(ctx *application.Context) {
+		win.Show()
+	})
+	trayMenu.AddSeparator()
+	trayMenu.Add("退出").OnClick(func(ctx *application.Context) {
+		forceQuit = true
+		win.Close()
+	})
+	tray.SetMenu(trayMenu)
+	tray.SetLabel("go-claw")
+	tray.SetTooltip("go-claw AI Agent - 双击显示窗口")
+	tray.OnDoubleClick(func() { win.Show() })
+	tray.Show()
 
 	err = wailsApp.Run()
 	if err != nil {
