@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, ref } from 'vue'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
@@ -9,11 +9,6 @@ import './styles/global.scss'
 async function init() {
   let api
 
-  // 桌面模式检测：Wails3 在不同平台注入不同的全局变量
-  // Windows: window.chrome.webview
-  // macOS: window.webkit.messageHandlers['external']
-  // Android: window.wails.invoke
-  // 通用: window._wails
   const isWails = !!(
     window._wails?.environment ||
     window.chrome?.webview?.postMessage ||
@@ -22,7 +17,7 @@ async function init() {
   )
 
   if (isWails) {
-    console.log('[go-claw] 桌面模式 (Wails3)', window._wails?.environment)
+    console.log('[go-claw] 桌面模式 (Wails3)')
     const { WailsAdapter } = await import('./api/adapters/WailsAdapter.js')
     api = new WailsAdapter()
   } else {
@@ -35,6 +30,11 @@ async function init() {
   app.use(ElementPlus)
   app.use(router)
   app.provide('api', api)
+
+  // 全局共享当前选中的 Agent
+  const selectedAgent = ref('default')
+  app.provide('selectedAgent', selectedAgent)
+
   for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component)
   }

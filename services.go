@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"go-claw/internal/agent"
@@ -99,4 +100,80 @@ type AppService struct{}
 func (a *AppService) GetConfig() string {
 	data, _ := os.ReadFile("config.json")
 	return string(data)
+}
+
+// GetLogs 返回最新日志内容（最多 50KB）
+func (a *AppService) GetLogs() string {
+	data, err := os.ReadFile("logs/app.log")
+	if err != nil {
+		return "暂无日志"
+	}
+	if len(data) > 50000 {
+		data = data[len(data)-50000:]
+	}
+	return string(data)
+}
+
+// GetStatus 返回系统运行状态
+func (a *AppService) GetStatus() string {
+	status := map[string]string{
+		"status": "running",
+	}
+	data, _ := json.Marshal(status)
+	return string(data)
+}
+
+// GetAgents 返回 Agent 列表（从 config.json 读取）
+func (a *AppService) GetAgents() string {
+	data, err := os.ReadFile("config.json")
+	if err != nil {
+		return "[]"
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return "[]"
+	}
+	agents, _ := cfg["agents"].([]interface{})
+	result, _ := json.Marshal(agents)
+	return string(result)
+}
+
+// GetSessions 返回会话列表（扫描文件目录）
+func (a *AppService) GetSessions() string {
+	sessions := []map[string]string{}
+	dataDir := "clawdata/workspaces"
+	if dirs, err := os.ReadDir(dataDir); err == nil {
+		for _, dir := range dirs {
+			if dir.IsDir() {
+				sessDir := dataDir + "/" + dir.Name() + "/sessions"
+				if files, err := os.ReadDir(sessDir); err == nil {
+					for _, f := range files {
+						if strings.HasSuffix(f.Name(), ".json") && f.Name() != "memories.json" {
+							sessionID := strings.TrimSuffix(f.Name(), ".json")
+							sessions = append(sessions, map[string]string{
+								"id":    sessionID,
+								"agent": dir.Name(),
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+	result, _ := json.Marshal(sessions)
+	return string(result)
+}
+
+// DeleteSession 删除指定会话文件
+func (a *AppService) DeleteSession(sessionID string) string {
+	dataDir := "clawdata/workspaces"
+	if dirs, err := os.ReadDir(dataDir); err == nil {
+		for _, dir := range dirs {
+			if dir.IsDir() {
+				filePath := dataDir + "/" + dir.Name() + "/sessions/" + sessionID + ".json"
+				os.Remove(filePath)
+			}
+		}
+	}
+	return `{"status":"deleted"}`
 }

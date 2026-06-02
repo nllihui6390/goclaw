@@ -127,8 +127,37 @@ type ToolEvent struct {
 
 // Execute 执行Agent循环（阻塞版）
 func (r *Runtime) Execute(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int, handler ToolEventHandler) (string, error) {
+	return r.ExecuteWithEnhancedMessage(ctx, session, "", tools, maxIterations, handler)
+}
+
+// ExecuteWithEnhancedMessage 执行Agent循环，支持传入增强后的最后一条用户消息
+// enhancedMessage 如果不为空，将替换会话中最后一条 user 消息的 content，仅用于本次 LLM 调用
+func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Session, enhancedMessage string, tools []tool.Tool, maxIterations int, handler ToolEventHandler) (string, error) {
 	logger := glog.Logger()
+
+	// 如果提供了增强消息，临时替换会话中最后一条 user 消息的 content
+	var originalContent string
+	var enhanced bool
+	if enhancedMessage != "" && len(session.Messages) > 0 {
+		lastIdx := len(session.Messages) - 1
+		if session.Messages[lastIdx].Role == "user" {
+			originalContent = session.Messages[lastIdx].Content
+			session.Messages[lastIdx].Content = enhancedMessage
+			enhanced = true
+			logger.Debug("[Runtime] 已替换最后一条 user 消息为增强版本", "original_len", len(originalContent), "enhanced_len", len(enhancedMessage))
+		}
+	}
+
 	messages := r.buildMessages(session, tools)
+
+	// 恢复原始内容（确保后续持久化时保存的是原始消息）
+	if enhanced && len(session.Messages) > 0 {
+		lastIdx := len(session.Messages) - 1
+		if session.Messages[lastIdx].Role == "user" {
+			session.Messages[lastIdx].Content = originalContent
+		}
+	}
+
 	logger.Info("[Runtime] 开始执行循环",
 		"model", r.config.Model,
 		"provider", r.config.ProviderType,

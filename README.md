@@ -91,8 +91,8 @@ wails3 build                 # 构建 → bin/go-claw.exe (34MB)
 
 | Service | 方法 | 说明 |
 |---------|------|------|
-| `ChatService` | `SendMessage()` | 流式对话 |
-| `AppService` | `GetConfig()` `SaveConfig()` `GetLogs()` | 配置/日志管理 |
+| `ChatService` | `SendMessage()` `GetChatHistory()` | 对话 + 历史查询 |
+| `AppService` | `GetConfig()` `GetAgents()` `GetLogs()` `GetStatus()` | 配置/日志/状态管理 |
 
 ### 双模式适配器
 
@@ -100,8 +100,10 @@ wails3 build                 # 构建 → bin/go-claw.exe (34MB)
 
 | 模式 | 检测条件 | 适配器 | 通信方式 |
 |------|----------|--------|----------|
-| 桌面 | `window.go.main.ChatService` 存在 | `WailsAdapter` | Go 函数直接调用 |
+| 桌面 | `window._wails` 存在 | `WailsAdapter` | `Call.ByName` (通过 `@wailsio/runtime`) |
 | Web | 否则 | `HttpAdapter` | axios + SSE 流式 |
+
+绑定生成使用 `-names` 参数，运行时通过方法名调用（非数字 ID）。
 
 ## 控制台命令
 
