@@ -31,32 +31,11 @@ export class WailsAdapter {
   }
 
   async saveConfig(config) {
-    return JSON.stringify({ success: true })
+    await Call.ByName('main.AppService.SaveConfig', JSON.stringify(config))
+    return { status: 'saved' }
   }
 
-  // 日志
-  async getLogs(params) {
-    try {
-      return await Call.ByName('main.AppService.GetLogs')
-    } catch (e) {
-      console.error('[WailsAdapter] getLogs error:', e)
-      return '暂无日志'
-    }
-  }
-
-  // 状态
-  async getStatus() {
-    try {
-      const json = await Call.ByName('main.AppService.GetStatus')
-      return JSON.parse(json)
-    } catch (e) {
-      console.error('[WailsAdapter] getStatus error:', e)
-      return {}
-    }
-  }
-
-  // 桌面模式管理类 API
-  async getChannels() { return [] }
+  // Agent 管理
   async getAgents() {
     try {
       const json = await Call.ByName('main.AppService.GetAgents')
@@ -66,6 +45,53 @@ export class WailsAdapter {
       return []
     }
   }
+  async updateAgent(name, config) {
+    const json = await Call.ByName('main.AppService.UpdateAgent', name, JSON.stringify(config))
+    return JSON.parse(json)
+  }
+  async deleteAgent(name) {
+    const json = await Call.ByName('main.AppService.DeleteAgent', name)
+    return JSON.parse(json)
+  }
+
+  // 渠道管理
+  async getChannels() { return [] }
+  async updateChannel(name, config) {
+    const json = await Call.ByName('main.AppService.UpdateChannel', name, JSON.stringify(config))
+    return JSON.parse(json)
+  }
+
+  // 供应商/模型
+  async getProviders() {
+    try {
+      const json = await Call.ByName('main.AppService.GetProviders')
+      const data = JSON.parse(json)
+      // 转为数组格式统一处理
+      if (data && !Array.isArray(data)) {
+        return Object.keys(data).map(k => ({ name: k, ...data[k] }))
+      }
+      return Array.isArray(data) ? data : []
+    } catch (e) {
+      console.error('[WailsAdapter] getProviders error:', e)
+      return []
+    }
+  }
+
+  // 工具/Skills
+  async getTools() {
+    try {
+      const json = await Call.ByName('main.AppService.GetTools')
+      return JSON.parse(json)
+    } catch (e) { return [] }
+  }
+  async getSkills() {
+    try {
+      const json = await Call.ByName('main.AppService.GetSkills')
+      return JSON.parse(json)
+    } catch (e) { return {} }
+  }
+
+  // 会话
   async getSessions() {
     try {
       const json = await Call.ByName('main.AppService.GetSessions')
@@ -75,8 +101,17 @@ export class WailsAdapter {
       return []
     }
   }
+  async deleteSession(id) {
+    try {
+      await Call.ByName('main.AppService.DeleteSession', id)
+      return { status: 'deleted' }
+    } catch (e) {
+      console.error('[WailsAdapter] deleteSession error:', e)
+      return { status: 'deleted' }
+    }
+  }
 
-  // 定时任务（从 clawdata/cron_jobs.json 读取）
+  // 定时任务
   async getCronJobs() {
     try {
       const json = await Call.ByName('main.AppService.GetCronJobs')
@@ -117,34 +152,37 @@ export class WailsAdapter {
     }
   }
 
-  // 获取定时任务启用状态（从 clawdata/cron_enabled.json 读取）
   async getCronEnabled() {
     try {
       const json = await Call.ByName('main.AppService.GetCronEnabled')
       return JSON.parse(json)
-    } catch (e) {
-      return true
-    }
+    } catch (e) { return true }
   }
   async setCronEnabled(enabled) {
     try {
       await Call.ByName('main.AppService.SetCronEnabled', String(enabled))
       return { status: 'ok' }
+    } catch (e) { return { status: 'ok' } }
+  }
+
+  // 日志
+  async getLogs(params) {
+    try {
+      return await Call.ByName('main.AppService.GetLogs')
     } catch (e) {
-      return { status: 'ok' }
+      console.error('[WailsAdapter] getLogs error:', e)
+      return '暂无日志'
     }
   }
 
-  async getTools() { return [] }
-  async getSkills() { return [] }
-  async getProviders() { return [] }
-  async deleteSession(id) {
+  // 状态
+  async getStatus() {
     try {
-      await Call.ByName('main.AppService.DeleteSession', id)
-      return { status: 'deleted' }
+      const json = await Call.ByName('main.AppService.GetStatus')
+      return JSON.parse(json)
     } catch (e) {
-      console.error('[WailsAdapter] deleteSession error:', e)
-      return { status: 'deleted' }
+      console.error('[WailsAdapter] getStatus error:', e)
+      return {}
     }
   }
 }

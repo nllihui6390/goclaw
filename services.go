@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -105,6 +106,188 @@ type AppService struct{}
 func (a *AppService) GetConfig() string {
 	data, _ := os.ReadFile("config.json")
 	return string(data)
+}
+
+func (a *AppService) SaveConfig(configJSON string) string {
+	os.WriteFile("config.json", []byte(configJSON), 0644)
+	return `{"status":"saved"}`
+}
+
+// UpdateAgent 保存/更新 Agent 配置（写入 config.json）
+func (a *AppService) UpdateAgent(name, agentJSON string) string {
+	cfg := readConfigJSON()
+	var agentData map[string]interface{}
+	if err := json.Unmarshal([]byte(agentJSON), &agentData); err != nil {
+		return `{"error":"invalid json"}`
+	}
+	agentData["name"] = name
+
+	agents, _ := cfg["agents"].([]interface{})
+	found := false
+	for i, a := range agents {
+		ag, _ := a.(map[string]interface{})
+		if ag["name"] == name {
+			agents[i] = agentData
+			found = true
+			break
+		}
+	}
+	if !found {
+		agents = append(agents, agentData)
+	}
+	cfg["agents"] = agents
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile("config.json", data, 0644)
+	return `{"status":"updated"}`
+}
+
+// DeleteAgent 删除 Agent 配置
+func (a *AppService) DeleteAgent(name string) string {
+	if name == "default" {
+		return `{"error":"default agent cannot be deleted"}`
+	}
+	cfg := readConfigJSON()
+	agents, _ := cfg["agents"].([]interface{})
+	filtered := make([]interface{}, 0, len(agents))
+	for _, a := range agents {
+		ag, _ := a.(map[string]interface{})
+		if ag["name"] != name {
+			filtered = append(filtered, a)
+		}
+	}
+	cfg["agents"] = filtered
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile("config.json", data, 0644)
+	return `{"status":"deleted"}`
+}
+
+// UpdateChannel 更新渠道配置
+func (a *AppService) UpdateChannel(name, configJSON string) string {
+	cfg := readConfigJSON()
+	var chCfg map[string]interface{}
+	if err := json.Unmarshal([]byte(configJSON), &chCfg); err != nil {
+		return `{"error":"invalid json"}`
+	}
+	cfg["channels"].(map[string]interface{})[name] = chCfg
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile("config.json", data, 0644)
+	return `{"status":"updated"}`
+}
+
+// GetProviders 获取供应商/模型列表
+func (a *AppService) GetProviders() string {
+	cfg := readConfigJSON()
+	providers := cfg["providers"]
+	data, _ := json.Marshal(providers)
+	return string(data)
+}
+
+// GetTools 获取工具列表
+func (a *AppService) GetTools() string {
+	// 返回已注册的工具列表
+	result := []map[string]string{}
+	toolNames := []string{"weather", "exec", "write_file", "read_file", "edit_file", "append_file",
+		"send_file", "browser_use", "get_current_time", "set_user_timezone", "cron_status",
+		"system_info", "network_check", "http_request", "web_search", "calculate", "run_code",
+		"list_files", "read_pdf", "ocr_image", "generate_image", "database_query", "manage_config"}
+	for _, t := range toolNames {
+		result = append(result, map[string]string{"name": t})
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
+// GetSkills 获取 Skills 列表
+func (a *AppService) GetSkills() string {
+	skills := []map[string]any{}
+	skillDir := "skills"
+
+	// 扫描全局 skills 目录
+	if entries, err := os.ReadDir(skillDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				skillFile := filepath.Join(skillDir, e.Name(), "SKILL.md")
+				if data, err := os.ReadFile(skillFile); err == nil {
+					skill := parseSkillMDData(data, skillDir, e.Name())
+					if skill != nil {
+						skills = append(skills, skill)
+					}
+				}
+			}
+		}
+	}
+
+	// 扫描每个 agent 的 skills 目录
+	if agentDirs, err := os.ReadDir("clawdata/workspaces"); err == nil {
+		for _, ad := range agentDirs {
+			if ad.IsDir() {
+				dir := filepath.Join("clawdata/workspaces", ad.Name(), "skills")
+				if entries, err := os.ReadDir(dir); err == nil {
+					for _, e := range entries {
+						if e.IsDir() {
+							skillFile := filepath.Join(dir, e.Name(), "SKILL.md")
+							if data, err := os.ReadFile(skillFile); err == nil {
+								skill := parseSkillMDData(data, dir, e.Name())
+								if skill != nil {
+									skills = append(skills, skill)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	result := map[string]any{"skill_dir": skillDir, "skills": skills, "total": len(skills)}
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
+func parseSkillMDData(data []byte, dir, folder string) map[string]any {
+	content := string(data)
+	parts := strings.SplitN(content, "---", 3)
+	if len(parts) < 3 {
+		return nil
+	}
+	yamlContent := strings.TrimSpace(parts[1])
+	markdownBody := strings.TrimSpace(parts[2])
+
+	skill := map[string]any{
+		"folder": folder, "path": filepath.Join(dir, folder),
+		"markdown": markdownBody, "has_scripts": false,
+	}
+	for _, line := range strings.Split(yamlContent, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "name:") {
+			skill["name"] = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+		} else if strings.HasPrefix(line, "description:") {
+			skill["description"] = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+		} else if strings.Contains(line, "emoji:") {
+			skill["emoji"] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "emoji:"))
+		}
+	}
+	scriptsDir := filepath.Join(dir, folder, "scripts")
+	if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
+		if files, _ := os.ReadDir(scriptsDir); len(files) > 0 {
+			skill["has_scripts"] = true
+			scripts := []string{}
+			for _, f := range files {
+				if !f.IsDir() {
+					scripts = append(scripts, f.Name())
+				}
+			}
+			skill["scripts"] = scripts
+		}
+	}
+	sections := []string{}
+	for _, line := range strings.Split(markdownBody, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			sections = append(sections, strings.TrimPrefix(line, "## "))
+		}
+	}
+	skill["sections"] = sections
+	return skill
 }
 
 // GetLogs 返回最新日志内容（最多 50KB）
