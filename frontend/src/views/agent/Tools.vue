@@ -1,9 +1,10 @@
 <script setup>
 import { ref, inject, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useAgentStore } from '@/stores/agent'
 
 const api = inject('api')
-const selectedAgent = inject('selectedAgent')
+const agentStore = useAgentStore()
 
 const loading = ref(false)
 const config = ref({})
@@ -24,7 +25,7 @@ const toolMeta = {
 }
 
 // 当前选中的 Agent 名称
-const agentName = computed(() => selectedAgent?.value || 'default')
+const agentName = computed(() => agentStore.selectedAgent || 'default')
 
 // 所有工具名
 const allTools = computed(() => Object.keys(toolMeta))

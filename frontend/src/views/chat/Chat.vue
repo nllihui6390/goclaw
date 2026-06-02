@@ -1,9 +1,11 @@
 <script setup>
 import { ref, inject, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useAgentStore } from '@/stores/agent'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 
 const api = inject('api')
+const agentStore = useAgentStore()
 const messages = ref([])
 const input = ref('')
 const sending = ref(false)
@@ -37,7 +39,7 @@ async function send() {
 
   try {
     let fullContent = ''
-    for await (const chunk of api.sendMessage(sessionId, text)) {
+    for await (const chunk of api.sendMessage(sessionId, text, agentStore.selectedAgent)) {
       fullContent += chunk
       // 第一次收到内容时 push assistant 消息
       if (messages.value[messages.value.length - 1].role !== 'assistant') {

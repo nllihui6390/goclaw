@@ -11,7 +11,7 @@ const menuGroups = [
     label: '对话',
     items: [
       { path: '/', icon: 'ChatDotRound', label: 'Chat' },
-      { path: '/inbox', icon: 'Bell', label: 'Inbox' },
+      // { path: '/inbox', icon: 'Bell', label: 'Inbox' },
     ]
   },
   {
@@ -26,17 +26,17 @@ const menuGroups = [
     label: 'Agent',
     items: [
       { path: '/agent-config', icon: 'Setting', label: 'Agent 配置' },
-      { path: '/workspace', icon: 'Folder', label: '工作空间' },
+      // { path: '/workspace', icon: 'Folder', label: '工作空间' },
       { path: '/skills', icon: 'MagicStick', label: '技能管理' },
       { path: '/tools', icon: 'SetUp', label: '工具列表' },
-      { path: '/mcp', icon: 'Link', label: 'MCP 集成' },
+      // { path: '/mcp', icon: 'Link', label: 'MCP 集成' },
     ]
   },
   {
     label: '设置',
     items: [
       { path: '/models', icon: 'Cpu', label: '模型/供应商' },
-      { path: '/security', icon: 'Lock', label: '安全' },
+      // { path: '/security', icon: 'Lock', label: '安全' },
       { path: '/debug', icon: 'Monitor', label: '调试/日志' },
     ]
   },

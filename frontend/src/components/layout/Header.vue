@@ -1,9 +1,10 @@
 <script setup>
 import { useRoute } from 'vue-router'
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useAgentStore } from '@/stores/agent'
 
 const route = useRoute()
-const selectedAgent = inject('selectedAgent')
+const agentStore = useAgentStore()
 
 const agentOptions = [
   { label: 'default', value: 'default' },
@@ -22,8 +23,8 @@ const pageTitle = computed(() => {
 })
 
 const agentModel = computed({
-  get: () => selectedAgent.value,
-  set: (val) => { selectedAgent.value = val }
+  get: () => agentStore.selectedAgent,
+  set: (val) => { agentStore.setAgent(val) }
 })
 </script>
 
