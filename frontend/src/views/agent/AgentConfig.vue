@@ -142,10 +142,9 @@ async function deleteAgent(agent) {
         <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
         <el-table-column prop="provider" label="供应商" width="100" />
         <el-table-column prop="model" label="模型" width="150" />
-        <el-table-column label="工具" min-width="160">
+        <el-table-column label="工具" min-width="120">
           <template #default="{ row }">
-            <el-tag v-for="t in row.tools?.slice(0,3)" :key="t" size="small" class="mr1">{{ t }}</el-tag>
-            <span v-if="row.tools?.length > 3">+{{ row.tools.length - 3 }}</span>
+            <span>{{ row.tools?.length || 0 }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150">

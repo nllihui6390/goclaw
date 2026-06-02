@@ -51,6 +51,8 @@ async function send() {
   input.value = ''
 
   messages.value.push({ role: 'user', content: text })
+  await nextTick()
+  setTimeout(scrollBottom, 50)
   sending.value = true
 
   try {
