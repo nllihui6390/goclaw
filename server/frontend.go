@@ -9,6 +9,8 @@ import (
 // FrontendFS 前端静态文件系统（由 main.go 注入）
 var FrontendFS http.FileSystem
 
+// serveFrontend 处理所有非 /api/ 路径的请求
+// 优先匹配静态文件，未匹配到则返回 index.html（SPA fallback）
 func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 	// API 路径不处理
 	if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -44,6 +46,7 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 	rw.Write(data)
 }
 
+// mimeType 根据文件扩展名返回对应的 MIME 类型
 func mimeType(path string) string {
 	switch {
 	case strings.HasSuffix(path, ".html"):

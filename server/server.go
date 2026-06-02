@@ -97,13 +97,14 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// writeJSON 写入 JSON 响应
 func writeJSON(rw http.ResponseWriter, status int, data any) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(status)
-	enc := json.NewEncoder(rw)
-	enc.Encode(data)
+	json.NewEncoder(rw).Encode(data)
 }
 
+// writeError 写入 JSON 错误响应
 func writeError(rw http.ResponseWriter, status int, msg string) {
 	writeJSON(rw, status, map[string]string{"error": msg})
 }

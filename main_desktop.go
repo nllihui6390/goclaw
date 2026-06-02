@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -21,17 +20,20 @@ import (
 //go:embed all:frontend/dist
 var desktopAssets embed.FS
 
-// ─────────────── Wails3 Services ───────────────
+// ─────────── Wails3 Services ───────────
 
+// ChatService 对话服务，前端通过 Wails3 bridge 直接调用 Go 函数
 type ChatService struct {
 	mu     sync.Mutex
 	agents map[string]*agent.Agent
 }
 
+// SetAgents 注入 Agent 实例
 func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 	c.agents = agents
 }
 
+// SendMessage 流式对话，返回逐字 channel（Wails3 自动转前端 AsyncGenerator）
 func (c *ChatService) SendMessage(sessionID, content, agentName string) chan string {
 	ch := make(chan string, 64)
 	go func() {
@@ -53,19 +55,15 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) chan str
 			ch <- fmt.Sprintf("Error: %v", err)
 			return
 		}
-		runes := []rune(result)
-		for i := 0; i < len(runes); i += 8 {
-			end := i + 8
-			if end > len(runes) {
-				end = len(runes)
-			}
-			ch <- string(runes[i:end])
-			time.Sleep(20 * time.Millisecond)
+		for _, r := range result {
+			ch <- string(r)
+			time.Sleep(15 * time.Millisecond)
 		}
 	}()
 	return ch
 }
 
+// AppService 管理服务
 type AppService struct{}
 
 func (a *AppService) GetConfig() string {
@@ -73,41 +71,18 @@ func (a *AppService) GetConfig() string {
 	return string(data)
 }
 
-func (a *AppService) SaveConfig(jsonStr string) string {
-	var cfg map[string]any
-	if err := json.Unmarshal([]byte(jsonStr), &cfg); err != nil {
-		return "invalid json: " + err.Error()
-	}
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile("config.json", data, 0644)
-	return "ok"
-}
-
-func (a *AppService) GetLogs() string {
-	data, _ := os.ReadFile("logs/app.log")
-	if len(data) > 20000 {
-		data = data[len(data)-20000:]
-	}
-	return string(data)
-}
-
-func (a *AppService) GetStatus() string   { return `{"status":"running","mode":"desktop"}` }
-func (a *AppService) GetChannels() string { return `[]` }
-
-// ─────────────── main ───────────────
+// ─────────── main ───────────
 
 func main() {
-	// 桌面模式确保 config.json 存在，避免触发控制台交互向导
 	if _, err := os.Stat("config.json"); os.IsNotExist(err) {
-		defaultCfg := `{
-  "gateway": { "default_agent": "default", "session_ttl": 0, "data_dir": "clawdata" },
-  "providers": {},
-  "agents": [{ "name": "default", "provider": "", "model": "", "system_prompt": "你是一个有用的AI助手。", "tools": [], "max_iterations": 20, "max_tokens": 32000 }],
-  "channels": { "console": { "enabled": false } },
-  "cron": { "enabled": false },
-  "logging": { "level": "info", "file_path": "logs/app.log", "console": false }
-}`
-		os.WriteFile("config.json", []byte(defaultCfg), 0644)
+		os.WriteFile("config.json", []byte(`{
+  "gateway": {"default_agent":"default","session_ttl":0,"data_dir":"clawdata"},
+  "providers":{},
+  "agents":[{"name":"default","provider":"","model":"","system_prompt":"你是一个有用的AI助手。","tools":[],"max_iterations":20,"max_tokens":32000}],
+  "channels":{"console":{"enabled":false}},
+  "cron":{"enabled":false},
+  "logging":{"level":"info","file_path":"logs/app.log","console":false}
+}`), 0644)
 	}
 
 	app, err := bootstrap.NewApp()
@@ -132,12 +107,7 @@ func main() {
 			application.NewService(chatSvc),
 			application.NewService(appSvc),
 		},
-		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
-		},
-		OnShutdown: func() {
-			app.Gateway.Stop()
-		},
+		OnShutdown: func() { app.Gateway.Stop() },
 	})
 
 	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{

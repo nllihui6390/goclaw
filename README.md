@@ -536,19 +536,17 @@ AGENTS.md 支持 `<!-- heartbeat:start -->` 和 `<!-- memory:start -->` 条件�
 
 ```
 go-claw/
-├── main.go                              # 入口 (//go:build !production)
-├── main_desktop.go                      # 桌面入口 (//go:build production)
-├── run.go                               # 共享 runServer()
+├── main.go                              # server 入口 + runServer() (//go:build !production)
+├── main_desktop.go                      # 桌面入口 + Wails3 Services (//go:build production)
 ├── embed.go                             # 前端静态文件嵌入
-├── services/                            # Wails3 Go Services
-│   ├── chat.go                          # ChatService (桌面模式 Go 函数绑定)
-│   └── app.go                           # AppService (配置/日志/状态)
 ├── config.json                          # 配置文件
 ├── config/config.go                     # 配置管理
-├── server/                              # Web 服务（管理后台 + 前端 SPA）
+├── server/                              # Web 服务
 │   ├── server.go                        # HTTP 服务器 + 路由 + CORS/鉴权
 │   ├── api.go                           # 管理 API
-│   └── frontend.go                      # 前端静态文件 + SPA fallback
+│   ├── frontend.go                      # 前端静态文件 + SPA fallback
+│   └── wails/                           # Wails3 Go Services（桌面模式前端绑定）
+│       └── services.go                  # ChatService + AppService
 ├── frontend/                            # Vue 3 + Element Plus Web 管理后台
 │   ├── src/
 │   │   ├── views/chat/                  # AI 对话页面（流式输出 + Markdown）
