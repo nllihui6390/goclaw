@@ -57,6 +57,11 @@ func readConfig() map[string]any {
 	return cfg
 }
 
+func writeConfig(cfg map[string]any) {
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile("config.json", data, 0644)
+}
+
 // handleAgents 返回 Agent 列表（GET）- 从 config.json 读取
 func handleAgents(rw http.ResponseWriter, r *http.Request) {
 	cfg := readConfig()
@@ -64,13 +69,76 @@ func handleAgents(rw http.ResponseWriter, r *http.Request) {
 	writeJSON(rw, http.StatusOK, agents)
 }
 
-// handleAgentByID 更新指定 Agent 配置（PUT）
+// handleAgentByID 更新/删除指定 Agent 配置（PUT/DELETE）
 func handleAgentByID(rw http.ResponseWriter, r *http.Request) {
+	// 解析 URL: /api/v1/agents/{name}
+	name := strings.TrimPrefix(r.URL.Path, "/api/v1/agents/")
+	name = strings.TrimSuffix(name, "/")
+	if name == "" {
+		writeError(rw, http.StatusBadRequest, "agent name required")
+		return
+	}
+
+	if r.Method == http.MethodDelete {
+		// 内置 default agent 不允许删除
+		if name == "default" {
+			writeError(rw, http.StatusForbidden, "default agent cannot be deleted")
+			return
+		}
+		cfg := readConfig()
+		agents, _ := cfg["agents"].([]interface{})
+		filtered := make([]interface{}, 0, len(agents))
+		for _, a := range agents {
+			ag, _ := a.(map[string]interface{})
+			if ag["name"] != name {
+				filtered = append(filtered, a)
+			}
+		}
+		cfg["agents"] = filtered
+		writeConfig(cfg)
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
+		return
+	}
+
 	if r.Method != http.MethodPut {
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	writeJSON(rw, http.StatusOK, map[string]string{"status": "updated"})
+
+	// 读取请求体
+	var updateData map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
+		writeError(rw, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	// 确保 name 字段不被覆盖
+	updateData["name"] = name
+
+	// 读取 config.json
+	cfg := readConfig()
+	agents, _ := cfg["agents"].([]interface{})
+
+	// 查找并更新
+	found := false
+	for i, a := range agents {
+		ag, _ := a.(map[string]interface{})
+		if ag["name"] == name {
+			agents[i] = updateData
+			found = true
+			break
+		}
+	}
+
+	// 不存在则追加（新增 Agent）
+	if !found {
+		agents = append(agents, updateData)
+	}
+
+	cfg["agents"] = agents
+	writeConfig(cfg)
+
+	writeJSON(rw, http.StatusOK, updateData)
 }
 
 // handleChannels 返回渠道列表及连接状态（GET）- 从 config.json 读取

@@ -55,8 +55,14 @@ func handleChatHistory(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// 从 agent 的 SessionManager 或 Store 获取历史
+	// 支持 ?agent=xxx 参数指定 agent（否则遍历所有 agent 查找）
+	reqAgent := r.URL.Query().Get("agent")
 	agents := gatewayInstance.Gateway.GetAgents()
 	for _, ag := range agents {
+		// 如果指定了 agent，只查询该 agent
+		if reqAgent != "" && ag.Name() != reqAgent {
+			continue
+		}
 		msgs, exists := ag.GetSessionMessages(sessionID)
 		if exists {
 			result := make([]map[string]string, 0, len(msgs))

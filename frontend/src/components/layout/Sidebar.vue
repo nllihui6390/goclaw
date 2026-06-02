@@ -10,7 +10,7 @@ const menuGroups = [
   {
     label: '对话',
     items: [
-      { path: '/', icon: 'ChatDotRound', label: 'Chat' },
+      { path: '/', icon: 'ChatDotRound', label: '聊天' },
       // { path: '/inbox', icon: 'Bell', label: 'Inbox' },
     ]
   },

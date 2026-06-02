@@ -128,6 +128,8 @@ type AuthConfig struct {
 
 type AgentConfig struct {
 	Name                 string   `json:"name"`
+	DisplayName          string   `json:"display_name"`          // 中文展示名称
+	Description          string   `json:"description"`           // 描述说明
 	Provider             string   `json:"provider"`
 	Model                string   `json:"model"`
 	SystemPrompt         string   `json:"system_prompt"`

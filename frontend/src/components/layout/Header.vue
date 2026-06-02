@@ -1,15 +1,40 @@
 <script setup>
 import { useRoute } from 'vue-router'
-import { computed } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { useAgentStore } from '@/stores/agent'
 
 const route = useRoute()
+const api = inject('api')
 const agentStore = useAgentStore()
+const agentList = ref([])
 
-const agentOptions = [
-  { label: 'default', value: 'default' },
-  { label: 'local', value: 'local' },
-]
+// 从配置加载 agent 列表，用于获取 display_name
+onMounted(async () => {
+  try {
+    agentList.value = await api.getAgents() || []
+  } catch { /* 降级到硬编码 */ }
+})
+
+// 构建 agent ID → display_name 映射
+const agentNameMap = computed(() => {
+  const map = {}
+  agentList.value.forEach(a => {
+    map[a.name] = a.display_name || a.name
+  })
+  return map
+})
+
+const agentOptions = computed(() => {
+  const names = Object.keys(agentNameMap.value)
+  if (names.length === 0) {
+    // 降级：从 store 当前值生成选项
+    return [{ label: agentStore.selectedAgent, value: agentStore.selectedAgent }]
+  }
+  return names.map(name => ({
+    label: agentNameMap.value[name],
+    value: name
+  }))
+})
 
 const pageTitle = computed(() => {
   const pathMap = {

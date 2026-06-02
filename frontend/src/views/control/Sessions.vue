@@ -1,8 +1,10 @@
 <script setup>
-import { ref, inject, onMounted } from 'vue'
+import { ref, inject, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAgentStore } from '@/stores/agent'
 
 const api = inject('api')
+const agentStore = useAgentStore()
 
 const loading = ref(false)
 const sessions = ref([])
@@ -10,6 +12,11 @@ const detailVisible = ref(false)
 const detailSession = ref(null)
 const detailMessages = ref([])
 const detailLoading = ref(false)
+
+// 按当前 agent 过滤会话列表
+const filteredSessions = computed(() => {
+  return sessions.value.filter(s => s.agent === agentStore.selectedAgent)
+})
 
 // 加载会话列表
 async function loadSessions() {
@@ -29,7 +36,7 @@ async function viewSession(session) {
   detailMessages.value = []
   detailLoading.value = true
   try {
-    const history = await api.getChatHistory(session.id)
+    const history = await api.getChatHistory(session.id, session.agent)
     detailMessages.value = history || []
   } catch (e) {
     detailMessages.value = []
@@ -59,6 +66,8 @@ function formatTime(ts) {
 }
 
 onMounted(loadSessions)
+// 切换 agent 时刷新
+watch(() => agentStore.selectedAgent, loadSessions)
 </script>
 
 <template>
@@ -73,7 +82,7 @@ onMounted(loadSessions)
         </div>
       </template>
 
-      <el-table :data="sessions" stripe>
+      <el-table :data="filteredSessions" stripe>
         <el-table-column prop="id" label="会话 ID" min-width="200">
           <template #default="{ row }">
             <span class="mono">{{ row.id }}</span>

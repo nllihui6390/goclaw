@@ -2,33 +2,25 @@
 import { ref, inject, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agent'
+import { useToolsStore } from '@/stores/tools'
 
 const api = inject('api')
 const agentStore = useAgentStore()
+const toolsStore = useToolsStore()
 
 const loading = ref(false)
 const config = ref({})
-
-// 工具描述映射
-const toolMeta = {
-  weather:       { icon: '🌤️', desc: '天气查询（和风/OpenWeather/Seniverse）' },
-  exec:          { icon: '⚡', desc: 'Shell 命令执行（带安全守卫）' },
-  write_file:    { icon: '📝', desc: '写入文件' },
-  read_file:     { icon: '📖', desc: '读取文件' },
-  edit_file:     { icon: '✏️', desc: '编辑文件（精确字符串替换）' },
-  append_file:   { icon: '➕', desc: '追加文件内容' },
-  send_file:     { icon: '📦', desc: '发送文件给用户' },
-  browser_use:   { icon: '', desc: '浏览器自动化 (rod)' },
-  get_current_time: { icon: '', desc: '获取当前时间' },
-  set_user_timezone: { icon: '🌍', desc: '设置用户时区' },
-  cron_status:   { icon: '⏰', desc: '查询/管理定时任务' },
-}
 
 // 当前选中的 Agent 名称
 const agentName = computed(() => agentStore.selectedAgent || 'default')
 
 // 所有工具名
-const allTools = computed(() => Object.keys(toolMeta))
+const allTools = computed(() => toolsStore.allToolNames)
+
+// 获取工具元信息
+function toolMeta(name) {
+  return toolsStore.getTool(name)
+}
 
 // 当前选中的 agent 配置
 const currentAgent = computed(() => {
@@ -84,10 +76,10 @@ watch(agentName, loadConfig)
     <div class="tools-grid">
       <el-card v-for="toolName in allTools" :key="toolName" class="tool-card">
         <div class="tool-header">
-          <div class="tool-icon">{{ toolMeta[toolName]?.icon || '🔧' }}</div>
+          <div class="tool-icon">{{ toolMeta(toolName).icon || '🔧' }}</div>
           <div class="tool-info">
             <span class="tool-name">{{ toolName }}</span>
-            <span class="tool-desc">{{ toolMeta[toolName]?.desc || '' }}</span>
+            <span class="tool-desc">{{ toolMeta(toolName).desc || '' }}</span>
           </div>
           <el-switch
             :model-value="isToolEnabled(toolName)"

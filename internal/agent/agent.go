@@ -79,6 +79,11 @@ func (a *Agent) Process(ctx context.Context, sessionID, userMessage string) (str
 	return a.ProcessWithHandler(ctx, sessionID, userMessage, nil)
 }
 
+// Name 返回 Agent 名称
+func (a *Agent) Name() string {
+	return a.config.Name
+}
+
 // GetInfo 获取 Agent 信息描述
 func (a *Agent) GetInfo() string {
 	return fmt.Sprintf("Agent %s (model: %s, provider: %s)", a.config.Name, a.config.Model, a.config.ProviderType)

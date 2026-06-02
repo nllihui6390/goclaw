@@ -175,23 +175,23 @@ func init() {
 	GlobalRegistry.RegisterDefault("cron_status")
 	GlobalRegistry.RegisterDefault("get_current_time")
 	GlobalRegistry.RegisterDefault("system_info")
-	GlobalRegistry.RegisterDefault("network_check")
+	// GlobalRegistry.RegisterDefault("network_check")
 	// 网络/信息类
-	GlobalRegistry.RegisterDefault("http_request")
-	GlobalRegistry.RegisterDefault("web_search")
+	// GlobalRegistry.RegisterDefault("http_request")
+	// GlobalRegistry.RegisterDefault("web_search")
 	// GlobalRegistry.RegisterDefault("url_summary")
 	// 计算/代码类
-	GlobalRegistry.RegisterDefault("calculate")
-	GlobalRegistry.RegisterDefault("run_code")
+	// GlobalRegistry.RegisterDefault("calculate")
+	// GlobalRegistry.RegisterDefault("run_code")
 	// 文件/文档类
-	GlobalRegistry.RegisterDefault("list_files")
-	GlobalRegistry.RegisterDefault("read_pdf")
-	GlobalRegistry.RegisterDefault("ocr_image")
-	GlobalRegistry.RegisterDefault("generate_image")
+	// GlobalRegistry.RegisterDefault("list_files")
+	// GlobalRegistry.RegisterDefault("read_pdf")
+	// GlobalRegistry.RegisterDefault("ocr_image")
+	// GlobalRegistry.RegisterDefault("generate_image")
 	// 数据库类
-	GlobalRegistry.RegisterDefault("database_query")
+	// GlobalRegistry.RegisterDefault("database_query")
 	// 配置管理类
-	GlobalRegistry.RegisterDefault("manage_config")
+	// GlobalRegistry.RegisterDefault("manage_config")
 }
 
 // MemoryTool 记忆工具
