@@ -21,7 +21,6 @@ const pageTitle = computed(() => {
   return pathMap[route.path] || 'go-claw'
 })
 
-// computed with getter/setter for v-model
 const agentModel = computed({
   get: () => selectedAgent.value,
   set: (val) => { selectedAgent.value = val }

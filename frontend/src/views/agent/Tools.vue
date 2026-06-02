@@ -3,7 +3,7 @@ import { ref, inject, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 const api = inject('api')
-const selectedAgent = inject('selectedAgent', ref('default'))
+const selectedAgent = inject('selectedAgent')
 
 const loading = ref(false)
 const config = ref({})
@@ -11,24 +11,27 @@ const config = ref({})
 // 工具描述映射
 const toolMeta = {
   weather:       { icon: '🌤️', desc: '天气查询（和风/OpenWeather/Seniverse）' },
-  exec:          { icon: '', desc: 'Shell 命令执行（带安全守卫）' },
+  exec:          { icon: '⚡', desc: 'Shell 命令执行（带安全守卫）' },
   write_file:    { icon: '📝', desc: '写入文件' },
-  read_file:     { icon: '', desc: '读取文件' },
+  read_file:     { icon: '📖', desc: '读取文件' },
   edit_file:     { icon: '✏️', desc: '编辑文件（精确字符串替换）' },
   append_file:   { icon: '➕', desc: '追加文件内容' },
   send_file:     { icon: '📦', desc: '发送文件给用户' },
-  browser_use:   { icon: '🌐', desc: '浏览器自动化 (rod)' },
-  get_current_time: { icon: '🕐', desc: '获取当前时间' },
+  browser_use:   { icon: '', desc: '浏览器自动化 (rod)' },
+  get_current_time: { icon: '', desc: '获取当前时间' },
   set_user_timezone: { icon: '🌍', desc: '设置用户时区' },
-  cron_status:   { icon: '', desc: '查询/管理定时任务' },
+  cron_status:   { icon: '⏰', desc: '查询/管理定时任务' },
 }
+
+// 当前选中的 Agent 名称
+const agentName = computed(() => selectedAgent?.value || 'default')
 
 // 所有工具名
 const allTools = computed(() => Object.keys(toolMeta))
 
 // 当前选中的 agent 配置
 const currentAgent = computed(() => {
-  return config.value.agents?.find(a => a.name === (selectedAgent?.value || 'default'))
+  return config.value.agents?.find(a => a.name === agentName.value)
 })
 
 // 工具是否对当前 agent 启用
@@ -66,14 +69,14 @@ async function loadConfig() {
 
 onMounted(loadConfig)
 // agent 切换时重新加载
-watch(() => selectedAgent?.value, loadConfig)
+watch(agentName, loadConfig)
 </script>
 
 <template>
   <div class="page" v-loading="loading">
     <div class="toolbar">
       <span class="toolbar-title">
-        工具管理 — <span class="current-agent">{{ selectedAgent?.value || '未选择' }}</span>
+        工具管理 — <span class="current-agent">{{ agentName }}</span>
       </span>
     </div>
 
