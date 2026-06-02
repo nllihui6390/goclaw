@@ -146,6 +146,13 @@ async function runJob(index) {
   }
 }
 
+function formatTime(ts) {
+  if (!ts || ts.startsWith('0001')) return '-'
+  try {
+    return new Date(ts).toLocaleString('zh-CN')
+  } catch { return '-' }
+}
+
 function formatSchedule(schedule) {
   if (!schedule) return '-'
   if (schedule.startsWith('@every')) return `每 ${schedule.replace('@every ', '')}`
@@ -194,6 +201,16 @@ function formatSchedule(schedule) {
           </template>
         </el-table-column>
         <el-table-column prop="agent_name" label="Agent" width="80" />
+        <el-table-column label="上次执行" width="150">
+          <template #default="{ row }">
+            <span class="time-text">{{ formatTime(row.last_run) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="下次执行" width="150">
+          <template #default="{ row }">
+            <span class="time-text">{{ formatTime(row.next_run) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row, $index }">
             <el-button link type="primary" @click="openEdit($index)">编辑</el-button>

@@ -159,10 +159,10 @@ func (t *CronStatusTool) listJobs(mgr *cron.Manager) (string, error) {
 		if !job.Enabled {
 			enabled = "❌"
 		}
-		nextRun := job.NextRun.Format("2006-01-02 15:04")
+		nextRun := cron.ParseTime(job.NextRun).Format("2006-01-02 15:04")
 		lastRun := "-"
-		if !job.LastRun.IsZero() {
-			lastRun = job.LastRun.Format("2006-01-02 15:04")
+		if !cron.ParseTime(job.LastRun).IsZero() {
+			lastRun = cron.ParseTime(job.LastRun).Format("2006-01-02 15:04")
 		}
 		agentInfo := ""
 		if job.Type == cron.JobTypeAgent && job.AgentName != "" {
@@ -198,9 +198,9 @@ func (t *CronStatusTool) getJob(mgr *cron.Manager, params map[string]interface{}
 	if job.ActiveStart != "" {
 		result += fmt.Sprintf("- **活跃时段**: %s - %s\n", job.ActiveStart, job.ActiveEnd)
 	}
-	result += fmt.Sprintf("- **下次执行**: %s\n", job.NextRun.Format("2006-01-02 15:04"))
-	if !job.LastRun.IsZero() {
-		result += fmt.Sprintf("- **上次执行**: %s\n", job.LastRun.Format("2006-01-02 15:04"))
+	result += fmt.Sprintf("- **下次执行**: %s\n", cron.ParseTime(job.NextRun).Format("2006-01-02 15:04"))
+	if !cron.ParseTime(job.LastRun).IsZero() {
+		result += fmt.Sprintf("- **上次执行**: %s\n", cron.ParseTime(job.LastRun).Format("2006-01-02 15:04"))
 	}
 	return result, nil
 }
@@ -252,7 +252,7 @@ func (t *CronStatusTool) addJob(mgr *cron.Manager, params map[string]interface{}
 	mgr.AddJob(job)
 
 	return fmt.Sprintf("✅ 任务已添加\n- ID: %s\n- 名称: %s\n- 调度: %s\n- 下次执行: %s",
-		id, name, schedule, job.NextRun.Format("2006-01-02 15:04")), nil
+		id, name, schedule, cron.ParseTime(job.NextRun).Format("2006-01-02 15:04")), nil
 }
 
 func (t *CronStatusTool) updateJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
@@ -295,7 +295,7 @@ func (t *CronStatusTool) updateJob(mgr *cron.Manager, params map[string]interfac
 	mgr.UpdateJob(existing)
 
 	return fmt.Sprintf("✅ 任务已更新\n- ID: %s\n- 名称: %s\n- 下次执行: %s",
-		id, existing.Name, existing.NextRun.Format("2006-01-02 15:04")), nil
+		id, existing.Name, cron.ParseTime(existing.NextRun).Format("2006-01-02 15:04")), nil
 }
 
 func (t *CronStatusTool) deleteJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {

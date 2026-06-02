@@ -22,18 +22,43 @@ const (
 
 // Job 定时任务定义
 type Job struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	Type         JobType       `json:"type"`
-	Schedule     string        `json:"schedule"`     // cron 表达式或间隔
-	Content      string        `json:"content"`      // 任务内容
-	AgentName    string        `json:"agent_name"`   // Agent 名称（仅 agent 类型）
-	SessionID    string        `json:"session_id"`   // 目标会话 ID
-	Enabled      bool          `json:"enabled"`
-	LastRun      time.Time     `json:"last_run"`
-	NextRun      time.Time     `json:"next_run"`
-	ActiveStart  string        `json:"active_start"` // 活跃时段开始 (HH:MM)
-	ActiveEnd    string        `json:"active_end"`   // 活跃时段结束 (HH:MM)
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Type         JobType `json:"type"`
+	Schedule     string `json:"schedule"`     // cron 表达式或间隔
+	Content      string `json:"content"`      // 任务内容
+	AgentName    string `json:"agent_name"`   // Agent 名称（仅 agent 类型）
+	SessionID    string `json:"session_id"`   // 目标会话 ID
+	Enabled      bool   `json:"enabled"`
+	LastRun      string `json:"last_run"`     // 上次执行时间 (RFC3339，可为空)
+	NextRun      string `json:"next_run"`     // 下次执行时间 (RFC3339，可为空)
+	ActiveStart  string `json:"active_start"` // 活跃时段开始 (HH:MM)
+	ActiveEnd    string `json:"active_end"`   // 活跃时段结束 (HH:MM)
+}
+
+// ParseTime 安全解析时间字符串，失败返回零值（导出）
+func ParseTime(s string) time.Time {
+	return parseTimeSafe(s)
+}
+
+// parseTimeSafe 安全解析时间字符串，失败返回零值
+func parseTimeSafe(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// formatTimeSafe 格式化时间为 RFC3339，零值返回空字符串
+func formatTimeSafe(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // Executor 任务执行器接口
@@ -80,7 +105,7 @@ func (m *Manager) loadFromFile() {
 		return
 	}
 	for _, job := range jobs {
-		job.NextRun = m.parseSchedule(job.Schedule)
+		job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
 		m.jobs[job.ID] = job
 	}
 	glog.Logger().Info("[Cron] 从文件加载任务", "count", len(jobs), "file", m.dataFile)
@@ -111,7 +136,7 @@ func (m *Manager) saveToFile() {
 // AddJob 添加任务
 func (m *Manager) AddJob(job *Job) {
 	m.mu.Lock()
-	job.NextRun = m.parseSchedule(job.Schedule)
+	job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 
@@ -133,7 +158,7 @@ func (m *Manager) RemoveJob(id string) {
 func (m *Manager) UpdateJob(job *Job) {
 	m.mu.Lock()
 	if _, exists := m.jobs[job.ID]; exists {
-		job.NextRun = m.parseSchedule(job.Schedule)
+		job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
 		m.jobs[job.ID] = job
 	}
 	m.mu.Unlock()
@@ -159,7 +184,7 @@ func (m *Manager) EnableJob(id string) {
 	m.mu.Lock()
 	if job, exists := m.jobs[id]; exists {
 		job.Enabled = true
-		job.NextRun = m.parseSchedule(job.Schedule)
+		job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
 	}
 	m.mu.Unlock()
 	m.saveToFile()
@@ -189,7 +214,7 @@ func (m *Manager) RunJobNow(id string) error {
 	m.runJobAsync(job)
 
 	m.mu.Lock()
-	job.LastRun = time.Now()
+	job.LastRun = formatTimeSafe(time.Now())
 	m.mu.Unlock()
 
 	return nil
@@ -249,10 +274,10 @@ func (m *Manager) checkAndRun() {
 			continue
 		}
 		// 检查是否到期
-		if now.After(job.NextRun) || now.Equal(job.NextRun) {
+		if now.After(parseTimeSafe(job.NextRun)) || now.Equal(parseTimeSafe(job.NextRun)) {
 			jobsToRun = append(jobsToRun, job)
-			job.LastRun = now
-			job.NextRun = m.parseSchedule(job.Schedule)
+			job.LastRun = formatTimeSafe(now)
+			job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
 		}
 	}
 	m.mu.Unlock()
