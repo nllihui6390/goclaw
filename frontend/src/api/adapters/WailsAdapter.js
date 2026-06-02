@@ -14,9 +14,9 @@ export class WailsAdapter {
   }
 
   // 获取历史消息
-  async getChatHistory(sessionId) {
+  async getChatHistory(sessionId, agent) {
     try {
-      const json = await Call.ByName('main.ChatService.GetChatHistory', sessionId)
+      const json = await Call.ByName('main.ChatService.GetChatHistory', sessionId, agent || '')
       return JSON.parse(json)
     } catch (e) {
       console.error('[WailsAdapter] getChatHistory error:', e)

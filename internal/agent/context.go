@@ -105,35 +105,64 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 		return session
 	}
 
-	session := &Session{
-		ID:        sessionID,
-		Messages:  []Message{},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		store:     sm.store,
+	// 尝试从持久化存储加载已有会话
+	var messages []Message
+	var channel, user string
+	createdAt := time.Now()
+	updatedAt := createdAt
+
+	if sm.store != nil {
+		if data, err := sm.store.GetSession(context.Background(), sessionID); err == nil && data != nil {
+			for _, m := range data.Messages {
+				messages = append(messages, Message{
+					Role:       m.Role,
+					Content:    m.Content,
+					ToolCallID: m.ToolCallID,
+					Name:       m.Name,
+					Timestamp:  parseRFC3339(m.Timestamp),
+				})
+			}
+			channel = data.Channel
+			user = data.User
+			if t, err := time.Parse(time.RFC3339, data.CreatedAt); err == nil {
+				createdAt = t
+			}
+			if t, err := time.Parse(time.RFC3339, data.UpdatedAt); err == nil {
+				updatedAt = t
+			}
+		}
 	}
 
 	// 解析 sessionID (格式: "channel:user")
-	parts := strings.SplitN(sessionID, ":", 2)
-	if len(parts) == 2 {
-		session.Channel = parts[0]
-		session.User = parts[1]
+	if channel == "" {
+		parts := strings.SplitN(sessionID, ":", 2)
+		if len(parts) == 2 {
+			channel = parts[0]
+			user = parts[1]
+		}
+	}
+
+	session := &Session{
+		ID:        sessionID,
+		Channel:   channel,
+		User:      user,
+		Messages:  messages,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+		store:     sm.store,
 	}
 
 	sm.sessions[sessionID] = session
-
-	// 持久化
-	if sm.store != nil {
-		sm.store.SaveSession(context.Background(), store.SessionData{
-			ID:        session.ID,
-			Channel:   session.Channel,
-			User:      session.User,
-			CreatedAt: session.CreatedAt.Format(time.RFC3339),
-			UpdatedAt: session.UpdatedAt.Format(time.RFC3339),
-		})
-	}
-
 	return session
+}
+
+// parseRFC3339 解析 RFC3339 时间字符串，失败返回零值
+func parseRFC3339(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }
 
 // ListSessions 列出所有会话（不含消息内容）

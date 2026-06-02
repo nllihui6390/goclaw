@@ -45,9 +45,14 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 }
 
 // GetChatHistory 获取指定会话的历史消息
-func (c *ChatService) GetChatHistory(sessionID string) string {
+func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 	c.mu.Lock()
 	ag := c.agents["default"]
+	if agentName != "" {
+		if a, ok := c.agents[agentName]; ok {
+			ag = a
+		}
+	}
 	c.mu.Unlock()
 
 	if ag == nil {

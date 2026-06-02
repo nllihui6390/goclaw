@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject, nextTick, onMounted } from 'vue'
+import { ref, inject, nextTick, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agent'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
@@ -13,21 +13,25 @@ const abortCtrl = ref(null)
 
 const sessionId = 'desktop:local'
 
-// 加载历史记录
-onMounted(async () => {
+// 加载历史记录（原子替换，避免先清空再加载的闪烁）
+async function loadHistory() {
+  // 正在发送消息时不重载，防止打断当前对话
+  if (sending.value) return
   try {
-    const history = await api.getChatHistory(sessionId)
-    if (history && history.length > 0) {
-      messages.value = history.map(m => ({
-        role: m.role,
-        content: m.content
-      }))
-      scrollBottom()
-    }
+    const history = await api.getChatHistory(sessionId, agentStore.selectedAgent)
+    messages.value = (history && history.length > 0)
+      ? history.map(m => ({ role: m.role, content: m.content }))
+      : []
+    await nextTick()
+    scrollBottom()
   } catch (e) {
     console.log('[Chat] 加载历史失败:', e.message)
   }
-})
+}
+
+onMounted(() => loadHistory())
+// 切换 agent 时重新加载对应聊天记录
+watch(() => agentStore.selectedAgent, () => loadHistory())
 
 async function send() {
   const text = input.value.trim()
