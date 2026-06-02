@@ -11,7 +11,6 @@ const menuGroups = [
     label: '对话',
     items: [
       { path: '/', icon: 'ChatDotRound', label: '聊天' },
-      // { path: '/inbox', icon: 'Bell', label: 'Inbox' },
     ]
   },
   {
@@ -26,17 +25,14 @@ const menuGroups = [
     label: 'Agent',
     items: [
       { path: '/agent-config', icon: 'Setting', label: 'Agent 配置' },
-      // { path: '/workspace', icon: 'Folder', label: '工作空间' },
       { path: '/skills', icon: 'MagicStick', label: '技能管理' },
       { path: '/tools', icon: 'SetUp', label: '工具列表' },
-      // { path: '/mcp', icon: 'Link', label: 'MCP 集成' },
     ]
   },
   {
     label: '设置',
     items: [
       { path: '/models', icon: 'Cpu', label: '模型/供应商' },
-      // { path: '/security', icon: 'Lock', label: '安全' },
       { path: '/debug', icon: 'Monitor', label: '调试/日志' },
     ]
   },
@@ -62,6 +58,7 @@ function navigate(path) {
           :key="item.path"
           class="menu-item"
           :class="{ active: activePath === item.path }"
+          :title="item.label"
           @click="navigate(item.path)"
         >
           <el-icon><component :is="item.icon" /></el-icon>
@@ -81,6 +78,35 @@ function navigate(path) {
   flex-direction: column;
   flex-shrink: 0;
   user-select: none;
+  transition: width .2s;
+  z-index: 100;
+
+  // 折叠模式：仅图标
+  &.collapsed {
+    width: 64px;
+    .logo-icon { width: 40px; }
+    .sidebar-header { padding: 8px 12px; }
+    .menu-group-label { text-align: center; font-size: 0; &::first-letter { font-size: 11px; } }
+    .menu-item { padding: 10px 18px; justify-content: center; }
+    .menu-item-text { display: none; }
+    .menu-item .el-icon { margin-right: 0; }
+  }
+
+  // 手机模式：隐藏
+  &.mobile-hidden {
+    width: 0;
+    overflow: hidden;
+  }
+
+  // 手机模式展开：浮层
+  &.mobile-open {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    box-shadow: 4px 0 12px rgba(0,0,0,.3);
+  }
 }
 .sidebar-header {
   height: 60px;
@@ -90,11 +116,13 @@ function navigate(path) {
   padding: 8px 10px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255,255,255,.08);
+  transition: padding .2s;
 }
 .logo-icon {
   width: 180px;
   max-height: 44px;
   object-fit: contain;
+  transition: width .2s;
 }
 .sidebar-menu {
   flex: 1;
@@ -107,6 +135,9 @@ function navigate(path) {
   text-transform: uppercase;
   color: rgba(255,255,255,.35);
   letter-spacing: 1px;
+  transition: all .2s;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .menu-item {
   display: flex;
@@ -114,9 +145,10 @@ function navigate(path) {
   padding: 10px 20px;
   cursor: pointer;
   transition: all .15s;
+  white-space: nowrap;
   &:hover { background: rgba(255,255,255,.06); color: #fff; }
   &.active { background: rgba(64,158,255,.15); color: #409eff; }
-  .el-icon { margin-right: 10px; font-size: 18px; }
+  .el-icon { margin-right: 10px; font-size: 18px; flex-shrink: 0; }
 }
 .menu-item-text { font-size: 14px; }
 </style>

@@ -7,6 +7,9 @@ const route = useRoute()
 const api = inject('api')
 const agentStore = useAgentStore()
 const agentList = ref([])
+const isMobile = inject('isMobile')
+const toggleMobile = inject('toggleMobile')
+const toggleCollapse = inject('toggleCollapse')
 
 // 从配置加载 agent 列表，用于获取 display_name
 onMounted(async () => {
@@ -56,6 +59,18 @@ const agentModel = computed({
 <template>
   <header class="header">
     <div class="header-left">
+      <!-- 手机菜单按钮 -->
+      <button v-if="isMobile" class="menu-btn" @click="toggleMobile()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+      </button>
+      <!-- 桌面折叠按钮 -->
+      <button v-else class="menu-btn" @click="toggleCollapse()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+      </button>
       <h1 class="header-title">{{ pageTitle }}</h1>
     </div>
     <div class="header-right">
@@ -68,5 +83,16 @@ const agentModel = computed({
 
 <style scoped>
 .header { height: 48px; background: #fff; border-bottom: 1px solid #e4e7ed; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; flex-shrink: 0; }
+.header-left { display: flex; align-items: center; gap: 10px; }
 .header-title { font-size: 16px; font-weight: 500; color: #303133; margin: 0; }
+.menu-btn {
+  width: 32px; height: 32px;
+  border: none; border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #606266;
+  transition: all .15s;
+  &:hover { background: #f0f2f5; }
+}
 </style>
