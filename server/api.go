@@ -9,6 +9,21 @@ import (
 	"time"
 )
 
+// SetCronExecutor 设置定时任务执行回调（由 main 注入）
+var cronExecutor func(id string)
+
+func SetCronExecutor(fn func(id string)) {
+	cronExecutor = fn
+}
+
+// executeCronJobByID 异步立即执行指定定时任务
+func executeCronJobByID(id string) {
+	if cronExecutor == nil {
+		return
+	}
+	cronExecutor(id)
+}
+
 // handleConfig 读取/保存 config.json（GET/PUT）
 func handleConfig(rw http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
@@ -385,7 +400,8 @@ func handleCronJobByID(rw http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		// run job
+		// 异步立即执行定时任务
+		go executeCronJobByID(id)
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "executed"})
 	case http.MethodDelete:
 		dataFile := "clawdata/cron_jobs.json"

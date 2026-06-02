@@ -41,7 +41,10 @@ func main() {
 
 	go app.Run()
 	time.Sleep(500 * time.Millisecond)
-	chatSvc.SetAgents(app.Gateway.GetAgents())
+	agents := app.Gateway.GetAgents()
+	chatSvc.SetAgents(agents)
+	appSvc.SetAgents(agents)
+	appSvc.SetSender(app.Gateway.SendProactiveMessage)
 
 	forceQuit := false
 	var win *application.WebviewWindow
