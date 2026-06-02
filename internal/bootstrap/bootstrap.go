@@ -18,10 +18,10 @@ import (
 
 // App 应用程序结构体，集中管理所有子系统
 type App struct {
-	Config      *config.Config
-	Gateway     *gateway.Gateway
-	DataDir     string
-	Workspace   string
+	Config    *config.Config
+	Gateway   *gateway.Gateway
+	DataDir   string
+	Workspace string
 
 	// 子系统（可为 nil）
 	CronMgr      *cron.Manager
@@ -29,15 +29,15 @@ type App struct {
 	ProactiveMgr *proactive.ProactiveManager
 
 	// 内部状态
-	skillRegistries map[string]*skill.Registry
+	skillRegistries   map[string]*skill.Registry
 	skillRegistryDirs map[string]string
-	logger *slog.Logger
+	logger            *slog.Logger
 }
 
 // NewApp 创建并初始化应用程序
 func NewApp() (*App, error) {
 	app := &App{
-		skillRegistries: make(map[string]*skill.Registry),
+		skillRegistries:   make(map[string]*skill.Registry),
 		skillRegistryDirs: make(map[string]string),
 	}
 
@@ -49,7 +49,7 @@ func NewApp() (*App, error) {
 	// 2. 初始化日志
 	glog.Init(app.Config.Logging.Level, app.Config.Logging.JSONMode, app.Config.Logging.FilePath, app.Config.Logging.Console)
 	app.logger = glog.Logger()
-	app.logger.Info("启动 go-claw AI Agent")
+	app.logger.Info("===============启动 go-claw AI Agent===============")
 
 	// 3. Gateway + 数据目录
 	app.initGateway()
