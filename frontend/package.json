@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:dev": "vite build --mode development",
     "preview": "vite preview"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "@wailsio/runtime": "^3.0.0-alpha.79",
     "axios": "^1.16.1",
     "element-plus": "^2.14.1",
     "highlight.js": "^11.11.1",

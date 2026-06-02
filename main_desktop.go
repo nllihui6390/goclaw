@@ -3,15 +3,11 @@
 package main
 
 import (
-	"context"
 	"embed"
-	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
 
-	"go-claw/internal/agent"
 	"go-claw/internal/bootstrap"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -19,57 +15,6 @@ import (
 
 //go:embed all:frontend/dist
 var desktopAssets embed.FS
-
-// ─────────── Wails3 Services ───────────
-
-// ChatService 对话服务，前端通过 Wails3 bridge 直接调用 Go 函数
-type ChatService struct {
-	mu     sync.Mutex
-	agents map[string]*agent.Agent
-}
-
-// SetAgents 注入 Agent 实例
-func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
-	c.agents = agents
-}
-
-// SendMessage 流式对话，返回逐字 channel（Wails3 自动转前端 AsyncGenerator）
-func (c *ChatService) SendMessage(sessionID, content, agentName string) chan string {
-	ch := make(chan string, 64)
-	go func() {
-		defer close(ch)
-		c.mu.Lock()
-		ag := c.agents["default"]
-		if agentName != "" {
-			if a, ok := c.agents[agentName]; ok {
-				ag = a
-			}
-		}
-		c.mu.Unlock()
-		if ag == nil {
-			ch <- "Agent 未初始化"
-			return
-		}
-		result, err := ag.Process(context.Background(), sessionID, content)
-		if err != nil {
-			ch <- fmt.Sprintf("Error: %v", err)
-			return
-		}
-		for _, r := range result {
-			ch <- string(r)
-			time.Sleep(15 * time.Millisecond)
-		}
-	}()
-	return ch
-}
-
-// AppService 管理服务
-type AppService struct{}
-
-func (a *AppService) GetConfig() string {
-	data, _ := os.ReadFile("config.json")
-	return string(data)
-}
 
 // ─────────── main ───────────
 

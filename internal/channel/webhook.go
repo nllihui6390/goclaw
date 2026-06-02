@@ -211,7 +211,7 @@ func (w *WebhookChannel) sendToAgent(msgID, session, content, agentName string, 
 	if stream {
 		streamCh := make(chan string, 32)
 		w.mu.Lock()
-		w.streamResps[msgID] = streamCh
+		w.streamResps[session] = streamCh // 使用 session 匹配 gateway resp.To
 		w.mu.Unlock()
 
 		go func() {
@@ -255,11 +255,11 @@ func (w *WebhookChannel) sendToAgent(msgID, session, content, agentName string, 
 	// 阻塞模式
 	respChan := make(chan Response, 1)
 	w.mu.Lock()
-	w.responses[msgID] = respChan
+	w.responses[session] = respChan // 使用 session 匹配 gateway resp.To
 	w.mu.Unlock()
 	defer func() {
 		w.mu.Lock()
-		delete(w.responses, msgID)
+		delete(w.responses, session)
 		w.mu.Unlock()
 	}()
 
@@ -350,11 +350,11 @@ func (w *WebhookChannel) handleWebhook(rw http.ResponseWriter, r *http.Request) 
 
 	respChan := make(chan Response, 1)
 	w.mu.Lock()
-	w.responses[msgID] = respChan
+	w.responses[req.User] = respChan // 使用 req.User 匹配 gateway resp.To
 	w.mu.Unlock()
 	defer func() {
 		w.mu.Lock()
-		delete(w.responses, msgID)
+		delete(w.responses, req.User)
 		w.mu.Unlock()
 	}()
 

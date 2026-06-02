@@ -222,6 +222,11 @@ func (a *Agent) CleanupExpiredSessions(ttlMinutes int) {
 	a.sessionMgr.CleanupExpired(ttlMinutes)
 }
 
+// GetStore 返回底层 Store 实例（用于从文件加载历史记录）
+func (a *Agent) GetStore() store.Store {
+	return a.config.Store
+}
+
 // ListSessions 列出所有会话
 func (a *Agent) ListSessions() []SessionSummary {
 	sessions := a.sessionMgr.ListSessions()

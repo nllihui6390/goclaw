@@ -42,6 +42,18 @@ export class HttpAdapter {
     }
   }
 
+  // 获取历史消息
+  async getChatHistory(sessionId) {
+    try {
+      // HTTP 模式下 gateway 会加 "webhook:" 前缀，需要传完整格式
+      const fullSessionId = `webhook:${sessionId}`
+      const { data } = await http.get(`/chat/history/${encodeURIComponent(fullSessionId)}`)
+      return data
+    } catch {
+      return []
+    }
+  }
+
   // Agent
   getAgents() { return http.get('/agents').then(r => r.data) }
   updateAgent(name, config) { return http.put(`/agents/${name}`, config).then(r => r.data) }

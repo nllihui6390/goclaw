@@ -1,6 +1,7 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import { computed } from 'vue'
+import logoImage from '@/assets/logo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,7 +52,7 @@ function navigate(path) {
 <template>
   <aside class="sidebar">
     <div class="sidebar-header" @click="navigate('/')">
-      <span class="logo-text">go-claw</span>
+      <img :src="logoImage" alt="go-claw" class="logo-icon" />
     </div>
     <div class="sidebar-menu">
       <template v-for="group in menuGroups" :key="group.label">
@@ -82,18 +83,18 @@ function navigate(path) {
   user-select: none;
 }
 .sidebar-header {
-  height: 56px;
+  height: 60px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  justify-content: center;
+  padding: 8px 10px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255,255,255,.08);
 }
-.logo-text {
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 1px;
+.logo-icon {
+  width: 180px;
+  max-height: 44px;
+  object-fit: contain;
 }
 .sidebar-menu {
   flex: 1;
