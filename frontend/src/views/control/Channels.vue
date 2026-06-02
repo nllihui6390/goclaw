@@ -15,20 +15,6 @@ const channelDefs = {
     type: 'console',
     fields: [] // No config fields, just enabled toggle
   },
-  webhook: {
-    name: 'Webhook (HTTP)',
-    type: 'webhook',
-    fields: [
-      { key: 'port', label: '端口', type: 'number', placeholder: '8080' }
-    ]
-  },
-  websocket: {
-    name: 'WebSocket',
-    type: 'websocket',
-    fields: [
-      { key: 'port', label: '端口', type: 'number', placeholder: '8081' }
-    ]
-  },
   lark: {
     name: '飞书',
     type: 'lark',
@@ -51,6 +37,17 @@ const channelDefs = {
     fields: [
       { key: 'bot_id', label: 'Bot ID', type: 'text', placeholder: '企业微信机器人 ID' },
       { key: 'secret', label: 'Secret', type: 'password', placeholder: '企业微信机器人密钥' }
+    ]
+  },
+  wechat: {
+    name: '微信',
+    type: 'wechat',
+    fields: [
+      { key: 'base_url', label: 'Base URL', type: 'text', placeholder: '微信回调地址' },
+      { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀' },
+      { key: 'bot_token', label: 'Bot Token', type: 'password', placeholder: '微信机器人 Token' },
+      { key: 'bot_token_file', label: 'Token 文件', type: 'text', placeholder: 'clawdata/wechat_bot_token' },
+      { key: 'media_dir', label: '媒体目录', type: 'text', placeholder: 'clawdata/media/wechat' }
     ]
   }
 }

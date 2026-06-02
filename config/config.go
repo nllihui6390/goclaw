@@ -155,7 +155,6 @@ type ChannelsConfig struct {
 
 // SkillsConfig Skill 系统配置
 type SkillsConfig struct {
-	Enabled  bool   `json:"enabled"`
 	SkillDir string `json:"skill_dir"`
 }
 

@@ -104,7 +104,6 @@ func getDefaultConfig() *config.Config {
 			Token:   "",
 		},
 		Skills: config.SkillsConfig{
-			Enabled:  false,
 			SkillDir: "skills",
 		},
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -239,14 +240,116 @@ func handleTools(rw http.ResponseWriter, r *http.Request) {
 func handleSkills(rw http.ResponseWriter, r *http.Request) {
 	cfg := readConfig()
 	skillsCfg, _ := cfg["skills"].(map[string]interface{})
-	skills := []map[string]any{}
+
+	skillDir := "skills"
 	if skillsCfg != nil {
-		skills = append(skills, map[string]any{
-			"name": "skills", "description": "技能系统",
-			"enabled": skillsCfg["enabled"], "skill_dir": skillsCfg["skill_dir"],
-		})
+		if v, ok := skillsCfg["skill_dir"].(string); ok {
+			skillDir = v
+		}
 	}
-	writeJSON(rw, http.StatusOK, skills)
+
+	// 从 skill 目录扫描并解析所有 SKILL.md
+	skills := scanSkills(skillDir)
+
+	// 也扫描每个 agent 的 skills 目录
+	agentDirs, _ := os.ReadDir("clawdata/workspaces")
+	for _, ad := range agentDirs {
+		if ad.IsDir() {
+			agentSkillDir := filepath.Join("clawdata/workspaces", ad.Name(), "skills")
+			if info, err := os.Stat(agentSkillDir); err == nil && info.IsDir() {
+				skills = append(skills, scanSkills(agentSkillDir)...)
+			}
+		}
+	}
+
+	result := map[string]any{
+		"skill_dir": skillDir,
+		"skills":    skills,
+		"total":     len(skills),
+	}
+	writeJSON(rw, http.StatusOK, result)
+}
+
+// scanSkills 扫描目录下所有 SKILL.md 并解析
+func scanSkills(dir string) []map[string]any {
+	var skills []map[string]any
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return skills
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		skillFile := filepath.Join(dir, entry.Name(), "SKILL.md")
+		data, err := os.ReadFile(skillFile)
+		if err != nil {
+			continue
+		}
+		skill := parseSkillMD(data, dir, entry.Name())
+		if skill != nil {
+			skills = append(skills, skill)
+		}
+	}
+	return skills
+}
+
+// parseSkillMD 解析 SKILL.md 文件内容
+func parseSkillMD(data []byte, dir, folder string) map[string]any {
+	content := string(data)
+	parts := strings.SplitN(content, "---", 3)
+	if len(parts) < 3 {
+		return nil
+	}
+
+	// 简单解析 YAML frontmatter
+	yamlContent := strings.TrimSpace(parts[1])
+	markdownBody := strings.TrimSpace(parts[2])
+
+	skill := map[string]any{
+		"folder":      folder,
+		"path":        filepath.Join(dir, folder),
+		"markdown":    markdownBody,
+		"has_scripts": false,
+	}
+
+	// 解析 YAML 字段（简单按行解析）
+	for _, line := range strings.Split(yamlContent, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "name:") {
+			skill["name"] = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+		} else if strings.HasPrefix(line, "description:") {
+			skill["description"] = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+		} else if strings.Contains(line, "emoji:") {
+			skill["emoji"] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "emoji:"))
+		}
+	}
+
+	// 检查是否有 scripts 目录
+	scriptsDir := filepath.Join(dir, folder, "scripts")
+	if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
+		if files, _ := os.ReadDir(scriptsDir); len(files) > 0 {
+			skill["has_scripts"] = true
+			scripts := []string{}
+			for _, f := range files {
+				if !f.IsDir() {
+					scripts = append(scripts, f.Name())
+				}
+			}
+			skill["scripts"] = scripts
+		}
+	}
+
+	// 解析 markdown 章节标题
+	sections := []string{}
+	for _, line := range strings.Split(markdownBody, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			sections = append(sections, strings.TrimPrefix(line, "## "))
+		}
+	}
+	skill["sections"] = sections
+
+	return skill
 }
 
 // handleCronJobs 定时任务列表（GET）/ 添加任务（POST）

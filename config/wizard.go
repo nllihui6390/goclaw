@@ -261,7 +261,7 @@ func RunWizard() *Config {
 			Console:  false,
 		},
 		Auth:   AuthConfig{Enabled: false},
-		Skills: SkillsConfig{Enabled: true},
+		Skills: SkillsConfig{},
 		Security: SecurityConfig{
 			Enabled:           true,
 			DenyShellInject:   true,

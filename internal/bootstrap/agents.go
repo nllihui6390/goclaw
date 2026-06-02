@@ -49,24 +49,22 @@ func (app *App) initAgents() {
 
 		// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
 		var skillReg *skill.Registry
-		if app.Config.Skills.Enabled {
-			skillReg = skill.NewRegistry(globalSkillsDir)
-			skillReg.AddDir(agentSkillsDir)
-			if err := skillReg.LoadAll(); err != nil {
-				app.logger.Warn("加载全局 Skill 目录失败", "err", err)
-			}
-			globalCount := len(skillReg.List())
-			if err := skillReg.LoadFromDir(agentSkillsDir); err != nil {
-				app.logger.Warn("加载 Agent Skill 目录失败", "agent", agentCfg.Name, "err", err)
-			}
-			agentCount := len(skillReg.List()) - globalCount
+		skillReg = skill.NewRegistry(globalSkillsDir)
+		skillReg.AddDir(agentSkillsDir)
+		if err := skillReg.LoadAll(); err != nil {
+			app.logger.Warn("加载全局 Skill 目录失败", "err", err)
+		}
+		globalCount := len(skillReg.List())
+		if err := skillReg.LoadFromDir(agentSkillsDir); err != nil {
+			app.logger.Warn("加载 Agent Skill 目录失败", "agent", agentCfg.Name, "err", err)
+		}
+		agentCount := len(skillReg.List()) - globalCount
 
-			app.skillRegistries[agentCfg.Name] = skillReg
-			app.skillRegistryDirs[agentCfg.Name] = agentSkillsDir
+		app.skillRegistries[agentCfg.Name] = skillReg
+		app.skillRegistryDirs[agentCfg.Name] = agentSkillsDir
 
-			if len(skillReg.List()) > 0 {
-				app.logger.Info("Agent Skill 已加载（Prompt-based 模式）", "agent", agentCfg.Name, "global", globalCount, "agent_specific", agentCount, "total", len(skillReg.List()))
-			}
+		if len(skillReg.List()) > 0 {
+			app.logger.Info("Agent Skill 已加载（Prompt-based 模式）", "agent", agentCfg.Name, "global", globalCount, "agent_specific", agentCount, "total", len(skillReg.List()))
 		}
 
 		ag := agent.NewAgent(&agent.Config{
@@ -97,7 +95,7 @@ func (app *App) initAgents() {
 	}
 
 	// Skill 热加载
-	if app.Config.Skills.Enabled && len(app.skillRegistries) > 0 {
+	if len(app.skillRegistries) > 0 {
 		app.startSkillWatcher(globalSkillsDir)
 	}
 }
