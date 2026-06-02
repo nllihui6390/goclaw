@@ -1,24 +1,27 @@
 <script setup>
-import { ref, inject, onMounted, onUnmounted } from 'vue'
+import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useDebugStore } from '@/stores/debug'
 
 const api = inject('api')
+const debugStore = useDebugStore()
 const logs = ref('')
 const status = ref({})
 const loading = ref(false)
-const autoRefresh = ref(false)
 let refreshTimer = null
+
+const autoRefresh = computed({
+  get: () => debugStore.autoRefresh,
+  set: (val) => { debugStore.autoRefresh = val }
+})
 
 onMounted(async () => {
   await loadLogs()
   await loadStatus()
+  if (autoRefresh.value) startRefresh()
 })
 
-onUnmounted(() => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-  }
-})
+onUnmounted(() => stopRefresh())
 
 async function loadLogs() {
   loading.value = true
@@ -29,6 +32,12 @@ async function loadLogs() {
     logs.value = '加载失败: ' + e.message
   }
   loading.value = false
+  setTimeout(scrollLogBottom, 100)
+}
+
+function scrollLogBottom() {
+  const el = document.querySelector('.logs-container')
+  if (el) el.scrollTop = el.scrollHeight
 }
 
 async function loadStatus() {
@@ -39,15 +48,23 @@ async function loadStatus() {
   }
 }
 
+function startRefresh() {
+  stopRefresh()
+  refreshTimer = setInterval(loadLogs, 3000)
+}
+function stopRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
 function toggleAutoRefresh() {
   if (autoRefresh.value) {
-    refreshTimer = setInterval(loadLogs, 3000)
+    startRefresh()
     ElMessage.success('已开启自动刷新')
   } else {
-    if (refreshTimer) {
-      clearInterval(refreshTimer)
-      refreshTimer = null
-    }
+    stopRefresh()
     ElMessage.info('已关闭自动刷新')
   }
 }
