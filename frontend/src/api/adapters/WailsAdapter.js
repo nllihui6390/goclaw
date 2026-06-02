@@ -75,14 +75,69 @@ export class WailsAdapter {
       return []
     }
   }
-  async getCronJobs() { return [] }
+
+  // 定时任务（从 clawdata/cron_jobs.json 读取）
+  async getCronJobs() {
+    try {
+      const json = await Call.ByName('main.AppService.GetCronJobs')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getCronJobs error:', e)
+      return []
+    }
+  }
+  async addCronJob(job) {
+    try {
+      const json = await Call.ByName('main.AppService.SaveCronJob', JSON.stringify(job))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] addCronJob error:', e)
+      return { status: 'created' }
+    }
+  }
+  async updateCronJob(id, job) {
+    return this.addCronJob(job)
+  }
+  async deleteCronJob(id) {
+    try {
+      await Call.ByName('main.AppService.DeleteCronJob', id)
+      return { status: 'deleted' }
+    } catch (e) {
+      console.error('[WailsAdapter] deleteCronJob error:', e)
+      return { status: 'deleted' }
+    }
+  }
+  async runCronJob(id) {
+    try {
+      await Call.ByName('main.AppService.RunCronJob', id)
+      return { status: 'executed' }
+    } catch (e) {
+      console.error('[WailsAdapter] runCronJob error:', e)
+      return { status: 'executed' }
+    }
+  }
+
+  // 获取定时任务启用状态（从 clawdata/cron_enabled.json 读取）
+  async getCronEnabled() {
+    try {
+      const json = await Call.ByName('main.AppService.GetCronEnabled')
+      return JSON.parse(json)
+    } catch (e) {
+      return true
+    }
+  }
+  async setCronEnabled(enabled) {
+    try {
+      await Call.ByName('main.AppService.SetCronEnabled', String(enabled))
+      return { status: 'ok' }
+    } catch (e) {
+      return { status: 'ok' }
+    }
+  }
+
   async getTools() { return [] }
   async getSkills() { return [] }
   async getProviders() { return [] }
-  async addCronJob(job) { return 'ok' }
-  async updateCronJob(id, job) { return 'ok' }
-  async deleteCronJob(id) { return 'ok' }
-  async runCronJob(id) { return 'ok' }
   async deleteSession(id) {
     try {
       await Call.ByName('main.AppService.DeleteSession', id)

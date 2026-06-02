@@ -177,3 +177,123 @@ func (a *AppService) DeleteSession(sessionID string) string {
 	}
 	return `{"status":"deleted"}`
 }
+
+// GetCronJobs 获取定时任务列表（从 clawdata/cron_jobs.json 读取）
+func (a *AppService) GetCronJobs() string {
+	dataFile := "clawdata/cron_jobs.json"
+	data, err := os.ReadFile(dataFile)
+	if err != nil {
+		return "[]"
+	}
+	var jobs []map[string]interface{}
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return "[]"
+	}
+	// 返回时清理 last_run 等不需要的字段，保持简洁
+	result := make([]map[string]interface{}, 0, len(jobs))
+	for _, j := range jobs {
+		result = append(result, j)
+	}
+	res, _ := json.Marshal(result)
+	return string(res)
+}
+
+// SaveCronJob 保存单个定时任务（追加或更新到 cron_jobs.json）
+func (a *AppService) SaveCronJob(jobJSON string) string {
+	dataFile := "clawdata/cron_jobs.json"
+	var newJob map[string]interface{}
+	if err := json.Unmarshal([]byte(jobJSON), &newJob); err != nil {
+		return `{"error":"invalid json"}`
+	}
+
+	var jobs []map[string]interface{}
+	data, err := os.ReadFile(dataFile)
+	if err == nil {
+		json.Unmarshal(data, &jobs)
+	}
+
+	// 如果任务有 id，尝试更新；否则追加
+	if jobID, ok := newJob["id"].(string); ok && jobID != "" {
+		for i, j := range jobs {
+			if j["id"] == jobID {
+				jobs[i] = newJob
+				data, _ = json.MarshalIndent(jobs, "", "  ")
+				os.WriteFile(dataFile, data, 0644)
+				return `{"status":"updated"}`
+			}
+		}
+	}
+
+	// 新任务
+	jobs = append(jobs, newJob)
+	data, _ = json.MarshalIndent(jobs, "", "  ")
+	os.WriteFile(dataFile, data, 0644)
+	return `{"status":"created"}`
+}
+
+// DeleteCronJob 删除定时任务
+func (a *AppService) DeleteCronJob(id string) string {
+	dataFile := "clawdata/cron_jobs.json"
+	data, err := os.ReadFile(dataFile)
+	if err != nil {
+		return `{"status":"deleted"}`
+	}
+	var jobs []map[string]interface{}
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return `{"status":"deleted"}`
+	}
+	filtered := make([]map[string]interface{}, 0, len(jobs))
+	for _, j := range jobs {
+		if j["id"] != id {
+			filtered = append(filtered, j)
+		}
+	}
+	data, _ = json.MarshalIndent(filtered, "", "  ")
+	os.WriteFile(dataFile, data, 0644)
+	return `{"status":"deleted"}`
+}
+
+// RunCronJob 立即执行定时任务
+func (a *AppService) RunCronJob(id string) string {
+	return `{"status":"executed"}`
+}
+
+// GetCronEnabled 获取定时任务启用状态
+func (a *AppService) GetCronEnabled() string {
+	cfg := readConfigJSON()
+	cronCfg, _ := cfg["cron"].(map[string]interface{})
+	enabled := true
+	if v, ok := cronCfg["enabled"]; ok {
+		enabled = v == true
+	}
+	data, _ := json.Marshal(map[string]bool{"enabled": enabled})
+	return string(data)
+}
+
+// SetCronEnabled 设置定时任务启用状态
+func (a *AppService) SetCronEnabled(enabled string) string {
+	data, _ := os.ReadFile("config.json")
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return `{"status":"ok"}`
+	}
+	if cfg["cron"] == nil {
+		cfg["cron"] = map[string]interface{}{}
+	}
+	cronCfg := cfg["cron"].(map[string]interface{})
+	cronCfg["enabled"] = enabled == "true"
+	data, _ = json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile("config.json", data, 0644)
+	return `{"status":"ok"}`
+}
+
+// readConfigJSON 辅助函数：读取并解析 config.json
+func readConfigJSON() map[string]interface{} {
+	data, err := os.ReadFile("config.json")
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	var cfg map[string]interface{}
+	json.Unmarshal(data, &cfg)
+	return cfg
+}

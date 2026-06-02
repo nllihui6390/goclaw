@@ -183,28 +183,71 @@ func handleSkills(rw http.ResponseWriter, r *http.Request) {
 
 // handleCronJobs 定时任务列表（GET）/ 添加任务（POST）
 func handleCronJobs(rw http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
+	switch r.Method {
+	case http.MethodGet:
+		data, err := os.ReadFile("clawdata/cron_jobs.json")
+		if err != nil {
+			writeJSON(rw, http.StatusOK, []interface{}{})
+			return
+		}
+		var jobs []interface{}
+		json.Unmarshal(data, &jobs)
+		writeJSON(rw, http.StatusOK, jobs)
+	case http.MethodPost:
+		var newJob map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&newJob)
+		dataFile := "clawdata/cron_jobs.json"
+		data, _ := os.ReadFile(dataFile)
+		var jobs []map[string]interface{}
+		json.Unmarshal(data, &jobs)
+		jobs = append(jobs, newJob)
+		data, _ = json.MarshalIndent(jobs, "", "  ")
+		os.WriteFile(dataFile, data, 0644)
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "created"})
-		return
 	}
-	cfg := readConfig()
-	cronCfg, _ := cfg["cron"].(map[string]interface{})
-	jobs, _ := cronCfg["jobs"].([]interface{})
-	writeJSON(rw, http.StatusOK, jobs)
 }
 
 // handleCronJobByID 更新/删除/立即执行定时任务（PUT/DELETE/POST）
 func handleCronJobByID(rw http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/cron/jobs/"), "/")
-	if len(parts) > 1 && parts[0] != "" && parts[1] == "run" {
-		writeJSON(rw, http.StatusOK, map[string]string{"status": "executed"})
-		return
-	}
+	id := parts[0]
+
 	switch r.Method {
-	case http.MethodPut:
-		writeJSON(rw, http.StatusOK, map[string]string{"status": "updated"})
+	case http.MethodPost:
+		// run job
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "executed"})
 	case http.MethodDelete:
+		dataFile := "clawdata/cron_jobs.json"
+		data, err := os.ReadFile(dataFile)
+		if err == nil {
+			var jobs []map[string]interface{}
+			json.Unmarshal(data, &jobs)
+			filtered := make([]map[string]interface{}, 0, len(jobs))
+			for _, j := range jobs {
+				if j["id"] != id {
+					filtered = append(filtered, j)
+				}
+			}
+			data, _ = json.MarshalIndent(filtered, "", "  ")
+			os.WriteFile(dataFile, data, 0644)
+		}
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
+	case http.MethodPut:
+		var updatedJob map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&updatedJob)
+		dataFile := "clawdata/cron_jobs.json"
+		data, _ := os.ReadFile(dataFile)
+		var jobs []map[string]interface{}
+		json.Unmarshal(data, &jobs)
+		for i, j := range jobs {
+			if j["id"] == id {
+				jobs[i] = updatedJob
+				break
+			}
+		}
+		data, _ = json.MarshalIndent(jobs, "", "  ")
+		os.WriteFile(dataFile, data, 0644)
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "updated"})
 	default:
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 	}

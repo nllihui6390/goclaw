@@ -7,95 +7,129 @@ const api = inject('api')
 const loading = ref(false)
 const saving = ref(false)
 const config = ref({})
+const cronEnabled = ref(true)
+const jobs = ref([])
 const dialogVisible = ref(false)
 const editingIndex = ref(-1)
-const formRef = ref(null)
 
-const formRules = {
-  name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
-  schedule: [{ required: true, message: '请输入调度规则', trigger: 'blur' }],
-  type: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
-  content: [{ required: true, message: '请输入内容', trigger: 'blur' }],
-}
-
-// 表单数据
 const formData = ref({
   name: '', schedule: '', type: 'text', content: '',
-  agent_name: '', agent_prompt: '', session_id: '',
+  agent_name: '', session_id: '',
   active_start: '', active_end: ''
 })
-
-// 定时任务列表
-const jobs = computed(() => config.value?.cron?.jobs || [])
 
 // Agent 列表
 const agentNames = computed(() => {
   return config.value?.agents?.map(a => a.name) || []
 })
 
-// 加载配置
-onMounted(loadConfig)
+onMounted(loadData)
 
-async function loadConfig() {
+async function loadData() {
   loading.value = true
   try {
-    config.value = await api.getConfig() || {}
+    const [cfg, jobList] = await Promise.all([
+      api.getConfig(),
+      api.getCronJobs()
+    ])
+    config.value = cfg || {}
+    cronEnabled.value = config.value.cron?.enabled !== false
+    jobs.value = (jobList || []).filter(j => j !== null)
   } catch (e) {
     ElMessage.error('加载失败: ' + e.message)
   }
   loading.value = false
 }
 
-// 保存全部配置
-async function saveConfig() {
-  saving.value = true
+// 启用/禁用整个 cron（写入 config.json）
+async function toggleEnabled(val) {
+  cronEnabled.value = val
+  if (!config.value.cron) config.value.cron = { enabled: val }
+  config.value.cron.enabled = val
   try {
     await api.saveConfig(config.value)
-    ElMessage.success('保存成功')
-    await loadConfig()
+    ElMessage.success('定时任务已' + (cronEnabled.value ? '启用' : '禁用'))
+  } catch (e) {
+    ElMessage.error('保存失败: ' + e.message)
+  }
+}
+
+// 打开新增
+function openAdd() {
+  editingIndex.value = -1
+  formData.value = {
+    name: '', schedule: '', type: 'text', content: '',
+    agent_name: '', session_id: '',
+    active_start: '', active_end: ''
+  }
+  dialogVisible.value = true
+}
+
+// 打开编辑
+function openEdit(index) {
+  editingIndex.value = index
+  const job = jobs.value[index]
+  formData.value = {
+    name: job.name || '',
+    schedule: job.schedule || '',
+    type: job.type || 'text',
+    content: job.content || '',
+    agent_name: job.agent_name || '',
+    session_id: job.session_id || '',
+    active_start: job.active_start || '',
+    active_end: job.active_end || ''
+  }
+  dialogVisible.value = true
+}
+
+// 保存任务
+async function saveJob() {
+  if (!formData.value.name || !formData.value.schedule) return
+  const job = {
+    name: formData.value.name,
+    schedule: formData.value.schedule,
+    type: formData.value.type,
+    content: formData.value.content,
+    agent_name: formData.value.agent_name,
+    session_id: formData.value.session_id || (config.value.cron?.default_channel || 'console') + ':' + (config.value.cron?.default_user || 'cron'),
+    active_start: formData.value.active_start || '',
+    active_end: formData.value.active_end || '',
+  }
+
+  saving.value = true
+  try {
+    if (editingIndex.value >= 0) {
+      const oldJob = jobs.value[editingIndex.value]
+      job.id = oldJob.id
+      job.enabled = oldJob.enabled ?? true
+      job.last_run = oldJob.last_run || '0001-01-01T00:00:00Z'
+      job.next_run = ''
+      await api.updateCronJob(job.id, job)
+      ElMessage.success('任务已更新')
+    } else {
+      job.id = 'job_' + formData.value.name + '_' + Date.now()
+      job.enabled = true
+      job.last_run = '0001-01-01T00:00:00Z'
+      job.next_run = ''
+      await api.addCronJob(job)
+      ElMessage.success('任务已添加')
+    }
+    dialogVisible.value = false
+    await loadData()
   } catch (e) {
     ElMessage.error('保存失败: ' + e.message)
   }
   saving.value = false
 }
 
-// 打开新增对话框
-function openAdd() {
-  editingIndex.value = -1
-  formData.value = {
-    name: '', schedule: '', type: 'text', content: '',
-    agent_name: '', agent_prompt: '', session_id: '',
-    active_start: '', active_end: ''
-  }
-  dialogVisible.value = true
-}
-
-// 打开编辑对话框
-function openEdit(index) {
-  editingIndex.value = index
-  formData.value = { ...jobs.value[index] }
-  dialogVisible.value = true
-}
-
-// 保存任务
-function saveJob() {
-  if (!formData.value.name || !formData.value.schedule) return
-  if (editingIndex.value >= 0) {
-    jobs.value[editingIndex.value] = { ...formData.value }
-  } else {
-    if (!config.value.cron) config.value.cron = { enabled: true, jobs: [] }
-    jobs.value.push({ ...formData.value })
-  }
-  dialogVisible.value = false
-  saveConfig()
-}
-
 // 删除任务
 async function deleteJob(index) {
   try {
     await ElMessageBox.confirm('确定删除该定时任务？', '确认删除', { type: 'warning' })
-    jobs.value.splice(index, 1)
-    await saveConfig()
+    const job = jobs.value[index]
+    await api.deleteCronJob(job.id)
+    ElMessage.success('删除成功')
+    await loadData()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败: ' + e.message)
   }
@@ -105,18 +139,11 @@ async function deleteJob(index) {
 async function runJob(index) {
   try {
     const job = jobs.value[index]
-    await api.runCronJob(job.name)
+    await api.runCronJob(job.id)
     ElMessage.success('任务已触发')
   } catch (e) {
     ElMessage.error('触发失败: ' + e.message)
   }
-}
-
-// 切换启用状态
-async function toggleEnabled() {
-  if (!config.value.cron) config.value.cron = { enabled: true, jobs: [] }
-  config.value.cron.enabled = !config.value.cron.enabled
-  await saveConfig()
 }
 
 function formatSchedule(schedule) {
@@ -134,12 +161,12 @@ function formatSchedule(schedule) {
         <div class="card-header">
           <div class="header-left">
             <span>定时任务</span>
-            <el-tag :type="config.cron?.enabled ? 'success' : 'info'" size="small" class="status-tag">
-              {{ config.cron?.enabled ? '运行中' : '已禁用' }}
+            <el-tag :type="cronEnabled ? 'success' : 'info'" size="small">
+              {{ cronEnabled ? '运行中' : '已禁用' }}
             </el-tag>
           </div>
           <div class="toolbar">
-            <el-switch v-model="config.cron.enabled" @change="toggleEnabled" active-text="启用" />
+            <el-switch :model-value="cronEnabled" @change="toggleEnabled" active-text="启用" />
             <el-button type="primary" size="small" @click="openAdd">
               <el-icon><Plus /></el-icon>添加任务
             </el-button>
@@ -179,28 +206,27 @@ function formatSchedule(schedule) {
       <el-empty v-if="!jobs.length && !loading" description="暂无定时任务" />
     </el-card>
 
-    <!-- 新增/编辑对话框 -->
     <el-dialog
       v-model="dialogVisible"
       :title="editingIndex >= 0 ? '编辑定时任务' : '新增定时任务'"
       width="550px"
       :close-on-click-modal="false"
     >
-      <el-form ref="formRef" :model="formData" :rules="formRules" label-width="100px">
-        <el-form-item label="名称" prop="name">
+      <el-form :model="formData" label-width="100px">
+        <el-form-item label="名称" required>
           <el-input v-model="formData.name" placeholder="如: 每日天气提醒" />
         </el-form-item>
-        <el-form-item label="调度规则" prop="schedule">
+        <el-form-item label="调度规则" required>
           <el-input v-model="formData.schedule" placeholder="如: @every 5m 或 09:00" />
-          <span class="form-tip">支持 @every 5m（每5分钟）、09:00（每天9点）或标准 cron 表达式</span>
+          <span class="form-tip">支持 @every 5m、09:00 或标准 cron 表达式</span>
         </el-form-item>
-        <el-form-item label="类型" prop="type">
+        <el-form-item label="类型">
           <el-radio-group v-model="formData.type">
             <el-radio value="text">文本消息</el-radio>
             <el-radio value="agent">Agent 任务</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="内容" prop="content">
+        <el-form-item label="内容" required>
           <el-input v-model="formData.content" type="textarea" :rows="3" placeholder="消息内容或 Agent 指令" />
         </el-form-item>
         <el-form-item label="Agent" v-if="formData.type === 'agent'">
@@ -227,7 +253,6 @@ function formatSchedule(schedule) {
 .page { padding: 24px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .header-left { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 500; }
-.status-tag { font-size: 12px; }
 .toolbar { display: flex; gap: 12px; align-items: center; }
 .content-text { font-size: 12px; color: #606266; font-family: monospace; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 4px; display: block; }
