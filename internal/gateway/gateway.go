@@ -102,12 +102,14 @@ func (g *Gateway) RegisterAgent(name string, ag *agent.Agent) {
 	log.Logger().Info("Agent已注册", "name", name)
 }
 
-// RegisterChannel 注册渠道
+// RegisterChannel 注册渠道并启动消息处理
 func (g *Gateway) RegisterChannel(ch channel.Channel) error {
 	if err := ch.Start(g.ctx); err != nil {
 		return err
 	}
 	g.channels[ch.GetName()] = ch
+	g.wg.Add(1)
+	go g.handleChannel(ch.GetName(), ch)
 	log.Logger().Info("渠道已注册", "name", ch.GetName())
 	return nil
 }
@@ -120,6 +122,23 @@ func (g *Gateway) RegisterChannelWithoutServer(ch channel.Channel) {
 	log.Logger().Info("渠道已注册(无自带服务)", "name", ch.GetName())
 }
 
+// UnregisterChannel 注销渠道
+func (g *Gateway) UnregisterChannel(name string) {
+	ch, exists := g.channels[name]
+	if !exists {
+		return
+	}
+	ch.Stop()
+	delete(g.channels, name)
+	log.Logger().Info("渠道已注销", "name", name)
+}
+
+// HasChannel 检查渠道是否已注册
+func (g *Gateway) HasChannel(name string) bool {
+	_, exists := g.channels[name]
+	return exists
+}
+
 // AddRoute 添加路由规则
 func (g *Gateway) AddRoute(rule RouteRule) {
 	g.router.AddRule(rule)
@@ -130,12 +149,8 @@ func (g *Gateway) SetDefaultAgent(name string) {
 	g.router.SetDefaultAgent(name)
 }
 
-// Start 启动网关
+// Start 启动网关（handleChannel 已在 RegisterChannel/RegisterChannelWithoutServer 中启动）
 func (g *Gateway) Start() error {
-	for name, ch := range g.channels {
-		g.wg.Add(1)
-		go g.handleChannel(name, ch)
-	}
 	return nil
 }
 

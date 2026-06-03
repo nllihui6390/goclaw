@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 
+	"go-claw/config"
 	"go-claw/internal/bootstrap"
 	"go-claw/internal/channel"
+	"go-claw/internal/gateway"
 	"go-claw/server"
 	"go-claw/server/controllers/api"
 	glog "go-claw/pkg/log"
@@ -63,7 +65,34 @@ func runServer() {
 	consoleChan.SetEnabled(app.Config.Channels.Console.Enabled)
 	app.Gateway.RegisterChannelWithoutServer(consoleChan)
 
+	// 配置文件热加载：同步 console 启用状态等
+	startConfigWatcher(app, consoleChan)
+
 	app.Run()
+}
+
+// startConfigWatcher 启动 config.json 热加载
+func startConfigWatcher(app *bootstrap.App, consoleChan *channel.ConsoleChannel) {
+	watcher := gateway.NewConfigWatcher("config.json", func() {
+		newCfg, err := config.LoadConfig("config.json")
+		if err != nil {
+			glog.Logger().Error("重新加载配置失败", "err", err)
+			return
+		}
+		// 同步 console 渠道启用状态
+		consoleChan.SetEnabled(newCfg.Channels.Console.Enabled)
+		// 同步机器人渠道（飞书/钉钉/企微/微信）：自动注册或注销
+		app.SyncChannels(newCfg)
+		glog.Logger().Info("配置已热加载",
+			"console", newCfg.Channels.Console.Enabled,
+			"lark", newCfg.Channels.Lark.Enabled,
+			"dingtalk", newCfg.Channels.DingTalk.Enabled,
+			"wecom", newCfg.Channels.WeCom.Enabled,
+		)
+	})
+	if err := watcher.Start(); err != nil {
+		glog.Logger().Warn("启动配置监听失败", "err", err)
+	}
 }
 
 func main() {

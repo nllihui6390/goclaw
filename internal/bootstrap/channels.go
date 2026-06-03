@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"go-claw/config"
 	"go-claw/internal/channel"
 )
 
@@ -86,4 +87,66 @@ func (app *App) initChannels() {
 	}
 
 	app.Gateway.SetDefaultAgent("default")
+}
+
+// SyncChannels 根据新配置同步渠道（热加载时调用）
+func (app *App) SyncChannels(newCfg *config.Config) {
+	// 飞书
+	if newCfg.Channels.Lark.Enabled && !app.Gateway.HasChannel("lark") {
+		display := toDisplayConfig(newCfg.Channels.Lark.ShowToolMessages, newCfg.Channels.Lark.ShowThinking, newCfg.Channels.Lark.StreamOutput)
+		ch := channel.NewLarkChannel(newCfg.Channels.Lark.AppID, newCfg.Channels.Lark.AppSecret, display)
+		if err := app.Gateway.RegisterChannel(ch); err != nil {
+			app.logger.Error("注册飞书渠道失败", "err", err)
+		} else {
+			app.logger.Info("飞书渠道已热加载注册")
+		}
+	} else if !newCfg.Channels.Lark.Enabled && app.Gateway.HasChannel("lark") {
+		app.Gateway.UnregisterChannel("lark")
+		app.logger.Info("飞书渠道已热加载注销")
+	}
+
+	// 钉钉
+	if newCfg.Channels.DingTalk.Enabled && !app.Gateway.HasChannel("dingtalk") {
+		display := toDisplayConfig(newCfg.Channels.DingTalk.ShowToolMessages, newCfg.Channels.DingTalk.ShowThinking, newCfg.Channels.DingTalk.StreamOutput)
+		ch := channel.NewDingTalkChannel(newCfg.Channels.DingTalk.ClientID, newCfg.Channels.DingTalk.ClientSecret, display)
+		if err := app.Gateway.RegisterChannel(ch); err != nil {
+			app.logger.Error("注册钉钉渠道失败", "err", err)
+		} else {
+			app.logger.Info("钉钉渠道已热加载注册")
+		}
+	} else if !newCfg.Channels.DingTalk.Enabled && app.Gateway.HasChannel("dingtalk") {
+		app.Gateway.UnregisterChannel("dingtalk")
+		app.logger.Info("钉钉渠道已热加载注销")
+	}
+
+	// 企业微信
+	if newCfg.Channels.WeCom.Enabled && !app.Gateway.HasChannel("wecom") {
+		display := toDisplayConfig(newCfg.Channels.WeCom.ShowToolMessages, newCfg.Channels.WeCom.ShowThinking, newCfg.Channels.WeCom.StreamOutput)
+		ch := channel.NewWeComChannel(newCfg.Channels.WeCom.BotID, newCfg.Channels.WeCom.Secret, display)
+		if err := app.Gateway.RegisterChannel(ch); err != nil {
+			app.logger.Error("注册企业微信渠道失败", "err", err)
+		} else {
+			app.logger.Info("企业微信渠道已热加载注册")
+		}
+	} else if !newCfg.Channels.WeCom.Enabled && app.Gateway.HasChannel("wecom") {
+		app.Gateway.UnregisterChannel("wecom")
+		app.logger.Info("企业微信渠道已热加载注销")
+	}
+
+	// 微信
+	if newCfg.Channels.WeChat.Enabled && !app.Gateway.HasChannel("wechat") {
+		display := toDisplayConfig(newCfg.Channels.WeChat.ShowToolMessages, newCfg.Channels.WeChat.ShowThinking, newCfg.Channels.WeChat.StreamOutput)
+		ch := channel.NewWeChatChannel(newCfg.Channels.WeChat.BotToken, newCfg.Channels.WeChat.BotPrefix, newCfg.Channels.WeChat.BaseURL, newCfg.Channels.WeChat.MediaDir, newCfg.Channels.WeChat.BotTokenFile, display)
+		if err := app.Gateway.RegisterChannel(ch); err != nil {
+			app.logger.Error("注册微信渠道失败", "err", err)
+		} else {
+			app.logger.Info("微信渠道已热加载注册")
+		}
+	} else if !newCfg.Channels.WeChat.Enabled && app.Gateway.HasChannel("wechat") {
+		app.Gateway.UnregisterChannel("wechat")
+		app.logger.Info("微信渠道已热加载注销")
+	}
+
+	// 更新当前配置引用
+	app.Config = newCfg
 }
