@@ -1,10 +1,10 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
+
+	"go-claw/server/controllers/api"
 )
 
 // Config 服务器配置
@@ -15,8 +15,8 @@ type Config struct {
 
 // Server HTTP 服务器（管理 API + 前端 SPA）
 type Server struct {
-	cfg    Config
-	mux    *http.ServeMux
+	cfg     Config
+	mux     *http.ServeMux
 	httpSrv *http.Server
 }
 
@@ -34,6 +34,9 @@ func (s *Server) Mux() *http.ServeMux {
 
 // Start 启动服务器
 func (s *Server) Start() error {
+	// 初始化 service 层
+	api.InitServices()
+
 	s.httpSrv = &http.Server{
 		Addr:    ":" + s.cfg.Port,
 		Handler: s.authMiddleware(s.mux),
@@ -49,23 +52,23 @@ func (s *Server) Start() error {
 func (s *Server) setupRoutes() {
 	mux := http.NewServeMux()
 
-	// 管理 API
-	mux.HandleFunc("/api/v1/agents", handleAgents)
-	mux.HandleFunc("/api/v1/agents/", handleAgentByID)
-	mux.HandleFunc("/api/v1/channels", handleChannels)
-	mux.HandleFunc("/api/v1/channels/", handleChannelByID)
-	mux.HandleFunc("/api/v1/providers", handleProviders)
-	mux.HandleFunc("/api/v1/tools", handleTools)
-	mux.HandleFunc("/api/v1/skills", handleSkills)
-	mux.HandleFunc("/api/v1/cron/jobs", handleCronJobs)
-	mux.HandleFunc("/api/v1/cron/jobs/", handleCronJobByID)
-	mux.HandleFunc("/api/v1/config", handleConfig)
-	mux.HandleFunc("/api/v1/config/reload", handleConfigReload)
-	mux.HandleFunc("/api/v1/logs", handleLogs)
-	mux.HandleFunc("/api/v1/status", handleStatus)
-	mux.HandleFunc("/api/v1/sessions", handleSessions)
-	mux.HandleFunc("/api/v1/sessions/", handleSessionByID)
-	mux.HandleFunc("/api/v1/agent-files/", handleAgentFiles)
+	// 管理 API - 使用 controllers/api 层
+	mux.HandleFunc("/api/v1/agents", api.HandleAgents)
+	mux.HandleFunc("/api/v1/agents/", api.HandleAgentByID)
+	mux.HandleFunc("/api/v1/channels", api.HandleChannels)
+	mux.HandleFunc("/api/v1/channels/", api.HandleChannelByID)
+	mux.HandleFunc("/api/v1/providers", api.HandleProviders)
+	mux.HandleFunc("/api/v1/tools", api.HandleTools)
+	mux.HandleFunc("/api/v1/skills", api.HandleSkills)
+	mux.HandleFunc("/api/v1/cron/jobs", api.HandleCronJobs)
+	mux.HandleFunc("/api/v1/cron/jobs/", api.HandleCronJobByID)
+	mux.HandleFunc("/api/v1/config", api.HandleConfig)
+	mux.HandleFunc("/api/v1/config/reload", api.HandleConfigReload)
+	mux.HandleFunc("/api/v1/logs", api.HandleLogs)
+	mux.HandleFunc("/api/v1/status", api.HandleStatus)
+	mux.HandleFunc("/api/v1/sessions", api.HandleSessions)
+	mux.HandleFunc("/api/v1/sessions/", api.HandleSessionByID)
+	mux.HandleFunc("/api/v1/agent-files/", api.HandleAgentFiles)
 
 	// 前端 SPA
 	mux.HandleFunc("/", serveFrontend)
@@ -97,17 +100,3 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 	})
 }
-
-// writeJSON 写入 JSON 响应
-func writeJSON(rw http.ResponseWriter, status int, data any) {
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(status)
-	json.NewEncoder(rw).Encode(data)
-}
-
-// writeError 写入 JSON 错误响应
-func writeError(rw http.ResponseWriter, status int, msg string) {
-	writeJSON(rw, status, map[string]string{"error": msg})
-}
-
-var startTime = time.Now()

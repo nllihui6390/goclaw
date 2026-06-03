@@ -17,8 +17,6 @@ import (
 //go:embed all:frontend/dist
 var desktopAssets embed.FS
 
-// ─────────── main ───────────
-
 func main() {
 	if _, err := os.Stat("config.json"); os.IsNotExist(err) {
 		os.WriteFile("config.json", []byte(`{
@@ -36,8 +34,8 @@ func main() {
 		log.Fatal("初始化失败:", err)
 	}
 
-	chatSvc := &ChatService{}
-	appSvc := &AppService{}
+	chatSvc := NewChatService(nil)
+	appSvc := NewAppService()
 
 	go app.Run()
 	time.Sleep(500 * time.Millisecond)
@@ -49,7 +47,6 @@ func main() {
 	forceQuit := false
 	var win *application.WebviewWindow
 
-	// 读取应用图标
 	appIcon, _ := os.ReadFile("logo.png")
 
 	wailsApp := application.New(application.Options{
@@ -75,21 +72,17 @@ func main() {
 		MinHeight: 300,
 	})
 
-	// 拦截窗口关闭 → 隐藏到托盘
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if forceQuit {
-			return // 允许关闭
+			return
 		}
-		e.Cancel()  // 阻止关闭
-		win.Hide()  // 隐藏到托盘
+		e.Cancel()
+		win.Hide()
 	})
 
-	// 系统托盘：仅在托盘中退出才真正销毁
 	tray := wailsApp.SystemTray.New()
 	trayMenu := application.NewMenu()
-	trayMenu.Add("显示窗口").OnClick(func(ctx *application.Context) {
-		win.Show()
-	})
+	trayMenu.Add("显示窗口").OnClick(func(ctx *application.Context) { win.Show() })
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出").OnClick(func(ctx *application.Context) {
 		forceQuit = true

@@ -13,6 +13,7 @@ import (
 	"go-claw/internal/bootstrap"
 	"go-claw/internal/channel"
 	"go-claw/server"
+	"go-claw/server/controllers/api"
 	glog "go-claw/pkg/log"
 )
 
@@ -32,7 +33,7 @@ func runServer() {
 	gatewayInstance = app
 
 	// 注入定时任务手动执行回调
-	server.SetCronExecutor(func(id string) {
+	api.SetCronExecutor(func(id string) {
 		handleCronRun(id)
 	})
 
