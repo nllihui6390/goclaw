@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"go-claw/internal/agent"
 	"go-claw/internal/channel"
+	"go-claw/internal/store"
+	"go-claw/utils"
 	"sync"
 
 	"go-claw/pkg/log"
@@ -12,13 +14,24 @@ import (
 
 // Gateway 网关核心
 type Gateway struct {
-	agents   map[string]*agent.Agent    // agent名称 -> agent实例
-	channels map[string]channel.Channel // 渠道名称 -> 渠道实例
-	router   *Router                    // 路由器
-	bus      *AgentBus                  // Agent间消息总线
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	agents       map[string]*agent.Agent    // agent名称 -> agent实例
+	channels     map[string]channel.Channel // 渠道名称 → 渠道实例
+	router       *Router                    // 路由器
+	bus          *AgentBus                  // Agent间消息总线
+	sessionIndex *store.SessionIndex       // 会话索引（channel:user → UUID）
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+}
+
+// SetSessionIndex 设置会话索引
+func (g *Gateway) SetSessionIndex(idx *store.SessionIndex) {
+	g.sessionIndex = idx
+}
+
+// GetSessionIndex 获取会话索引
+func (g *Gateway) GetSessionIndex() *store.SessionIndex {
+	return g.sessionIndex
 }
 
 // GetAgents 获取所有 Agent 实例（供 proactive 等外部模块使用）
@@ -181,12 +194,26 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				}
 			}
 
-			// 处理消息（带工具事件回调）
-			sessionID := fmt.Sprintf("%s:%s", msg.Channel, msg.From)
+			// 获取会话 ID：渠道消息走索引映射，webhook/console 直接使用 msg.From
+			sessionID := msg.From
+			// 如果 msg.From 不是 UUID 格式（如 wecom:userid），通过索引转为 UUID
+			if !utils.IsUUID(msg.From) {
+				var isNew bool
+				sessionID, isNew = g.sessionIndex.LookupOrCreate(msg.Channel, msg.From, agentName)
+				if isNew {
+					log.Logger().Info("[Gateway] 新会话", "uuid", sessionID, "channel", msg.Channel, "user", msg.From)
+				}
+			} else if g.sessionIndex != nil {
+				// UUID 格式（webhook/console）：确保索引中有记录
+				g.sessionIndex.EnsureEntry(sessionID, msg.Channel, msg.From, agentName)
+			}
 
-			// 注入 Channel 和目标用户到 context，供工具直接发送文件等操作使用
+			// 注入 Channel 和目标用户到 context
 			msgCtx := channel.WithChannel(g.ctx, ch)
 			msgCtx = channel.WithToUser(msgCtx, msg.From)
+			// 同时注入到 agent context（供 Session 获取 channel/user 信息）
+			msgCtx = agent.WithChannel(msgCtx, msg.Channel)
+			msgCtx = agent.WithUser(msgCtx, msg.From)
 
 			handler := func(event agent.ToolEvent) {
 				ch.SendToolEvent(channel.ToolEvent{
@@ -204,6 +231,11 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 			if err != nil {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)
+			}
+			// 更新会话索引（标题 + 时间戳）
+			if g.sessionIndex != nil {
+				g.sessionIndex.UpdateName(sessionID, msg.Content, agentName)
+				g.sessionIndex.Touch(sessionID)
 			}
 
 			// 发送响应

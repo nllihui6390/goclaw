@@ -79,7 +79,7 @@ watch(() => agentStore.selectedAgent, loadSessions)
         </el-table-column>
         <el-table-column align="center" prop="agent" label="Agent" width="100" />
         <el-table-column align="center" prop="channel" label="渠道" width="120" />
-        <el-table-column align="center" prop="user_id" label="用户" width="120" />
+        <el-table-column align="center" prop="user_id" label="用户" min-width="120" />
         <el-table-column align="center" label="创建时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>

@@ -100,6 +100,15 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 		"msg_len", len(userMessage))
 
 	session := a.sessionMgr.GetOrCreate(sessionID)
+	// 从 context 获取真实 channel/user 覆盖 session（GetOrCreate 对 UUID 会话猜不准）
+	if ch := GetChannelFromCtx(ctx); ch != "" {
+		session.SetChannel(ch)
+	}
+	if user := GetUserFromCtx(ctx); user != "" {
+		session.SetUser(user)
+	}
+	// 同步更新 SessionID = channel:user
+	session.SetSessionID(session.Channel + ":" + session.UserID)
 	logger.Debug("[Agent] 会话已获取/创建", "session_id", sessionID, "msg_count", len(session.Messages))
 
 	// 检索相关记忆
@@ -274,6 +283,41 @@ func (a *Agent) GetSessionMessages(sessionID string) ([]SessionMessage, bool) {
 // DeleteSession 删除会话
 func (a *Agent) DeleteSession(id string) error {
 	return a.sessionMgr.DeleteSession(id)
+}
+
+// ─────────── context 传递 channel/user ───────────
+
+type ctxKey int
+
+const (
+	ctxSessionChannel ctxKey = iota
+	ctxSessionUser
+)
+
+// WithChannel 将渠道名注入 context
+func WithChannel(ctx context.Context, channel string) context.Context {
+	return context.WithValue(ctx, ctxSessionChannel, channel)
+}
+
+// WithUser 将用户 ID 注入 context
+func WithUser(ctx context.Context, user string) context.Context {
+	return context.WithValue(ctx, ctxSessionUser, user)
+}
+
+// GetChannelFromCtx 从 context 读取渠道名
+func GetChannelFromCtx(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxSessionChannel).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// GetUserFromCtx 从 context 读取用户 ID
+func GetUserFromCtx(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxSessionUser).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // SessionMessage 会话消息

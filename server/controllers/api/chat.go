@@ -15,6 +15,17 @@ func SetChatAgents(agents map[string]*agent.Agent) {
 	}
 }
 
+// HandleCreateSession 创建新会话并返回 UUID（POST）
+func HandleCreateSession(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	result := chatSvc.CreateSession()
+	rw.Header().Set("Content-Type", "application/json")
+	rw.Write([]byte(result))
+}
+
 // HandleChatHistory 获取会话历史记录
 func HandleChatHistory(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

@@ -16,6 +16,21 @@ export class WailsAdapter {
     }
   }
 
+  // 创建新会话（后端生成 UUID）
+  async createSession(agent) {
+    try {
+      const json = await Call.ByName('main.ChatService.CreateSession')
+      return JSON.parse(json)
+    } catch (e) {
+      // 降级：返回客户端生成的 UUID
+      const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+      })
+      return { session_id: id }
+    }
+  }
+
   // 获取历史消息
   async getChatHistory(sessionId, agent) {
     try {

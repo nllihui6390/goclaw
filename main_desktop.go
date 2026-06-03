@@ -43,6 +43,7 @@ func main() {
 	chatSvc.SetAgents(agents)
 	appSvc.SetAgents(agents)
 	appSvc.SetSender(app.Gateway.SendProactiveMessage)
+	appSvc.SetSessionIndex(app.Gateway.GetSessionIndex())
 
 	forceQuit := false
 	var win *application.WebviewWindow

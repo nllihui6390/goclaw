@@ -12,26 +12,47 @@ import (
 
 // Message 历史消息
 type Message struct {
-	Role       string    // "user", "assistant", "system", "tool"
+	Role       string // "user", "assistant", "system", "tool"
 	Content    string
-	ToolCallID string    // 工具调用ID（tool角色消息专用）
-	Name       string    // 工具名称（tool角色消息专用）
+	ToolCallID string // 工具调用ID（tool角色消息专用）
+	Name       string // 工具名称（tool角色消息专用）
 	Timestamp  time.Time
 }
 
 // Session 会话
 type Session struct {
-	ID                string    // 主键（= SessionID，如 desktop:local）
-	SessionID         string    // 完整会话标识（channel:user_id 格式）
-	Name              string    // 会话标题（用户的第一句话）
-	UserID            string    // 用户标识（session_id 的右半部分）
+	ID                string // 主键（= SessionID，如 desktop:local）
+	SessionID         string // 完整会话标识（channel:user_id 格式）
+	Name              string // 会话标题（用户的第一句话）
+	UserID            string // 用户标识（session_id 的右半部分）
 	Channel           string
 	Messages          []Message
-	CompressedSummary string    // 压缩后的历史摘要
+	CompressedSummary string // 压缩后的历史摘要
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	mu                sync.RWMutex
 	store             store.Store
+}
+
+// SetChannel 设置渠道名
+func (s *Session) SetChannel(ch string) {
+	s.mu.Lock()
+	s.Channel = ch
+	s.mu.Unlock()
+}
+
+// SetUser 设置用户 ID
+func (s *Session) SetUser(user string) {
+	s.mu.Lock()
+	s.UserID = user
+	s.mu.Unlock()
+}
+
+// SetSessionID 设置会话标识
+func (s *Session) SetSessionID(id string) {
+	s.mu.Lock()
+	s.SessionID = id
+	s.mu.Unlock()
 }
 
 // AddMessage 添加消息
@@ -157,16 +178,16 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 			userID = parts[1]
 		}
 	}
-	// 如果 UserID 仍为空，从 sessionID 提取
 	if userID == "" {
-		parts := strings.SplitN(sessionID, ":", 2)
-		if len(parts) == 2 {
-			userID = parts[1]
-		}
+		userID = sessionID
 	}
-	// SessionID 优先使用从数据加载的，否则使用传入的
+	// SessionID 格式: channel:user（如 web:uuid 或 wecom:userid）
 	if sessionIDFromData == "" {
-		sessionIDFromData = sessionID
+		if channel != "" && userID != "" {
+			sessionIDFromData = channel + ":" + userID
+		} else {
+			sessionIDFromData = sessionID
+		}
 	}
 
 	session := &Session{

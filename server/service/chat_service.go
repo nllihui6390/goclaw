@@ -6,18 +6,31 @@ import (
 	"sync"
 
 	"go-claw/internal/agent"
+	"go-claw/utils"
 )
 
 // ChatService 聊天服务
 type ChatService struct {
-	agents      map[string]*agent.Agent
-	mu          sync.RWMutex
-	sessionSvc  *SessionService
+	agents       map[string]*agent.Agent
+	mu           sync.RWMutex
+	sessionSvc   *SessionService
+	sessionIndex interface {
+		EnsureEntry(uuid, channel, user, agent string)
+	}
 }
 
 // NewChatService 创建聊天服务
 func NewChatService(agents map[string]*agent.Agent, sessionSvc *SessionService) *ChatService {
 	return &ChatService{agents: agents, sessionSvc: sessionSvc}
+}
+
+// SetSessionIndex 注入会话索引
+func (c *ChatService) SetSessionIndex(idx interface {
+	EnsureEntry(uuid, channel, user, agent string)
+}) {
+	c.mu.Lock()
+	c.sessionIndex = idx
+	c.mu.Unlock()
 }
 
 // SetSessionService 注入 SessionService（用于历史记录磁盘兜底）
@@ -32,6 +45,17 @@ func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 	c.mu.Lock()
 	c.agents = agents
 	c.mu.Unlock()
+}
+
+// CreateSession 创建新会话，返回 UUID 并注册到索引
+func (c *ChatService) CreateSession() string {
+	id := utils.UUID()
+	// 注册到会话索引
+	if c.sessionIndex != nil {
+		c.sessionIndex.EnsureEntry(id, "webhook", id, "")
+	}
+	data, _ := json.Marshal(map[string]string{"session_id": id})
+	return string(data)
 }
 
 // SendMessage 发送消息并返回完整响应

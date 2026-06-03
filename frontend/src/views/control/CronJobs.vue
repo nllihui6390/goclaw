@@ -107,7 +107,7 @@ async function saveJob() {
       await api.updateCronJob(job.id, job)
       ElMessage.success('任务已更新')
     } else {
-      job.id = 'job_' + formData.value.name + '_' + Date.now()
+      job.id = ''  // 由后端生成 UUID
       job.enabled = true
       job.last_run = '0001-01-01T00:00:00Z'
       job.next_run = ''

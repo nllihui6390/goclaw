@@ -3,23 +3,22 @@ import { ref, inject, nextTick, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agent'
+import { useSessionStore } from '@/stores/session'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 
 const route = useRoute()
 const router = useRouter()
 const api = inject('api')
 const agentStore = useAgentStore()
+const sessionStore = useSessionStore()
 const messages = ref([])
 const input = ref('')
 const sending = ref(false)
 const files = ref([])
 const fileInput = ref(null)
 
-// 默认桌面会话 ID
-const defaultSessionId = 'desktop:local'
-
-// 从 route.query 读取会话 ID，无参数时使用默认值
-const sessionId = computed(() => route.query.session || defaultSessionId)
+// 从 route.query 读取会话 ID，无参数时使用 UUID 格式的默认值
+const sessionId = computed(() => route.query.session || sessionStore.sessionId)
 
 // 是否正在查看非默认会话（从会话管理跳转过来的）
 const viewingSession = computed(() => !!route.query.session)
@@ -55,7 +54,9 @@ async function loadHistory() {
 }
 
 // 初始化：如果 query 指定了 agent，先切换再加载
-onMounted(() => {
+onMounted(async () => {
+  // 从后端获取 UUID 会话 ID
+  await sessionStore.initSession(api, agentStore.selectedAgent)
   if (route.query.agent && route.query.agent !== agentStore.selectedAgent) {
     agentStore.setAgent(route.query.agent)
   }

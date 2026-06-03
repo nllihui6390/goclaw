@@ -11,6 +11,7 @@ import (
 	"go-claw/internal/agent"
 	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
+	"go-claw/utils"
 	"go-claw/internal/inbox"
 	"go-claw/internal/mcp"
 	"go-claw/internal/multiagent"
@@ -65,12 +66,12 @@ func (app *App) initCron() {
 	app.CronMgr = cron.NewManager(gatewayCronExecutor{gw: app.Gateway, agents: app.Gateway.GetAgents()}, filepath.Join(app.DataDir, "cron_jobs.json"))
 
 	if len(app.CronMgr.ListJobs()) == 0 && len(app.Config.Cron.Jobs) > 0 {
-		for i, job := range app.Config.Cron.Jobs {
+		for _, job := range app.Config.Cron.Jobs {
 			jobType := cron.JobTypeText
 			if job.Type == "agent" {
 				jobType = cron.JobTypeAgent
 			}
-			jobID := fmt.Sprintf("cron_%d_%s", i+1, job.Name)
+			jobID := utils.UUID()
 			sessionID := job.SessionID
 			if sessionID == "" {
 				defaultChannel := app.Config.Cron.DefaultChannel
@@ -206,11 +207,33 @@ func (e gatewayCronExecutor) ExecuteAgent(ctx context.Context, agentName, sessio
 	if !exists {
 		return "", fmt.Errorf("Agent '%s' 不存在", agentName)
 	}
-	cronSessionID := "cron:" + agentName + "_" + time.Now().Format("20060102_150405")
+	// Cron 独立会话：cron:channel:user 作为索引键
+	idx := e.gw.GetSessionIndex()
+	cronSessionID := sessionID
+	cronChannel := "cron"
+	cronUser := sessionID
+	if idx != nil {
+		parts := strings.SplitN(sessionID, ":", 2)
+		if len(parts) == 2 {
+			cronChannel = parts[0]
+			cronUser = parts[1]
+			uuid, _ := idx.LookupOrCreate("cron:"+parts[0], parts[1], agentName)
+			cronSessionID = uuid
+		}
+	}
 
+	// 注入渠道信息到 context（供 Session 获取 channel/user）
+	ctx = agent.WithChannel(ctx, cronChannel)
+	ctx = agent.WithUser(ctx, cronUser)
 	result, err := ag.Process(ctx, cronSessionID, content)
 	if err != nil {
 		return "", err
+	}
+
+	// 更新会话索引
+	if idx != nil {
+		idx.UpdateName(cronSessionID, content, agentName)
+		idx.Touch(cronSessionID)
 	}
 
 	if sessionID != "" && !strings.HasPrefix(sessionID, "console:") {

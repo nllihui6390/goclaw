@@ -8,6 +8,9 @@ export class HttpAdapter {
   // 流式适配器标志
   isStreaming = true
 
+  // 创建新会话
+  createSession(agent) { return http.post('/chat/session', { agent }).then(r => r.data) }
+
   // 对话（SSE 流式）
   async *sendMessage(sessionId, content, agent) {
     // HTTP 模式下，gateway 会拼接 "webhook:" + session 作为完整 sessionID
@@ -53,11 +56,10 @@ export class HttpAdapter {
   // 获取历史消息
   async getChatHistory(sessionId, agent) {
     try {
-      // 已知渠道前缀列表，只有这些才是真正的渠道前缀
-      const channelPrefixes = ['webhook:', 'wecom:', 'dingtalk:', 'lark:', 'console:']
+      // 旧格式有渠道前缀（webhook:, wecom: 等）；UUID 格式不需要加前缀
+      const channelPrefixes = ['webhook:', 'wecom:', 'dingtalk:', 'lark:', 'console:', 'cron:']
       const hasChannelPrefix = channelPrefixes.some(p => sessionId.startsWith(p))
-      // 如果已有渠道前缀直接用，否则补上 webhook: 前缀（默认 HTTP 模式）
-      const fullSessionId = hasChannelPrefix ? sessionId : `webhook:${sessionId}`
+      const fullSessionId = hasChannelPrefix ? sessionId : sessionId
       const params = agent ? { agent } : {}
       const { data } = await http.get(`/chat/history/${encodeURIComponent(fullSessionId)}`, { params })
       return data

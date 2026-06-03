@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"go-claw/internal/store"
 	"go-claw/server/service"
 )
 
@@ -43,6 +44,21 @@ func InitServices() {
 	logSvc = service.NewLogService()
 	statusSvc = service.NewStatusService()
 	fileSvc = service.NewFileService(configSvc)
+}
+
+// SetSessionIndex 注入会话索引（由 main.go 从 gateway 传入）
+func SetSessionIndex(idx interface{}) {
+	if si, ok := idx.(*store.SessionIndex); ok {
+		if sessionSvc != nil {
+			sessionSvc.SetSessionIndex(si)
+		}
+		if cronSvc != nil {
+			cronSvc.SetSessionIndex(si)
+		}
+		if chatSvc != nil {
+			chatSvc.SetSessionIndex(si)
+		}
+	}
 }
 
 // CronExecutorConfig HTTP 模式的定时任务执行器配置

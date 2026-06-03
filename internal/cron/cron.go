@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/utils"
 	glog "go-claw/pkg/log"
 )
 
@@ -36,29 +37,19 @@ type Job struct {
 	ActiveEnd    string `json:"active_end"`   // 活跃时段结束 (HH:MM)
 }
 
-// ParseTime 安全解析时间字符串，失败返回零值（导出）
+// ParseTime 安全解析时间字符串，失败返回零值（导出，兼容旧调用方）
 func ParseTime(s string) time.Time {
-	return parseTimeSafe(s)
+	return utils.ParseTimeSafe(s)
 }
 
 // parseTimeSafe 安全解析时间字符串，失败返回零值
 func parseTimeSafe(s string) time.Time {
-	if s == "" {
-		return time.Time{}
-	}
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
+	return utils.ParseTimeSafe(s)
 }
 
 // formatTimeSafe 格式化时间为 RFC3339，零值返回空字符串
 func formatTimeSafe(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.Format(time.RFC3339)
+	return utils.FormatTimeSafe(t)
 }
 
 // Executor 任务执行器接口

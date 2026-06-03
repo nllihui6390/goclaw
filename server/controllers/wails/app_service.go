@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"go-claw/internal/agent"
+	"go-claw/internal/store"
 	"go-claw/server/service"
 )
 
@@ -56,6 +57,12 @@ func (a *AppService) SetAgents(agents map[string]*agent.Agent) {
 	a.mu.Lock()
 	a.agents = agents
 	a.mu.Unlock()
+}
+
+// SetSessionIndex 注入会话索引
+func (a *AppService) SetSessionIndex(idx *store.SessionIndex) {
+	a.sessionSvc.SetSessionIndex(idx)
+	a.cronSvc.SetSessionIndex(idx)
 }
 
 // SetSender 注入消息发送器和 Agent 处理器到 CronService

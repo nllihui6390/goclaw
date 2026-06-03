@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"go-claw/internal/agent"
+	"go-claw/internal/store"
 	wailsCtrl "go-claw/server/controllers/wails"
 )
 
@@ -19,6 +20,7 @@ func NewChatService(agents map[string]*agent.Agent) *ChatService {
 }
 
 func (c *ChatService) SetAgents(agents map[string]*agent.Agent) { c.inner.SetAgents(agents) }
+func (c *ChatService) CreateSession() string                   { return c.inner.CreateSession() }
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	return c.inner.SendMessage(sessionID, content, agentName)
 }
@@ -37,6 +39,7 @@ func (a *AppService) SetAgents(agents map[string]*agent.Agent) { a.inner.SetAgen
 func (a *AppService) SetSender(sender func(ctx context.Context, sessionID, message string) error) {
 	a.inner.SetSender(sender)
 }
+func (a *AppService) SetSessionIndex(idx *store.SessionIndex) { a.inner.SetSessionIndex(idx) }
 
 func (a *AppService) GetConfig() string                   { return a.inner.GetConfig() }
 func (a *AppService) SaveConfig(configJSON string) string { return a.inner.SaveConfig(configJSON) }

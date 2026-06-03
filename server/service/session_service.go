@@ -23,8 +23,9 @@ type SessionInfo struct {
 
 // SessionService 会话管理服务
 type SessionService struct {
-	agents AgentsProvider
-	config *ConfigService
+	agents       AgentsProvider
+	config       *ConfigService
+	sessionIndex *store.SessionIndex
 }
 
 // AgentsProvider 获取 Agent 实例的接口
@@ -37,8 +38,33 @@ func NewSessionService(agents AgentsProvider, config *ConfigService) *SessionSer
 	return &SessionService{agents: agents, config: config}
 }
 
-// List 列出所有会话
+// SetSessionIndex 注入会话索引
+func (s *SessionService) SetSessionIndex(idx *store.SessionIndex) {
+	s.sessionIndex = idx
+}
+
+// List 列出所有会话（优先从 SessionIndex 读取，降级扫描磁盘）
 func (s *SessionService) List() []SessionInfo {
+	// 优先从 SessionIndex 读取
+	if s.sessionIndex != nil {
+		entries := s.sessionIndex.List()
+		result := make([]SessionInfo, 0, len(entries))
+		for _, e := range entries {
+			result = append(result, SessionInfo{
+				ID:        e.ID,
+				SessionID: e.ID,
+				Name:      e.Name,
+				UserID:    e.UserID,
+				Agent:     e.Agent,
+				Channel:   e.Channel,
+				CreatedAt: e.CreatedAt,
+				UpdatedAt: e.UpdatedAt,
+			})
+		}
+		return result
+	}
+
+	// 降级：扫描磁盘
 	sessions := []SessionInfo{}
 	dataDir := s.config.WorkspaceBase()
 

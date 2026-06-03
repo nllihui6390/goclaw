@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go-claw/internal/cron"
-	"time"
+	"go-claw/utils"
 )
 
 // 全局 cron manager（在 main.go 中设置）
@@ -229,8 +229,8 @@ func (t *CronStatusTool) addJob(mgr *cron.Manager, params map[string]interface{}
 		return "", fmt.Errorf("缺少 content 参数")
 	}
 
-	// 生成唯一 ID
-	id := fmt.Sprintf("job_%s_%d", name, time.Now().UnixNano())
+	// 生成 UUID
+	id := utils.UUID()
 
 	job := &cron.Job{
 		ID:        id,

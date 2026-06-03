@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"go-claw/internal/gateway"
+	"go-claw/internal/store"
 )
 
 // initGateway 创建 Gateway 和数据目录
@@ -19,4 +20,10 @@ func (app *App) initGateway() {
 		app.Workspace = "workspaces"
 	}
 	os.MkdirAll(app.DataDir+"/"+app.Workspace, 0755)
+
+	// 初始化会话索引（channel:user → UUID）
+	idx, err := store.NewSessionIndex(app.DataDir)
+	if err == nil {
+		app.Gateway.SetSessionIndex(idx)
+	}
 }
