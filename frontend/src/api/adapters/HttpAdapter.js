@@ -5,10 +5,12 @@ import axios from 'axios'
 const http = axios.create({ baseURL: '/api/v1', timeout: 120000 })
 
 export class HttpAdapter {
+  // 流式适配器标志
+  isStreaming = true
+
   // 对话（SSE 流式）
   async *sendMessage(sessionId, content, agent) {
-    const resp = await fetch('/api/v1/chat', {
-      method: 'POST',
+    const resp = await fetch('/api/v1/chat', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session: sessionId, content, agent, stream: true })
     })

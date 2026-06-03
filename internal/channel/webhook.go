@@ -88,22 +88,21 @@ func (w *WebhookChannel) Send(ctx context.Context, resp Response) error {
 	// 处理文件发送：在响应中标记文件信息
 	resp.Content = ExtractFileBlockDescription(resp.Content)
 
-	w.mu.RLock()
+	w.mu.Lock()
 	ch, exists := w.responses[resp.To]
 	streamCh := w.streamResps[resp.To]
-	w.mu.RUnlock()
+	if streamCh != nil {
+		// 流式模式：发送内容后关闭 channel，通知 SSE 循环结束
+		delete(w.streamResps, resp.To)
+		streamCh <- resp.Content
+		close(streamCh)
+	}
+	w.mu.Unlock()
 
 	if exists {
 		select {
 		case ch <- resp:
 		case <-time.After(5 * time.Second):
-		}
-	}
-
-	if streamCh != nil {
-		select {
-		case streamCh <- resp.Content:
-		default:
 		}
 	}
 
@@ -117,10 +116,18 @@ func (w *WebhookChannel) SendProactive(ctx context.Context, userID, content stri
 	w.mu.RUnlock()
 
 	if streamCh != nil {
-		select {
-		case streamCh <- content:
-		default:
-		}
+		// 使用 recover 处理竞态：Send() 可能已关闭 channel
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// channel 已被 Send() 关闭，流已结束，忽略此次发送
+				}
+			}()
+			select {
+			case streamCh <- content:
+			default:
+			}
+		}()
 		return nil
 	}
 
@@ -213,6 +220,15 @@ func (w *WebhookChannel) sendToAgent(msgID, session, content, agentName string, 
 		w.mu.Lock()
 		w.streamResps[session] = streamCh // 使用 session 匹配 gateway resp.To
 		w.mu.Unlock()
+
+		// 确保 SSE 循环退出时清理 streamResps（处理超时/客户端断开等异常情况）
+		defer func() {
+			w.mu.Lock()
+			if ch, exists := w.streamResps[session]; exists && ch == streamCh {
+				delete(w.streamResps, session)
+			}
+			w.mu.Unlock()
+		}()
 
 		go func() {
 			w.msgChan <- Message{

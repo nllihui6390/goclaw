@@ -31,9 +31,7 @@ async function loadHistory() {
   if (sending.value) return
   try {
     const history = await api.getChatHistory(sessionId, agentStore.selectedAgent)
-    messages.value = (history && history.length > 0)
-      ? history.map(m => ({ role: m.role, content: m.content }))
-      : []
+    messages.value = (history && history.length > 0)? history.map(m => ({ role: m.role, content: m.content })): []
     await nextTick()
     scrollBottom()
   } catch (e) {
@@ -56,15 +54,23 @@ async function send() {
   sending.value = true
 
   try {
-    let fullContent = ''
-    for await (const chunk of api.sendMessage(sessionId, text, agentStore.selectedAgent)) {
-      fullContent += chunk
-      // 第一次收到内容时 push assistant 消息
-      if (messages.value[messages.value.length - 1].role !== 'assistant') {
-        messages.value.push({ role: 'assistant', content: fullContent })
-      } else {
-        messages.value[messages.value.length - 1].content = fullContent
+    if (api.isStreaming) {
+      // SSE 流式模式（HttpAdapter）：逐步接收 chunk，渐进式渲染
+      let fullContent = ''
+      for await (const chunk of api.sendMessage(sessionId, text, agentStore.selectedAgent)) {
+        fullContent += chunk
+        if (messages.value[messages.value.length - 1].role !== 'assistant') {
+          messages.value.push({ role: 'assistant', content: fullContent })
+        } else {
+          messages.value[messages.value.length - 1].content = fullContent
+        }
+        await nextTick()
+        scrollBottom()
       }
+    } else {
+      // 非流式模式（WailsAdapter）：一次性返回完整响应
+      const content = await api.sendMessage(sessionId, text, agentStore.selectedAgent)
+      messages.value.push({ role: 'assistant', content })
       await nextTick()
       scrollBottom()
     }
@@ -140,19 +146,8 @@ function onKeydown(e) {
         </div>
         <div class="sender-footer">
           <div class="sender-left">
-            <input
-              ref="fileInput"
-              type="file"
-              multiple
-              hidden
-              @change="onFileChange"
-            />
-            <button
-              class="sender-icon-btn"
-              title="上传文件"
-              :disabled="sending"
-              @click="fileInput?.click()"
-            >
+            <input ref="fileInput" type="file" multiple hidden @change="onFileChange"/>
+            <button class="sender-icon-btn" title="上传文件" :disabled="sending" @click="fileInput?.click()">
               <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor">
                 <path d="M899.3 577.8L635.3 845.1q-40.4 40.9-93.3 62.5-51 20.9-106.3 20.9t-106.3-20.8q-52.8-21.6-93.3-62.5-39.8-40.2-60.7-92.4-20.2-50.3-20.2-104.8 0-54.5 20.2-104.8 21-52.1 60.7-92.4l296-299.6q28.5-28.8 65.7-44.1 35.9-14.7 74.9-14.7 39 0 74.9 14.7 37.2 15.2 65.7 44.1 28 28.4 42.8 65.1 14.3 35.5 14.3 73.8t-14.3 73.8q-14.8 36.7-42.8 65.1l-266.9 270.2q-16.5 16.7-38.2 25.6-20.9 8.5-43.5 8.5t-43.5-8.5q-21.6-8.9-38.2-25.6-16.3-16.5-24.8-37.8-8.3-20.6-8.3-42.9 0-22.3 8.3-42.9 8.6-21.3 24.8-37.8l237.7-240.7a32 32 0 0 1 45.5 45l-237.7 240.7q-7.2 7.3-11 16.7-3.7 9.1-3.7 19 0 9.9 3.7 19 3.8 9.4 11 16.7 7.3 7.4 16.9 11.3 9.2 3.8 19.3 3.8 10 0 19.3-3.8 9.5-3.9 16.9-11.3l266.8-270.2q19-19.2 28.9-44 9.6-24 9.6-50 0-26-9.6-50-10-24.8-28.9-44-19.3-19.5-44.4-29.8-24.3-9.9-50.7-9.9-26.4 0-50.7 9.9-25.1 10.3-44.4 29.8l-296 299.6q-30.7 31.1-46.9 71.3-15.6 38.8-15.6 80.9t15.6 80.9q16.2 40.2 46.9 71.3 31.2 31.6 72 48.3 39.3 16.1 82.1 16.1t82.1-16.1q40.7-16.7 72-48.3l264-267.3a32 32 0 0 1 45.4 45.1z"/>
               </svg>
@@ -160,18 +155,9 @@ function onKeydown(e) {
           </div>
           <div class="sender-right">
             <span class="sender-counter">{{ input.length }}/10000</span>
-            <button
-              class="sender-btn"
-              :class="{ stop: sending }"
-              :disabled="!sending && !input.trim() && !files.length"
-              @click="sending ? (input = '') : send()"
-            >
-              <svg v-if="sending" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="3" y="3" width="10" height="10" rx="1" />
-              </svg>
-              <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1.5 2L2 7l6 1-6 1-.5 5L15 8 1.5 2Z" />
-              </svg>
+            <button class="sender-btn" :class="{ stop: sending }" :disabled="!sending && !input.trim() && !files.length" @click="sending ? (input = '') : send()">
+              <svg v-if="sending" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
+              <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 2L2 7l6 1-6 1-.5 5L15 8 1.5 2Z" /></svg>
             </button>
           </div>
         </div>

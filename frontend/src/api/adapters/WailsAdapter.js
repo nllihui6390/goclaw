@@ -3,13 +3,16 @@
 import { Call } from '@wailsio/runtime'
 
 export class WailsAdapter {
-  // 对话（非流式）
-  async *sendMessage(sessionId, content, agent) {
+  // 非流式适配器标志，Chat.vue 根据此标志选择消费方式
+  isStreaming = false
+
+  // 对话（非流式 — 直接返回完整响应 Promise，不使用 async generator）
+  async sendMessage(sessionId, content, agent) {
     try {
       const result = await Call.ByName('main.ChatService.SendMessage', sessionId, content, agent || '')
-      yield result
+      return result
     } catch (e) {
-      yield `Error: ${e.message}`
+      return `Error: ${e.message}`
     }
   }
 
