@@ -86,7 +86,7 @@ watch(() => agentStore.selectedAgent, loadSessions)
         <el-table-column align="center" label="更新时间" width="170">
           <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
         </el-table-column>
-        <el-table-column align="center" label="操作" width="120">
+        <el-table-column align="center" fixed="right" label="操作" width="120">
           <template #default="{ row }">
             <el-button link type="primary" @click="viewSession(row)">查看</el-button>
             <el-button link type="danger" @click="deleteSession(row)">删除</el-button>
