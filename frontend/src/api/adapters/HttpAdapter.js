@@ -10,9 +10,15 @@ export class HttpAdapter {
 
   // 对话（SSE 流式）
   async *sendMessage(sessionId, content, agent) {
+    // HTTP 模式下，gateway 会拼接 "webhook:" + session 作为完整 sessionID
+    // 如果 sessionId 已含渠道前缀（如 "webhook:xxx"），需剥离前缀避免重复拼接
+    let chatSession = sessionId
+    if (sessionId.startsWith('webhook:')) {
+      chatSession = sessionId.slice(8) // 去掉 "webhook:" 前缀
+    }
     const resp = await fetch('/api/v1/chat', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: sessionId, content, agent, stream: true })
+      body: JSON.stringify({ session: chatSession, content, agent, stream: true })
     })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
 
@@ -47,8 +53,11 @@ export class HttpAdapter {
   // 获取历史消息
   async getChatHistory(sessionId, agent) {
     try {
-      // HTTP 模式下 gateway 会加 "webhook:" 前缀，需要传完整格式
-      const fullSessionId = `webhook:${sessionId}`
+      // 已知渠道前缀列表，只有这些才是真正的渠道前缀
+      const channelPrefixes = ['webhook:', 'wecom:', 'dingtalk:', 'lark:', 'console:']
+      const hasChannelPrefix = channelPrefixes.some(p => sessionId.startsWith(p))
+      // 如果已有渠道前缀直接用，否则补上 webhook: 前缀（默认 HTTP 模式）
+      const fullSessionId = hasChannelPrefix ? sessionId : `webhook:${sessionId}`
       const params = agent ? { agent } : {}
       const { data } = await http.get(`/chat/history/${encodeURIComponent(fullSessionId)}`, { params })
       return data

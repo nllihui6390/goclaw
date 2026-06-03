@@ -4,9 +4,11 @@ import "context"
 
 // SessionData 持久化会话数据
 type SessionData struct {
-	ID        string           `json:"id"`
-	Channel   string           `json:"channel"`
-	User      string           `json:"user"`
+	ID        string           `json:"id"`          // 主键（= SessionID，如 desktop:local）
+	SessionID string           `json:"session_id"`  // 完整会话标识（channel:user_id 格式）
+	Name      string           `json:"name"`        // 会话标题（用户的第一句话）
+	UserID    string           `json:"user_id"`     // 用户标识（session_id 的右半部分）
+	Channel   string           `json:"channel"`     // 渠道名称
 	Messages  []SessionMessage `json:"messages"`
 	CreatedAt string           `json:"created_at"`
 	UpdatedAt string           `json:"updated_at"`

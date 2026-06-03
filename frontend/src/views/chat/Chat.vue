@@ -1,9 +1,12 @@
 <script setup>
-import { ref, inject, nextTick, onMounted, watch } from 'vue'
+import { ref, inject, nextTick, onMounted, watch, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agent'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 
+const route = useRoute()
+const router = useRouter()
 const api = inject('api')
 const agentStore = useAgentStore()
 const messages = ref([])
@@ -12,7 +15,14 @@ const sending = ref(false)
 const files = ref([])
 const fileInput = ref(null)
 
-const sessionId = 'desktop:local'
+// 默认桌面会话 ID
+const defaultSessionId = 'desktop:local'
+
+// 从 route.query 读取会话 ID，无参数时使用默认值
+const sessionId = computed(() => route.query.session || defaultSessionId)
+
+// 是否正在查看非默认会话（从会话管理跳转过来的）
+const viewingSession = computed(() => !!route.query.session)
 
 function onFileChange(e) {
   const selected = Array.from(e.target.files || [])
@@ -25,12 +35,17 @@ function removeFile(index) {
   files.value.splice(index, 1)
 }
 
+// 返回默认对话（清除 query 参数）
+function backToDefault() {
+  router.push('/')
+}
+
 // 加载历史记录（原子替换，避免先清空再加载的闪烁）
 async function loadHistory() {
   // 正在发送消息时不重载，防止打断当前对话
   if (sending.value) return
   try {
-    const history = await api.getChatHistory(sessionId, agentStore.selectedAgent)
+    const history = await api.getChatHistory(sessionId.value, agentStore.selectedAgent)
     messages.value = (history && history.length > 0)? history.map(m => ({ role: m.role, content: m.content })): []
     await nextTick()
     scrollBottom()
@@ -39,9 +54,29 @@ async function loadHistory() {
   }
 }
 
-onMounted(() => loadHistory())
-// 切换 agent 时重新加载对应聊天记录
-watch(() => agentStore.selectedAgent, () => loadHistory())
+// 初始化：如果 query 指定了 agent，先切换再加载
+onMounted(() => {
+  if (route.query.agent && route.query.agent !== agentStore.selectedAgent) {
+    agentStore.setAgent(route.query.agent)
+  }
+  loadHistory()
+})
+
+// 切换 agent 时重新加载对应聊天记录（仅默认会话模式）
+watch(() => agentStore.selectedAgent, () => {
+  if (!viewingSession.value) loadHistory()
+})
+
+// 从会话管理跳转过来时（query 变化），切换 agent 并重新加载
+watch(() => route.query, (q, oldQ) => {
+  // session 变化时重新加载（包括从有 session 变为无 session，即返回默认对话）
+  if (q.session !== oldQ?.session) {
+    if (q.agent && q.agent !== agentStore.selectedAgent) {
+      agentStore.setAgent(q.agent)
+    }
+    loadHistory()
+  }
+})
 
 async function send() {
   const text = input.value.trim()
@@ -57,7 +92,7 @@ async function send() {
     if (api.isStreaming) {
       // SSE 流式模式（HttpAdapter）：逐步接收 chunk，渐进式渲染
       let fullContent = ''
-      for await (const chunk of api.sendMessage(sessionId, text, agentStore.selectedAgent)) {
+      for await (const chunk of api.sendMessage(sessionId.value, text, agentStore.selectedAgent)) {
         fullContent += chunk
         if (messages.value[messages.value.length - 1].role !== 'assistant') {
           messages.value.push({ role: 'assistant', content: fullContent })
@@ -69,7 +104,7 @@ async function send() {
       }
     } else {
       // 非流式模式（WailsAdapter）：一次性返回完整响应
-      const content = await api.sendMessage(sessionId, text, agentStore.selectedAgent)
+      const content = await api.sendMessage(sessionId.value, text, agentStore.selectedAgent)
       messages.value.push({ role: 'assistant', content })
       await nextTick()
       scrollBottom()
@@ -99,6 +134,11 @@ function onKeydown(e) {
 
 <template>
   <div class="chat-page">
+    <!-- 非默认会话提示条：从会话管理跳转过来时显示 -->
+    <div v-if="viewingSession" class="session-banner">
+      <span>正在查看会话：<strong>{{ sessionId }}</strong>（Agent: {{ route.query.agent || agentStore.selectedAgent }}）</span>
+      <button class="back-btn" @click="backToDefault">返回默认对话</button>
+    </div>
     <div class="chat-messages">
       <ChatMessage
         v-for="(msg, i) in messages"
@@ -175,6 +215,28 @@ function onKeydown(e) {
   max-width: 900px;
   width: 100%;
   margin: 0 auto;
+}
+.session-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: #fdf6ec;
+  border-bottom: 1px solid #f5dab1;
+  font-size: 13px;
+  color: #e6a23c;
+  flex-shrink: 0;
+  strong { font-weight: 600; }
+}
+.back-btn {
+  background: #e6a23c;
+  color: #fff;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  &:hover { background: #cf9236; }
 }
 .chat-messages {
   flex: 1;

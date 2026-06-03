@@ -21,9 +21,11 @@ type Message struct {
 
 // Session 会话
 type Session struct {
-	ID                string
+	ID                string    // 主键（= SessionID，如 desktop:local）
+	SessionID         string    // 完整会话标识（channel:user_id 格式）
+	Name              string    // 会话标题（用户的第一句话）
+	UserID            string    // 用户标识（session_id 的右半部分）
 	Channel           string
-	User              string
 	Messages          []Message
 	CompressedSummary string    // 压缩后的历史摘要
 	CreatedAt         time.Time
@@ -37,9 +39,18 @@ func (s *Session) AddMessage(role, content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// 如果是第一条用户消息，设置为会话名称
+	if s.Name == "" && role == "user" && len(s.Messages) == 0 {
+		s.Name = content
+		// 截断过长的标题
+		if len(s.Name) > 50 {
+			s.Name = s.Name[:50] + "..."
+		}
+	}
+
 	s.Messages = append(s.Messages, Message{
 		Role:      role,
-		Content:  content,
+		Content:   content,
 		Timestamp: time.Now(),
 	})
 	s.UpdatedAt = time.Now()
@@ -69,8 +80,10 @@ func (s *Session) persistLocked() {
 	}
 	data := store.SessionData{
 		ID:        s.ID,
+		SessionID: s.SessionID,
+		Name:      s.Name,
+		UserID:    s.UserID,
 		Channel:   s.Channel,
-		User:      s.User,
 		Messages:  msgs,
 		CreatedAt: s.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: s.UpdatedAt.Format(time.RFC3339),
@@ -107,7 +120,8 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 
 	// 尝试从持久化存储加载已有会话
 	var messages []Message
-	var channel, user string
+	var channel, userID, name string
+	var sessionIDFromData string
 	createdAt := time.Now()
 	updatedAt := createdAt
 
@@ -123,7 +137,9 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 				})
 			}
 			channel = data.Channel
-			user = data.User
+			userID = data.UserID
+			name = data.Name
+			sessionIDFromData = data.SessionID
 			if t, err := time.Parse(time.RFC3339, data.CreatedAt); err == nil {
 				createdAt = t
 			}
@@ -138,14 +154,27 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 		parts := strings.SplitN(sessionID, ":", 2)
 		if len(parts) == 2 {
 			channel = parts[0]
-			user = parts[1]
+			userID = parts[1]
 		}
+	}
+	// 如果 UserID 仍为空，从 sessionID 提取
+	if userID == "" {
+		parts := strings.SplitN(sessionID, ":", 2)
+		if len(parts) == 2 {
+			userID = parts[1]
+		}
+	}
+	// SessionID 优先使用从数据加载的，否则使用传入的
+	if sessionIDFromData == "" {
+		sessionIDFromData = sessionID
 	}
 
 	session := &Session{
 		ID:        sessionID,
+		SessionID: sessionIDFromData,
+		Name:      name,
+		UserID:    userID,
 		Channel:   channel,
-		User:      user,
 		Messages:  messages,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
@@ -174,8 +203,10 @@ func (sm *SessionManager) ListSessions() []Session {
 		s.mu.RLock()
 		list = append(list, Session{
 			ID:        s.ID,
+			SessionID: s.SessionID,
+			Name:      s.Name,
+			UserID:    s.UserID,
 			Channel:   s.Channel,
-			User:      s.User,
 			Messages:  nil, // 列表不返回消息
 			CreatedAt: s.CreatedAt,
 			UpdatedAt: s.UpdatedAt,

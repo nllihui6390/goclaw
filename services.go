@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go-claw/internal/agent"
+	"go-claw/internal/store"
 	glog "go-claw/pkg/log"
 )
 
@@ -341,7 +342,7 @@ func (a *AppService) GetAgents() string {
 	return string(result)
 }
 
-// GetSessions 返回会话列表（扫描文件目录）
+// GetSessions 返回会话列表（从 JSON 文件读取完整会话信息）
 func (a *AppService) GetSessions() string {
 	sessions := []map[string]string{}
 	dataDir := "clawdata/workspaces"
@@ -351,13 +352,53 @@ func (a *AppService) GetSessions() string {
 				sessDir := dataDir + "/" + dir.Name() + "/sessions"
 				if files, err := os.ReadDir(sessDir); err == nil {
 					for _, f := range files {
-						if strings.HasSuffix(f.Name(), ".json") && f.Name() != "memories.json" {
-							sessionID := strings.TrimSuffix(f.Name(), ".json")
-							sessions = append(sessions, map[string]string{
-								"id":    sessionID,
-								"agent": dir.Name(),
-							})
+						// 跳过 memories 文件和目录
+						if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") || strings.HasPrefix(f.Name(), "memories") {
+							continue
 						}
+						filePath := filepath.Join(sessDir, f.Name())
+						data, err := os.ReadFile(filePath)
+						if err != nil {
+							continue
+						}
+						var sessData map[string]interface{}
+						if err := json.Unmarshal(data, &sessData); err != nil {
+							continue
+						}
+						// 会话文件必须包含 messages 字段，排除 memories 等非会话文件
+						if _, hasMessages := sessData["messages"]; !hasMessages {
+							continue
+						}
+						// 优先读 session_id，兼容旧文件用 id
+						sessionID, _ := sessData["session_id"].(string)
+						if sessionID == "" {
+							sessionID, _ = sessData["id"].(string)
+						}
+						if sessionID == "" {
+							continue
+						}
+						// 向后兼容：从 sessionID 提取 user_id
+						userID, _ := sessData["user_id"].(string)
+						if userID == "" {
+							parts := strings.SplitN(sessionID, ":", 2)
+							if len(parts) == 2 {
+								userID = parts[1]
+							}
+						}
+						name, _ := sessData["name"].(string)
+						channel, _ := sessData["channel"].(string)
+						createdAt, _ := sessData["created_at"].(string)
+						updatedAt, _ := sessData["updated_at"].(string)
+						sessions = append(sessions, map[string]string{
+							"id":         sessionID,
+							"session_id": sessionID,
+							"name":       name,
+							"user_id":    userID,
+							"agent":      dir.Name(),
+							"channel":    channel,
+							"created_at": createdAt,
+							"updated_at": updatedAt,
+						})
 					}
 				}
 			}
@@ -367,13 +408,14 @@ func (a *AppService) GetSessions() string {
 	return string(result)
 }
 
-// DeleteSession 删除指定会话文件
+// DeleteSession 删除指定会话文件（用 safeFileName 匹配磁盘上的文件名）
 func (a *AppService) DeleteSession(sessionID string) string {
 	dataDir := "clawdata/workspaces"
+	safeName := store.SafeFileName(sessionID) + ".json"
 	if dirs, err := os.ReadDir(dataDir); err == nil {
 		for _, dir := range dirs {
 			if dir.IsDir() {
-				filePath := dataDir + "/" + dir.Name() + "/sessions/" + sessionID + ".json"
+				filePath := filepath.Join(dataDir, dir.Name(), "sessions", safeName)
 				os.Remove(filePath)
 			}
 		}

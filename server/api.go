@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"go-claw/internal/store"
 )
 
 // SetCronExecutor 设置定时任务执行回调（由 main 注入）
@@ -459,7 +461,7 @@ func handleStatus(rw http.ResponseWriter, r *http.Request) {
 
 // handleSessions 返回会话列表（GET）
 func handleSessions(rw http.ResponseWriter, r *http.Request) {
-	sessions := []map[string]any{}
+	sessions := []map[string]string{}
 	dataDir := "clawdata/workspaces"
 	if dirs, err := os.ReadDir(dataDir); err == nil {
 		for _, dir := range dirs {
@@ -467,12 +469,51 @@ func handleSessions(rw http.ResponseWriter, r *http.Request) {
 				sessDir := dataDir + "/" + dir.Name() + "/sessions"
 				if files, err := os.ReadDir(sessDir); err == nil {
 					for _, f := range files {
-						if strings.HasSuffix(f.Name(), ".json") {
-							sessions = append(sessions, map[string]any{
-								"id": strings.TrimSuffix(f.Name(), ".json"),
-								"agent": dir.Name(),
-							})
+						// 跳过 memories 文件和目录
+						if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") || strings.HasPrefix(f.Name(), "memories") {
+							continue
 						}
+						filePath := filepath.Join(sessDir, f.Name())
+						data, err := os.ReadFile(filePath)
+						if err != nil {
+							continue
+						}
+						var sessData map[string]interface{}
+						if err := json.Unmarshal(data, &sessData); err != nil {
+							continue
+						}
+						// 会话文件必须包含 messages 字段
+						if _, hasMessages := sessData["messages"]; !hasMessages {
+							continue
+						}
+						sessionID, _ := sessData["session_id"].(string)
+						if sessionID == "" {
+							sessionID, _ = sessData["id"].(string)
+						}
+						if sessionID == "" {
+							continue
+						}
+						userID, _ := sessData["user_id"].(string)
+						if userID == "" {
+							parts := strings.SplitN(sessionID, ":", 2)
+							if len(parts) == 2 {
+								userID = parts[1]
+							}
+						}
+						name, _ := sessData["name"].(string)
+						channel, _ := sessData["channel"].(string)
+						createdAt, _ := sessData["created_at"].(string)
+						updatedAt, _ := sessData["updated_at"].(string)
+						sessions = append(sessions, map[string]string{
+							"id":         sessionID,
+							"session_id": sessionID,
+							"name":       name,
+							"user_id":    userID,
+							"agent":      dir.Name(),
+							"channel":    channel,
+							"created_at": createdAt,
+							"updated_at": updatedAt,
+						})
 					}
 				}
 			}
@@ -483,21 +524,46 @@ func handleSessions(rw http.ResponseWriter, r *http.Request) {
 
 // handleSessionByID 查看/删除指定会话（GET/DELETE）
 func handleSessionByID(rw http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
+	sessionID = strings.TrimSuffix(sessionID, "/")
+	if sessionID == "" {
+		writeJSON(rw, http.StatusBadRequest, map[string]string{"error": "session id required"})
+		return
+	}
+
 	if r.Method == http.MethodDelete {
-		sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
-		sessionID = strings.TrimSuffix(sessionID, "/")
 		dataDir := "clawdata/workspaces"
+		safeName := store.SafeFileName(sessionID) + ".json"
 		if dirs, err := os.ReadDir(dataDir); err == nil {
 			for _, dir := range dirs {
 				if dir.IsDir() {
-					os.Remove(dataDir + "/" + dir.Name() + "/sessions/" + sessionID + ".json")
+					filePath := filepath.Join(dataDir, dir.Name(), "sessions", safeName)
+					os.Remove(filePath)
 				}
 			}
 		}
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
 		return
 	}
-	writeJSON(rw, http.StatusOK, map[string]any{})
+
+	// GET: 返回会话详情
+	dataDir := "clawdata/workspaces"
+	if dirs, err := os.ReadDir(dataDir); err == nil {
+		for _, dir := range dirs {
+			if dir.IsDir() {
+				safeName := store.SafeFileName(sessionID) + ".json"
+				filePath := filepath.Join(dataDir, dir.Name(), "sessions", safeName)
+				if data, err := os.ReadFile(filePath); err == nil {
+					var sessData map[string]interface{}
+					if json.Unmarshal(data, &sessData) == nil {
+						writeJSON(rw, http.StatusOK, sessData)
+						return
+					}
+				}
+			}
+		}
+	}
+	writeJSON(rw, http.StatusNotFound, map[string]string{"error": "session not found"})
 }
 
 // ─────────── Agent 文件管理 ───────────

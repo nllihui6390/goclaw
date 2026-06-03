@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"go-claw/internal/store"
 	"go-claw/pkg/log"
 )
 
@@ -322,10 +325,64 @@ func (w *WebhookChannel) handleSessions(rw http.ResponseWriter, r *http.Request)
 		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	w.writeJSON(rw, http.StatusOK, map[string]any{
-		"sessions": []string{},
-		"note":     "use GET /api/v1/sessions/{id} for details",
-	})
+	// 从磁盘读取完整会话信息
+	sessions := []map[string]string{}
+	dataDir := "clawdata/workspaces"
+	if dirs, err := os.ReadDir(dataDir); err == nil {
+		for _, dir := range dirs {
+			if dir.IsDir() {
+				sessDir := dataDir + "/" + dir.Name() + "/sessions"
+				if files, err := os.ReadDir(sessDir); err == nil {
+					for _, f := range files {
+						if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") || strings.HasPrefix(f.Name(), "memories") {
+							continue
+						}
+						filePath := filepath.Join(sessDir, f.Name())
+						data, err := os.ReadFile(filePath)
+						if err != nil {
+							continue
+						}
+						var sessData map[string]interface{}
+						if err := json.Unmarshal(data, &sessData); err != nil {
+							continue
+						}
+						if _, hasMessages := sessData["messages"]; !hasMessages {
+							continue
+						}
+						sessionID, _ := sessData["session_id"].(string)
+						if sessionID == "" {
+							sessionID, _ = sessData["id"].(string)
+						}
+						if sessionID == "" {
+							continue
+						}
+						userID, _ := sessData["user_id"].(string)
+						if userID == "" {
+							parts := strings.SplitN(sessionID, ":", 2)
+							if len(parts) == 2 {
+								userID = parts[1]
+							}
+						}
+						name, _ := sessData["name"].(string)
+						channel, _ := sessData["channel"].(string)
+						createdAt, _ := sessData["created_at"].(string)
+						updatedAt, _ := sessData["updated_at"].(string)
+						sessions = append(sessions, map[string]string{
+							"id":         sessionID,
+							"session_id": sessionID,
+							"name":       name,
+							"user_id":    userID,
+							"agent":      dir.Name(),
+							"channel":    channel,
+							"created_at": createdAt,
+							"updated_at": updatedAt,
+						})
+					}
+				}
+			}
+		}
+	}
+	w.writeJSON(rw, http.StatusOK, sessions)
 }
 
 // handleSessionByID GET/DELETE /api/v1/sessions/{id}
@@ -339,8 +396,36 @@ func (w *WebhookChannel) handleSessionByID(rw http.ResponseWriter, r *http.Reque
 
 	switch r.Method {
 	case http.MethodGet:
-		w.writeJSON(rw, http.StatusOK, map[string]string{"session": sessionID})
+		// 读取会话详情
+		dataDir := "clawdata/workspaces"
+		if dirs, err := os.ReadDir(dataDir); err == nil {
+			for _, dir := range dirs {
+				if dir.IsDir() {
+					safeName := store.SafeFileName(sessionID) + ".json"
+					filePath := filepath.Join(dataDir, dir.Name(), "sessions", safeName)
+					if data, err := os.ReadFile(filePath); err == nil {
+						var sessData map[string]interface{}
+						if json.Unmarshal(data, &sessData) == nil {
+							w.writeJSON(rw, http.StatusOK, sessData)
+							return
+						}
+					}
+				}
+			}
+		}
+		w.writeJSON(rw, http.StatusNotFound, map[string]string{"error": "session not found"})
 	case http.MethodDelete:
+		// 删除会话文件
+		dataDir := "clawdata/workspaces"
+		safeName := store.SafeFileName(sessionID) + ".json"
+		if dirs, err := os.ReadDir(dataDir); err == nil {
+			for _, dir := range dirs {
+				if dir.IsDir() {
+					filePath := filepath.Join(dataDir, dir.Name(), "sessions", safeName)
+					os.Remove(filePath)
+				}
+			}
+		}
 		w.writeJSON(rw, http.StatusOK, map[string]string{"deleted": sessionID})
 	default:
 		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")

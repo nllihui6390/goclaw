@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +53,16 @@ func NewFileStore(sessDir string) (*FileStore, error) {
 				if err := json.Unmarshal(data, &sess); err != nil {
 					continue
 				}
+				// 向后兼容：旧文件缺少新字段时从 ID 补充
+				if sess.SessionID == "" {
+					sess.SessionID = sess.ID
+				}
+				if sess.UserID == "" {
+					parts := strings.SplitN(sess.ID, ":", 2)
+					if len(parts) == 2 {
+						sess.UserID = parts[1]
+					}
+				}
 				s.sessions[sess.ID] = sess
 			}
 		}
@@ -76,7 +87,7 @@ func (s *FileStore) persistSession(sess SessionData) error {
 		return err
 	}
 	// 会话ID中可能包含冒号，替换为下划线作为文件名
-	fileName := safeFileName(sess.ID) + ".json"
+	fileName := SafeFileName(sess.ID) + ".json"
 	return os.WriteFile(filepath.Join(s.sessDir, fileName), data, 0644)
 }
 
@@ -88,7 +99,8 @@ func (s *FileStore) persistMemories() error {
 	return os.WriteFile(s.memFile, data, 0644)
 }
 
-func safeFileName(id string) string {
+// SafeFileName 将会话 ID 中的特殊字符替换为下划线，生成安全的文件名
+func SafeFileName(id string) string {
 	result := make([]byte, 0, len(id))
 	for _, c := range id {
 		if c == ':' || c == '/' || c == '\\' || c == ' ' {
@@ -135,7 +147,7 @@ func (s *FileStore) DeleteSession(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
-	fileName := safeFileName(id) + ".json"
+	fileName := SafeFileName(id) + ".json"
 	os.Remove(filepath.Join(s.sessDir, fileName))
 	return nil
 }
@@ -151,7 +163,7 @@ func (s *FileStore) CleanupExpiredSessions(_ context.Context, ttlMinutes int) er
 	for id, sess := range s.sessions {
 		if t, err := time.Parse(time.RFC3339, sess.UpdatedAt); err == nil && t.Before(cutoff) {
 			delete(s.sessions, id)
-			fileName := safeFileName(id) + ".json"
+			fileName := SafeFileName(id) + ".json"
 			os.Remove(filepath.Join(s.sessDir, fileName))
 			changed = true
 		}

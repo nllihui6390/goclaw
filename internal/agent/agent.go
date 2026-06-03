@@ -148,7 +148,7 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 			Content:    userMessage,
 			Type:       "short_term",
 			SessionID:  sessionID,
-			UserID:     session.User,
+			UserID:     session.UserID,
 			Metadata:   map[string]interface{}{"role": "user"},
 			Importance: 0.5,
 			CreatedAt:  time.Now(),
@@ -157,7 +157,7 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 			Content:    finalResponse,
 			Type:       "short_term",
 			SessionID:  sessionID,
-			UserID:     session.User,
+			UserID:     session.UserID,
 			Metadata:   map[string]interface{}{"role": "assistant"},
 			Importance: 0.6,
 			CreatedAt:  time.Now(),
@@ -169,7 +169,7 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 	logger.Info("[Agent] 消息处理完成", "session", sessionID)
 
 	// 自动记忆提取：对话后提取关键信息存入长期记忆
-	go a.extractMemoryAsync(userMessage, finalResponse, sessionID, session.User)
+	go a.extractMemoryAsync(userMessage, finalResponse, sessionID, session.UserID)
 
 	return finalResponse, nil
 }
@@ -242,7 +242,9 @@ func (a *Agent) ListSessions() []SessionSummary {
 		summaries = append(summaries, SessionSummary{
 			ID:        sessions[i].ID,
 			Channel:   sessions[i].Channel,
-			User:      sessions[i].User,
+			SessionID: sessions[i].SessionID,
+				Name:      sessions[i].Name,
+				UserID:    sessions[i].UserID,
 			CreatedAt: sessions[i].CreatedAt,
 			UpdatedAt: sessions[i].UpdatedAt,
 		})
@@ -284,8 +286,10 @@ type SessionMessage struct {
 // SessionSummary 会话摘要
 type SessionSummary struct {
 	ID        string
+	SessionID string
+	Name      string
+	UserID    string
 	Channel   string
-	User      string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
