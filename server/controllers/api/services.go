@@ -21,8 +21,14 @@ var (
 	fileSvc     *service.FileService
 )
 
-// InitServices 初始化所有 service 实例
+var servicesInited bool
+
+// InitServices 初始化所有 service 实例（幂等，重复调用不重建）
 func InitServices() {
+	if servicesInited {
+		return
+	}
+	servicesInited = true
 	configSvc = service.NewConfigService()
 	agentSvc = service.NewAgentService(configSvc)
 	channelSvc = service.NewChannelService(configSvc)

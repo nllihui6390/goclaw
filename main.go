@@ -32,6 +32,8 @@ func runServer() {
 	}
 	gatewayInstance = app
 
+	// 手动初始化 services 层（server.Start 内部也会调用，但我们在那之前需要注入 executor）
+	api.InitServices()
 	// 注入定时任务手动执行回调
 	api.SetCronExecutor(func(id string) {
 		handleCronRun(id)
