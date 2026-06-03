@@ -153,7 +153,7 @@ function navigate(path) {
   white-space: nowrap;
   &:hover { background: rgba(255,255,255,.06); color: #fff; }
   &.active { background: rgba(64,158,255,.15); color: #409eff; }
-  .el-icon { margin-right: 10px; font-size: 18px; flex-shrink: 0; }
+  .el-icon { margin-right: 10px; font-size: 16px; flex-shrink: 0; }
 }
 .menu-item-text { font-size: 14px; }
 </style>
