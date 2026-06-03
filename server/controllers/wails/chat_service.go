@@ -2,6 +2,7 @@ package wails
 
 import (
 	"go-claw/internal/agent"
+	"go-claw/internal/store"
 	"go-claw/server/service"
 )
 
@@ -26,6 +27,9 @@ func (c *ChatService) SetSessionService(s *service.SessionService) {
 func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 	c.chatSvc.SetAgents(agents)
 }
+
+// SetSessionIndex 注入会话索引
+func (c *ChatService) SetSessionIndex(idx *store.SessionIndex) { c.chatSvc.SetSessionIndex(idx) }
 
 // CreateSession 创建新会话，返回 UUID
 func (c *ChatService) CreateSession() string { return c.chatSvc.CreateSession() }

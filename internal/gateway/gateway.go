@@ -219,14 +219,12 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 					log.Logger().Info("[Gateway] 新会话", "uuid", sessionID, "channel", msg.Channel, "user", msg.From)
 				}
 			} else if g.sessionIndex != nil {
-				// UUID 格式（webhook/console）：确保索引中有记录
 				g.sessionIndex.EnsureEntry(sessionID, msg.Channel, msg.From, agentName)
 			}
 
 			// 注入 Channel 和目标用户到 context
 			msgCtx := channel.WithChannel(g.ctx, ch)
 			msgCtx = channel.WithToUser(msgCtx, msg.From)
-			// 同时注入到 agent context（供 Session 获取 channel/user 信息）
 			msgCtx = agent.WithChannel(msgCtx, msg.Channel)
 			msgCtx = agent.WithUser(msgCtx, msg.From)
 
@@ -247,10 +245,9 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)
 			}
-			// 更新会话索引（标题 + 时间戳）
+			// 统一记录会话活动
 			if g.sessionIndex != nil {
-				g.sessionIndex.UpdateName(sessionID, msg.Content, agentName)
-				g.sessionIndex.Touch(sessionID)
+				g.sessionIndex.RecordSession(sessionID, msg.Channel, msg.From, agentName, msg.Content)
 			}
 
 			// 发送响应

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"go-claw/internal/agent"
+	"go-claw/internal/store"
 	"go-claw/utils"
 )
 
@@ -14,9 +15,7 @@ type ChatService struct {
 	agents       map[string]*agent.Agent
 	mu           sync.RWMutex
 	sessionSvc   *SessionService
-	sessionIndex interface {
-		EnsureEntry(uuid, channel, user, agent string)
-	}
+	sessionIndex *store.SessionIndex
 }
 
 // NewChatService 创建聊天服务
@@ -25,9 +24,7 @@ func NewChatService(agents map[string]*agent.Agent, sessionSvc *SessionService) 
 }
 
 // SetSessionIndex 注入会话索引
-func (c *ChatService) SetSessionIndex(idx interface {
-	EnsureEntry(uuid, channel, user, agent string)
-}) {
+func (c *ChatService) SetSessionIndex(idx *store.SessionIndex) {
 	c.mu.Lock()
 	c.sessionIndex = idx
 	c.mu.Unlock()
@@ -50,7 +47,6 @@ func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 // CreateSession 创建新会话，返回 UUID 并注册到索引
 func (c *ChatService) CreateSession() string {
 	id := utils.UUID()
-	// 注册到会话索引
 	if c.sessionIndex != nil {
 		c.sessionIndex.EnsureEntry(id, "console", id, "")
 	}
@@ -73,9 +69,17 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 		return "Agent 未初始化"
 	}
 
-	result, err := ag.Process(context.Background(), sessionID, content)
+	// 注入 channel/user 到 context（供 Session 正确记录来源）
+	ctx := context.Background()
+	ctx = agent.WithChannel(ctx, "console")
+	ctx = agent.WithUser(ctx, sessionID)
+	result, err := ag.Process(ctx, sessionID, content)
 	if err != nil {
 		return "Error: " + err.Error()
+	}
+	// 统一记录会话活动（HTTP 和 Wails 模式共用）
+	if c.sessionIndex != nil {
+		c.sessionIndex.RecordSession(sessionID, "console", sessionID, agentName, content)
 	}
 	return result
 }

@@ -8,7 +8,10 @@ import (
 	"os"
 	"time"
 
+	"go-claw/config"
 	"go-claw/internal/bootstrap"
+	"go-claw/internal/gateway"
+	glog "go-claw/pkg/log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -41,9 +44,13 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 	agents := app.Gateway.GetAgents()
 	chatSvc.SetAgents(agents)
+	chatSvc.SetSessionIndex(app.Gateway.GetSessionIndex())
 	appSvc.SetAgents(agents)
 	appSvc.SetSender(app.Gateway.SendProactiveMessage)
 	appSvc.SetSessionIndex(app.Gateway.GetSessionIndex())
+
+	// 配置文件热加载：同步渠道启用状态
+	startDesktopConfigWatcher(app)
 
 	forceQuit := false
 	var win *application.WebviewWindow
@@ -99,5 +106,27 @@ func main() {
 	err = wailsApp.Run()
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+// startDesktopConfigWatcher 桌面模式配置热加载
+func startDesktopConfigWatcher(app *bootstrap.App) {
+	watcher := gateway.NewConfigWatcher("config.json", func() {
+		newCfg, err := config.LoadConfig("config.json")
+		if err != nil {
+			glog.Logger().Error("重新加载配置失败", "err", err)
+			return
+		}
+		// 同步渠道（自动注册/注销）
+		app.SyncChannels(newCfg)
+		glog.Logger().Info("配置已热加载",
+			"lark", newCfg.Channels.Lark.Enabled,
+			"dingtalk", newCfg.Channels.DingTalk.Enabled,
+			"wecom", newCfg.Channels.WeCom.Enabled,
+			"wechat", newCfg.Channels.WeChat.Enabled,
+		)
+	})
+	if err := watcher.Start(); err != nil {
+		glog.Logger().Warn("启动配置监听失败", "err", err)
 	}
 }

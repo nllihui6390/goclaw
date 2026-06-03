@@ -21,6 +21,7 @@ func NewChatService(agents map[string]*agent.Agent) *ChatService {
 
 func (c *ChatService) SetAgents(agents map[string]*agent.Agent) { c.inner.SetAgents(agents) }
 func (c *ChatService) CreateSession() string                   { return c.inner.CreateSession() }
+func (c *ChatService) SetSessionIndex(idx *store.SessionIndex) { c.inner.SetSessionIndex(idx) }
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	return c.inner.SendMessage(sessionID, content, agentName)
 }

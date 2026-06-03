@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -133,6 +134,13 @@ func (idx *SessionIndex) EnsureEntry(uuid, channel, user, agent string) {
 	idx.persistLocked()
 }
 
+// RecordSession 统一记录会话活动（EnsureEntry + UpdateName + Touch）
+func (idx *SessionIndex) RecordSession(uuid, channel, user, agent, content string) {
+	idx.EnsureEntry(uuid, channel, user, agent)
+	idx.UpdateName(uuid, content, agent)
+	idx.Touch(uuid)
+}
+
 // Touch 更新时间戳
 func (idx *SessionIndex) Touch(uuid string) {
 	idx.mu.Lock()
@@ -153,6 +161,10 @@ func (idx *SessionIndex) List() []SessionIndexEntry {
 	for _, e := range idx.entries {
 		result = append(result, *e)
 	}
+	// 按创建时间倒序（最新的在前）
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
 	return result
 }
 

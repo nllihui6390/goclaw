@@ -146,8 +146,14 @@ func (s *SessionService) List() []SessionInfo {
 	return sessions
 }
 
-// Delete 删除会话
+// Delete 删除会话（磁盘文件 + 索引条目）
 func (s *SessionService) Delete(sessionID string) error {
+	// 删除索引条目
+	if s.sessionIndex != nil {
+		s.sessionIndex.Delete(sessionID)
+	}
+
+	// 删除磁盘文件
 	dataDir := s.config.WorkspaceBase()
 	safeName := store.SafeFileName(sessionID) + ".json"
 
