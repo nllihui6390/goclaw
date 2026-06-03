@@ -22,6 +22,7 @@ func NewConfigService() *ConfigService {
 	return s
 }
 
+// load 从磁盘读取 config.json
 func (s *ConfigService) load() {
 	data, err := os.ReadFile("config.json")
 	if err != nil {

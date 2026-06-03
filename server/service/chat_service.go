@@ -14,10 +14,12 @@ type ChatService struct {
 	mu     sync.RWMutex
 }
 
+// NewChatService 创建聊天服务
 func NewChatService(agents map[string]*agent.Agent) *ChatService {
 	return &ChatService{agents: agents}
 }
 
+// SetAgents 更新 Agent 实例（用于配置热重载）
 func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 	c.mu.Lock()
 	c.agents = agents
