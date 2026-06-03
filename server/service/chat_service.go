@@ -52,7 +52,7 @@ func (c *ChatService) CreateSession() string {
 	id := utils.UUID()
 	// 注册到会话索引
 	if c.sessionIndex != nil {
-		c.sessionIndex.EnsureEntry(id, "webhook", id, "")
+		c.sessionIndex.EnsureEntry(id, "console", id, "")
 	}
 	data, _ := json.Marshal(map[string]string{"session_id": id})
 	return string(data)

@@ -97,7 +97,7 @@ func getDefaultConfig() *config.Config {
 			Level:    "info",
 			JSONMode: false,
 			FilePath: "logs/app.log",
-			Console:  false,
+			Console:  true,
 		},
 		Auth: config.AuthConfig{
 			Enabled: false,

@@ -14,20 +14,8 @@ func toDisplayConfig(showToolMessages, showThinking, streamOutput bool) channel.
 }
 
 // initChannels 注册所有渠道
+// 注：console 渠道（HTTP API）由 main.go / main_desktop.go 直接注册，不在这里
 func (app *App) initChannels() {
-	if app.Config.Channels.Console.Enabled {
-		display := toDisplayConfig(
-			app.Config.Channels.Console.ShowToolMessages,
-			app.Config.Channels.Console.ShowThinking,
-			app.Config.Channels.Console.StreamOutput,
-		)
-		consoleChan := channel.NewConsoleChannel(display)
-		if err := app.Gateway.RegisterChannel(consoleChan); err != nil {
-			app.logger.Error("注册控制台渠道失败", "err", err)
-		}
-	}
-
-	// Webhook/WebSocket 已被 Web 管理后台取代，不再从配置注册
 
 	if app.Config.Channels.Lark.Enabled {
 		display := toDisplayConfig(

@@ -54,13 +54,14 @@ func runServer() {
 		},
 	})
 
-	webhookChan := channel.NewWebhookChannel("8080", "", channel.DefaultDisplayConfig())
+	consoleChan := channel.NewConsoleChannel("8080", "", channel.DefaultDisplayConfig())
 	webServer := server.New(server.Config{Port: "8080"})
-	webServer.Mux().HandleFunc("/api/v1/chat", webhookChan.HandleChat)
+	webServer.Mux().HandleFunc("/api/v1/chat", consoleChan.HandleChat)
 	webServer.Mux().HandleFunc("/api/v1/chat/session", api.HandleCreateSession)
 	webServer.Mux().HandleFunc("/api/v1/chat/history/", api.HandleChatHistory)
 	webServer.Start()
-	app.Gateway.RegisterChannelWithoutServer(webhookChan)
+	consoleChan.SetEnabled(app.Config.Channels.Console.Enabled)
+	app.Gateway.RegisterChannelWithoutServer(consoleChan)
 
 	app.Run()
 }

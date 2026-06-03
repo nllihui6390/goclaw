@@ -23,7 +23,11 @@ export class HttpAdapter {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session: chatSession, content, agent, stream: true })
     })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`
+      try { const e = JSON.parse(await resp.text()); if (e.error) msg = e.error } catch {}
+      throw new Error(msg)
+    }
 
     const reader = resp.body.getReader()
     const decoder = new TextDecoder()
@@ -57,7 +61,7 @@ export class HttpAdapter {
   async getChatHistory(sessionId, agent) {
     try {
       // 旧格式有渠道前缀（webhook:, wecom: 等）；UUID 格式不需要加前缀
-      const channelPrefixes = ['webhook:', 'wecom:', 'dingtalk:', 'lark:', 'console:', 'cron:']
+      const channelPrefixes = ['wecom:', 'dingtalk:', 'lark:', 'cron:']
       const hasChannelPrefix = channelPrefixes.some(p => sessionId.startsWith(p))
       const fullSessionId = hasChannelPrefix ? sessionId : sessionId
       const params = agent ? { agent } : {}
