@@ -945,7 +945,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		systemMsg := messages[0]
 		recentMsgs := messages[len(messages)-maxMessages+1:]
 		messages = append([]ChatMessage{systemMsg}, recentMsgs...)
-		logger.Info("[Runtime] 上下文已截断", "original", len(session.Messages)+1, "kept", len(messages))
+		logger.Info("[Runtime] 上下文已截断", "original", len(session.Messages)+1, "kept", len(messages), "removed", len(session.Messages)+1-len(messages))
 	}
 
 	return messages
