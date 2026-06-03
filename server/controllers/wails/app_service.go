@@ -47,10 +47,10 @@ func (a *AppService) initServices() {
 	a.toolSvc = service.NewToolService(a.configSvc)
 	a.skillSvc = service.NewSkillService(a.configSvc)
 	a.cronSvc = service.NewCronService(a.configSvc)
-	a.sessionSvc = service.NewSessionService(nil)
+	a.sessionSvc = service.NewSessionService(nil, a.configSvc)
 	a.logSvc = service.NewLogService()
 	a.statusSvc = service.NewStatusService()
-	a.fileSvc = service.NewFileService()
+	a.fileSvc = service.NewFileService(a.configSvc)
 }
 
 // SetAgents 注入 Agent 实例

@@ -16,17 +16,18 @@ type FileInfo struct {
 
 // FileService Agent 文件管理服务
 type FileService struct {
-	mu sync.RWMutex
+	mu     sync.RWMutex
+	config *ConfigService
 }
 
 // NewFileService 创建文件服务
-func NewFileService() *FileService {
-	return &FileService{}
+func NewFileService(config *ConfigService) *FileService {
+	return &FileService{config: config}
 }
 
 // getAgentDir 获取 Agent 工作空间目录
 func (s *FileService) getAgentDir(agentName string) string {
-	return filepath.Join("clawdata", "workspaces", agentName)
+	return filepath.Join(s.config.WorkspaceBase(), agentName)
 }
 
 // List 列出 Agent 工作空间的 .md 文件

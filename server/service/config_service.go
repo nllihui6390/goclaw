@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -182,4 +183,22 @@ func (s *ConfigService) UpdateChannel(name string, channelConfig map[string]inte
 
 	data, _ := json.MarshalIndent(s.config, "", "  ")
 	return os.WriteFile("config.json", data, 0644)
+}
+
+// WorkspaceBase 从配置获取工作空间根目录（data_dir/workspace）
+func (s *ConfigService) WorkspaceBase() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	gateway, _ := s.config["gateway"].(map[string]interface{})
+	dataDir := "clawdata"
+	workspace := "workspaces"
+	if gateway != nil {
+		if v, ok := gateway["data_dir"].(string); ok && v != "" {
+			dataDir = v
+		}
+		if v, ok := gateway["workspace"].(string); ok && v != "" {
+			workspace = v
+		}
+	}
+	return filepath.Join(dataDir, workspace)
 }

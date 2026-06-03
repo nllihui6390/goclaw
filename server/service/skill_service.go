@@ -53,10 +53,11 @@ func (s *SkillService) List() []SkillInfo {
 	skills = append(skills, s.scanSkills(skillDir)...)
 
 	// 扫描每个 agent 的 skills 目录
-	agentDirs, _ := os.ReadDir("clawdata/workspaces")
+	wsBase := s.config.WorkspaceBase()
+	agentDirs, _ := os.ReadDir(wsBase)
 	for _, ad := range agentDirs {
 		if ad.IsDir() {
-			agentSkillDir := filepath.Join("clawdata/workspaces", ad.Name(), "skills")
+			agentSkillDir := filepath.Join(wsBase, ad.Name(), "skills")
 			if info, err := os.Stat(agentSkillDir); err == nil && info.IsDir() {
 				skills = append(skills, s.scanSkills(agentSkillDir)...)
 			}

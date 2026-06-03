@@ -24,6 +24,7 @@ type SessionInfo struct {
 // SessionService 会话管理服务
 type SessionService struct {
 	agents AgentsProvider
+	config *ConfigService
 }
 
 // AgentsProvider 获取 Agent 实例的接口
@@ -32,14 +33,14 @@ type AgentsProvider interface {
 }
 
 // NewSessionService 创建会话服务
-func NewSessionService(agents AgentsProvider) *SessionService {
-	return &SessionService{agents: agents}
+func NewSessionService(agents AgentsProvider, config *ConfigService) *SessionService {
+	return &SessionService{agents: agents, config: config}
 }
 
 // List 列出所有会话
 func (s *SessionService) List() []SessionInfo {
 	sessions := []SessionInfo{}
-	dataDir := "clawdata/workspaces"
+	dataDir := s.config.WorkspaceBase()
 
 	dirs, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -121,7 +122,7 @@ func (s *SessionService) List() []SessionInfo {
 
 // Delete 删除会话
 func (s *SessionService) Delete(sessionID string) error {
-	dataDir := "clawdata/workspaces"
+	dataDir := s.config.WorkspaceBase()
 	safeName := store.SafeFileName(sessionID) + ".json"
 
 	dirs, err := os.ReadDir(dataDir)
@@ -158,7 +159,7 @@ func (s *SessionService) GetHistory(sessionID, agentName string) []map[string]st
 
 // GetSessionData 获取会话详细数据
 func (s *SessionService) GetSessionData(sessionID string) (map[string]interface{}, error) {
-	dataDir := "clawdata/workspaces"
+	dataDir := s.config.WorkspaceBase()
 	safeName := store.SafeFileName(sessionID) + ".json"
 
 	dirs, err := os.ReadDir(dataDir)

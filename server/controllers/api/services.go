@@ -36,10 +36,10 @@ func InitServices() {
 	toolSvc = service.NewToolService(configSvc)
 	skillSvc = service.NewSkillService(configSvc)
 	cronSvc = service.NewCronService(configSvc)
-	sessionSvc = service.NewSessionService(nil)
+	sessionSvc = service.NewSessionService(nil, configSvc)
 	logSvc = service.NewLogService()
 	statusSvc = service.NewStatusService()
-	fileSvc = service.NewFileService()
+	fileSvc = service.NewFileService(configSvc)
 }
 
 // SetCronExecutor 设置定时任务执行器（由 main 注入）
