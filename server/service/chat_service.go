@@ -10,13 +10,21 @@ import (
 
 // ChatService 聊天服务
 type ChatService struct {
-	agents map[string]*agent.Agent
-	mu     sync.RWMutex
+	agents      map[string]*agent.Agent
+	mu          sync.RWMutex
+	sessionSvc  *SessionService
 }
 
 // NewChatService 创建聊天服务
-func NewChatService(agents map[string]*agent.Agent) *ChatService {
-	return &ChatService{agents: agents}
+func NewChatService(agents map[string]*agent.Agent, sessionSvc *SessionService) *ChatService {
+	return &ChatService{agents: agents, sessionSvc: sessionSvc}
+}
+
+// SetSessionService 注入 SessionService（用于历史记录磁盘兜底）
+func (c *ChatService) SetSessionService(s *SessionService) {
+	c.mu.Lock()
+	c.sessionSvc = s
+	c.mu.Unlock()
 }
 
 // SetAgents 更新 Agent 实例（用于配置热重载）
@@ -49,56 +57,82 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 }
 
 // GetChatHistory 获取会话历史
+// 查找顺序：指定 Agent 内存 → 指定 Agent Store → 遍历所有 Agent → 磁盘兜底
 func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 	c.mu.RLock()
-	ag := c.agents["default"]
-	if agentName != "" {
-		if a, ok := c.agents[agentName]; ok {
-			ag = a
+	defer c.mu.RUnlock()
+
+	// 从单个 Agent 提取历史的辅助函数
+	tryAgent := func(ag *agent.Agent) []map[string]string {
+		if ag == nil {
+			return nil
 		}
-	}
-	c.mu.RUnlock()
-
-	if ag == nil {
-		return "[]"
-	}
-
-	// 先尝试从内存获取
-	msgs, exists := ag.GetSessionMessages(sessionID)
-	if exists {
-		result := make([]map[string]string, 0, len(msgs))
-		for _, m := range msgs {
-			if m.Role == "user" || m.Role == "assistant" {
-				result = append(result, map[string]string{
-					"role":    m.Role,
-					"content": m.Content,
-				})
+		// 内存
+		if msgs, exists := ag.GetSessionMessages(sessionID); exists {
+			result := make([]map[string]string, 0, len(msgs))
+			for _, m := range msgs {
+				if m.Role == "user" || m.Role == "assistant" {
+					result = append(result, map[string]string{
+						"role": m.Role, "content": m.Content,
+					})
+				}
+			}
+			return result
+		}
+		// Store
+		if st := ag.GetStore(); st != nil {
+			if sessData, err := st.GetSession(context.Background(), sessionID); err == nil && sessData != nil {
+				result := make([]map[string]string, 0, len(sessData.Messages))
+				for _, m := range sessData.Messages {
+					if m.Role == "user" || m.Role == "assistant" {
+						result = append(result, map[string]string{
+							"role": m.Role, "content": m.Content,
+						})
+					}
+				}
+				if len(result) > 0 {
+					return result
+				}
 			}
 		}
-		data, _ := json.Marshal(result)
-		return string(data)
+		return nil
 	}
 
-	// 从 Store 加载
-	st := ag.GetStore()
-	if st == nil {
-		return "[]"
-	}
-
-	sessData, err := st.GetSession(context.Background(), sessionID)
-	if err != nil || sessData == nil {
-		return "[]"
-	}
-
-	result := make([]map[string]string, 0, len(sessData.Messages))
-	for _, m := range sessData.Messages {
-		if m.Role == "user" || m.Role == "assistant" {
-			result = append(result, map[string]string{
-				"role":    m.Role,
-				"content": m.Content,
-			})
+	// 1. 先查指定 Agent
+	if agentName != "" {
+		if ag, ok := c.agents[agentName]; ok {
+			if result := tryAgent(ag); result != nil {
+				data, _ := json.Marshal(result)
+				return string(data)
+			}
+		}
+	} else {
+		if ag, ok := c.agents["default"]; ok {
+			if result := tryAgent(ag); result != nil {
+				data, _ := json.Marshal(result)
+				return string(data)
+			}
 		}
 	}
-	data, _ := json.Marshal(result)
-	return string(data)
+
+	// 2. 遍历其他 Agent
+	for name, ag := range c.agents {
+		if name == agentName || (agentName == "" && name == "default") {
+			continue
+		}
+		if result := tryAgent(ag); result != nil {
+			data, _ := json.Marshal(result)
+			return string(data)
+		}
+	}
+
+	// 3. 磁盘兜底
+	if c.sessionSvc != nil {
+		if result := c.sessionSvc.GetHistoryFromDisk(sessionID); result != nil {
+			data, _ := json.Marshal(result)
+			return string(data)
+		}
+	}
+
+	return "[]"
 }

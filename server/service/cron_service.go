@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"sync"
@@ -23,12 +24,20 @@ type CronJob struct {
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// CronExecutor 定时任务执行所需回调（HTTP/Wails 各自注入）
+type CronExecutor struct {
+	// SendMsg 发送消息到指定会话（对应 text 类型任务）
+	SendMsg func(ctx context.Context, sessionID, message string) error
+	// ProcessMsg 调用 Agent 处理消息（对应 agent 类型任务）
+	ProcessMsg func(ctx context.Context, agentName, sessionID, content string) (string, error)
+}
+
 // CronService 定时任务服务
 type CronService struct {
-	mu        sync.RWMutex
-	dataFile  string
-	executor  func(id string)
-	config    *ConfigService
+	mu       sync.RWMutex
+	dataFile string
+	executor *CronExecutor
+	config   *ConfigService
 }
 
 // NewCronService 创建定时任务服务
@@ -40,8 +49,8 @@ func NewCronService(config *ConfigService) *CronService {
 }
 
 // SetExecutor 设置执行器
-func (s *CronService) SetExecutor(executor func(id string)) {
-	s.executor = executor
+func (s *CronService) SetExecutor(e *CronExecutor) {
+	s.executor = e
 }
 
 // List 获取所有定时任务
@@ -73,7 +82,6 @@ func (s *CronService) Save(job CronJob) error {
 		json.Unmarshal(data, &jobs)
 	}
 
-	// 如果有 ID 则更新，否则追加
 	if job.ID != "" {
 		for i, j := range jobs {
 			if j.ID == job.ID {
@@ -82,7 +90,6 @@ func (s *CronService) Save(job CronJob) error {
 			}
 		}
 	} else {
-		// 生成新 ID
 		job.ID = "cron-" + time.Now().Format("20060102150405")
 		jobs = append(jobs, job)
 	}
@@ -124,15 +131,75 @@ func (s *CronService) Delete(id string) error {
 	return os.WriteFile(s.dataFile, data, 0644)
 }
 
-// Run 执行定时任务
+// Run 异步执行指定定时任务（HTTP/Wails 通用）
 func (s *CronService) Run(id string) {
 	if s.executor == nil {
 		return
 	}
 
+	// 读取任务
+	data, err := os.ReadFile(s.dataFile)
+	if err != nil {
+		return
+	}
+	var jobs []CronJob
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return
+	}
+
+	var job *CronJob
+	for i := range jobs {
+		if jobs[i].ID == id {
+			job = &jobs[i]
+			break
+		}
+	}
+	if job == nil {
+		return
+	}
+
+	sessionID := job.SessionID
+	if sessionID == "" {
+		sessionID = "console:cron"
+	}
+
 	go func() {
-		glog.Logger().Info("[Cron] 手动执行任务", "id", id)
-		s.executor(id)
+		logger := glog.Logger()
+		logger.Info("[Cron] 手动执行任务", "id", job.ID, "name", job.Name, "type", job.Type)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		switch job.Type {
+		case "text":
+			if s.executor.SendMsg != nil {
+				if err := s.executor.SendMsg(ctx, sessionID, job.Content); err != nil {
+					logger.Warn("[Cron] 文本任务发送失败", "id", id, "err", err)
+				} else {
+					logger.Info("[Cron] 文本任务已发送", "id", id, "session", sessionID)
+				}
+			}
+
+		case "agent":
+			if s.executor.ProcessMsg != nil {
+				result, err := s.executor.ProcessMsg(ctx, job.AgentName, sessionID, job.Content)
+				if err != nil {
+					logger.Warn("[Cron] Agent 任务执行失败", "id", id, "err", err)
+					return
+				}
+				logger.Info("[Cron] Agent 任务执行完成", "id", id, "result_len", len(result))
+				if s.executor.SendMsg != nil {
+					if err := s.executor.SendMsg(ctx, sessionID, result); err != nil {
+						logger.Warn("[Cron] Agent 结果发送失败", "id", id, "err", err)
+					} else {
+						logger.Info("[Cron] Agent 结果已发送", "id", id, "session", sessionID)
+					}
+				}
+			}
+
+		default:
+			logger.Warn("[Cron] 未知任务类型", "type", job.Type)
+		}
 	}()
 }
 

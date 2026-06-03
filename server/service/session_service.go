@@ -141,19 +141,66 @@ func (s *SessionService) Delete(sessionID string) error {
 	return nil
 }
 
-// GetHistory 获取会话历史记录
-func (s *SessionService) GetHistory(sessionID, agentName string) []map[string]string {
-	// 通过 agents 接口获取 agent 实例并调用其方法
-	_, ok := s.agents.GetAgent(agentName)
-	if !ok {
-		_, ok = s.agents.GetAgent("default")
-	}
-	if !ok {
-		return nil
+// GetHistoryFromDisk 从磁盘直接读取会话文件（兜底方案，用于 cron 等渠道的会话）
+func (s *SessionService) GetHistoryFromDisk(sessionID string) []map[string]string {
+	wsBase := s.config.WorkspaceBase()
+	safeName := store.SafeFileName(sessionID) + ".json"
+
+	// 尝试读取指定文件的辅助函数
+	readFile := func(filePath string) []map[string]string {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil
+		}
+		var sess map[string]interface{}
+		if err := json.Unmarshal(data, &sess); err != nil {
+			return nil
+		}
+		msgs, _ := sess["messages"].([]interface{})
+		result := make([]map[string]string, 0, len(msgs))
+		for _, m := range msgs {
+			msg, _ := m.(map[string]interface{})
+			role, _ := msg["role"].(string)
+			content, _ := msg["content"].(string)
+			if role == "user" || role == "assistant" {
+				result = append(result, map[string]string{"role": role, "content": content})
+			}
+		}
+		return result
 	}
 
-	// 类型断言获取具体方法（需要 Agent 接口定义）
-	// 这里返回空，具体实现由 Agent 提供
+	entries, err := os.ReadDir(wsBase)
+	if err != nil {
+		return nil
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sessDir := filepath.Join(wsBase, entry.Name(), "sessions")
+
+		// 1. safeName 查找（标准路径）
+		if result := readFile(filepath.Join(sessDir, safeName)); len(result) > 0 {
+			return result
+		}
+
+		// 2. 兜底：遍历目录下所有 JSON 文件，按 session id 匹配
+		files, _ := os.ReadDir(sessDir)
+		for _, f := range files {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") || f.Name() == "memories.json" {
+				continue
+			}
+			if result := readFile(filepath.Join(sessDir, f.Name())); len(result) > 0 {
+				// 验证文件内容中的 id 是否匹配
+				data, _ := os.ReadFile(filepath.Join(sessDir, f.Name()))
+				var sess map[string]interface{}
+				json.Unmarshal(data, &sess)
+				if id, _ := sess["id"].(string); id == sessionID {
+					return result
+				}
+			}
+		}
+	}
 	return nil
 }
 

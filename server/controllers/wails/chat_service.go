@@ -13,8 +13,13 @@ type ChatService struct {
 // NewChatService 创建 ChatService
 func NewChatService(agents map[string]*agent.Agent) *ChatService {
 	return &ChatService{
-		chatSvc: service.NewChatService(agents),
+		chatSvc: service.NewChatService(agents, nil),
 	}
+}
+
+// SetSessionService 注入 SessionService（用于磁盘兜底）
+func (c *ChatService) SetSessionService(s *service.SessionService) {
+	c.chatSvc.SetSessionService(s)
 }
 
 // SetAgents 注入 Agent 实例

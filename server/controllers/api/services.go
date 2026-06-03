@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -19,6 +20,7 @@ var (
 	logSvc      *service.LogService
 	statusSvc   *service.StatusService
 	fileSvc     *service.FileService
+	chatSvc     *service.ChatService
 )
 
 var servicesInited bool
@@ -37,15 +39,25 @@ func InitServices() {
 	skillSvc = service.NewSkillService(configSvc)
 	cronSvc = service.NewCronService(configSvc)
 	sessionSvc = service.NewSessionService(nil, configSvc)
+	chatSvc = service.NewChatService(nil, sessionSvc)
 	logSvc = service.NewLogService()
 	statusSvc = service.NewStatusService()
 	fileSvc = service.NewFileService(configSvc)
 }
 
+// CronExecutorConfig HTTP 模式的定时任务执行器配置
+type CronExecutorConfig struct {
+	SendMsg    func(ctx context.Context, sessionID, message string) error
+	ProcessMsg func(ctx context.Context, agentName, sessionID, content string) (string, error)
+}
+
 // SetCronExecutor 设置定时任务执行器（由 main 注入）
-func SetCronExecutor(executor func(id string)) {
+func SetCronExecutor(cfg *CronExecutorConfig) {
 	if cronSvc != nil {
-		cronSvc.SetExecutor(executor)
+		cronSvc.SetExecutor(&service.CronExecutor{
+			SendMsg:    cfg.SendMsg,
+			ProcessMsg: cfg.ProcessMsg,
+		})
 	}
 }
 
