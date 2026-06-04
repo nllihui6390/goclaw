@@ -41,9 +41,13 @@ func (w *ConfigWatcher) Start() error {
 
 	go func() {
 		defer watcher.Close()
+		var debounceTimer *time.Timer
 		for {
 			select {
 			case <-w.stopCh:
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
 				return
 			case event, ok := <-watcher.Events:
 				if !ok {
@@ -51,14 +55,18 @@ func (w *ConfigWatcher) Start() error {
 				}
 				if event.Name == w.path && (event.Op&fsnotify.Write == fsnotify.Write ||
 					event.Op&fsnotify.Create == fsnotify.Create) {
-					// 防抖：等待300ms确保写入完成
-					time.Sleep(300 * time.Millisecond)
-					w.mu.Lock()
-					if w.onChange != nil {
-						log.Logger().Info("配置文件已变更，正在重新加载", "path", w.path)
-						w.onChange()
+					// 防抖：重置计时器，只在事件停止后 500ms 执行一次
+					if debounceTimer != nil {
+						debounceTimer.Stop()
 					}
-					w.mu.Unlock()
+					debounceTimer = time.AfterFunc(500*time.Millisecond, func() {
+						w.mu.Lock()
+						if w.onChange != nil {
+							log.Logger().Info("配置文件已变更，正在重新加载", "path", w.path)
+							w.onChange()
+						}
+						w.mu.Unlock()
+					})
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
