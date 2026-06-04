@@ -99,7 +99,10 @@ export class HttpAdapter {
 
   // 工具/Skills
   getTools() { return http.get('/tools').then(r => r.data) }
-  getSkills() { return http.get('/skills').then(r => r.data) }
+  getSkillPool() { return http.get('/skills/pool').then(r => r.data) }
+  scanSkills() { return http.post('/skills/scan').then(r => r.data) }
+  getEnabledSkills(agent) { return http.get('/skills/enabled', { params: { agent } }).then(r => r.data) }
+  setEnabledSkills(agent, skills) { return http.put('/skills/enabled', skills, { params: { agent } }).then(r => r.data) }
 
   // 配置
   getConfig() { return http.get('/config').then(r => r.data) }

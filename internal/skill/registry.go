@@ -12,8 +12,7 @@ import (
 // Registry Skill 注册和加载中心
 type Registry struct {
 	skills   map[string]*Skill // name -> Skill
-	skillDir string            // Skill 主目录路径（全局）
-	dirs     []string          // 所有需要加载的目录（用于热重载）
+	skillDir string            // Skill 主目录路径（全局唯一）
 }
 
 // NewRegistry 创建 Skill 注册中心
@@ -21,7 +20,6 @@ func NewRegistry(skillDir string) *Registry {
 	return &Registry{
 		skills:   make(map[string]*Skill),
 		skillDir: skillDir,
-		dirs:     []string{skillDir},
 	}
 }
 
@@ -30,28 +28,13 @@ func (r *Registry) Clear() {
 	r.skills = make(map[string]*Skill)
 }
 
-// AddDir 添加需要加载的目录（用于热重载）
-func (r *Registry) AddDir(dir string) {
-	r.dirs = append(r.dirs, dir)
-}
-
-// ReloadAll 清空并重新加载所有目录的 Skill
+// ReloadAll 清空并重新从 skillDir 加载所有 Skill
 func (r *Registry) ReloadAll() error {
 	r.Clear()
-	for _, dir := range r.dirs {
-		if err := r.LoadFromDir(dir); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// LoadAll 从 skillDir 加载所有 Skill
-func (r *Registry) LoadAll() error {
 	return r.LoadFromDir(r.skillDir)
 }
 
-// LoadFromDir 从指定目录加载 Skill（追加到已有 skills，不覆盖）
+// LoadFromDir 从指定目录加载所有 Skill（追加到已有 skills，不覆盖）
 func (r *Registry) LoadFromDir(dir string) error {
 	logger := glog.Logger()
 
@@ -94,6 +77,56 @@ func (r *Registry) LoadFromDir(dir string) error {
 	return nil
 }
 
+// LoadEnabled 按启用列表从 skillDir 加载指定技能
+func (r *Registry) LoadEnabled(skillDir string, enabledList []string) error {
+	logger := glog.Logger()
+
+	for _, name := range enabledList {
+		// 先按 name 查找（SKILL.md 中的 name 字段），然后按 folder 查找
+		skillPath := filepath.Join(skillDir, name, "SKILL.md")
+		if _, err := os.Stat(skillPath); err != nil {
+			// name 可能是 folder 名，尝试遍历子目录匹配
+			entries, dirErr := os.ReadDir(skillDir)
+			if dirErr != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				sp := filepath.Join(skillDir, entry.Name(), "SKILL.md")
+				s, parseErr := ParseSkill(sp)
+				if parseErr == nil && s.Name == name {
+					missing := s.CheckDependencies()
+					if len(missing) == 0 {
+						r.skills[s.Name] = s
+						logger.Info("[Skill] 已加载（启用）", "name", s.Name, "emoji", s.Emoji())
+					}
+					break
+				}
+			}
+			continue
+		}
+
+		skill, err := ParseSkill(skillPath)
+		if err != nil {
+			logger.Warn("[Skill] 解析失败", "path", skillPath, "err", err)
+			continue
+		}
+
+		missing := skill.CheckDependencies()
+		if len(missing) > 0 {
+			logger.Warn("[Skill] 依赖缺失", "name", skill.Name, "missing", strings.Join(missing, ", "))
+			continue
+		}
+
+		r.skills[skill.Name] = skill
+		logger.Info("[Skill] 已加载（启用）", "name", skill.Name, "emoji", skill.Emoji())
+	}
+
+	return nil
+}
+
 // Get 获取指定 Skill
 func (r *Registry) Get(name string) (*Skill, bool) {
 	s, exists := r.skills[name]
@@ -107,66 +140,6 @@ func (r *Registry) List() []*Skill {
 		list = append(list, s)
 	}
 	return list
-}
-
-// Match 根据用户消息语义匹配 Skill (基于关键词/描述匹配)
-func (r *Registry) Match(userMessage string) *Skill {
-	userLower := strings.ToLower(userMessage)
-
-	var bestMatch *Skill
-	bestScore := 0
-
-	for _, s := range r.skills {
-		score := r.matchScore(s, userLower)
-		if score > bestScore {
-			bestScore = score
-			bestMatch = s
-		}
-	}
-
-	// 需要最低匹配分数
-	if bestScore >= 2 {
-		return bestMatch
-	}
-	return nil
-}
-
-// matchScore 计算匹配分数
-func (r *Registry) matchScore(s *Skill, userLower string) int {
-	descLower := strings.ToLower(s.Description)
-	score := 0
-
-	// 描述中的关键词匹配
-	descWords := strings.Fields(descLower)
-	for _, word := range descWords {
-		if len(word) < 2 {
-			continue
-		}
-		if strings.Contains(userLower, word) {
-			score++
-		}
-	}
-
-	// 核心能力关键词匹配
-	if s.CoreCapabilities != "" {
-		capLower := strings.ToLower(s.CoreCapabilities)
-		capWords := strings.Fields(capLower)
-		for _, word := range capWords {
-			if len(word) < 2 {
-				continue
-			}
-			if strings.Contains(userLower, word) {
-				score++
-			}
-		}
-	}
-
-	// 名称直接匹配加分
-	if strings.Contains(userLower, strings.ToLower(s.Name)) {
-		score += 5
-	}
-
-	return score
 }
 
 // SkillSummary Skill 概要信息

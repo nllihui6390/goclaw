@@ -89,6 +89,12 @@ func (a *Agent) GetInfo() string {
 	return fmt.Sprintf("Agent %s (model: %s, provider: %s)", a.config.Name, a.config.Model, a.config.ProviderType)
 }
 
+// SetSkillRegistry 设置技能注册中心（用于热重载）
+func (a *Agent) SetSkillRegistry(reg *skill.Registry) {
+	a.config.SkillRegistry = reg
+	a.runtime.SetSkillRegistry(reg)
+}
+
 // ProcessWithHandler 处理用户消息（带工具事件回调）
 func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage string, handler ToolEventHandler) (string, error) {
 	logger := glog.Logger()

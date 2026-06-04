@@ -143,10 +143,39 @@ func (a *AppService) GetTools() string {
 	return a.toolSvc.ListSimpleJSON()
 }
 
-// ─────────── Skills ───────────
+// ─────────── Skills 技能池管理 ───────────
 
-func (a *AppService) GetSkills() string {
-	return a.skillSvc.ListJSON()
+func (a *AppService) GetSkillPool() string {
+	return a.skillSvc.PoolJSON()
+}
+
+func (a *AppService) ScanSkills() string {
+	reg, err := a.skillSvc.Scan()
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	data, _ := json.Marshal(map[string]interface{}{
+		"skill_dir": a.skillSvc.GetSkillDir(),
+		"skills":    reg.Skills,
+		"total":     len(reg.Skills),
+		"message":   "扫描完成",
+	})
+	return string(data)
+}
+
+func (a *AppService) GetEnabledSkills(agent string) string {
+	return a.skillSvc.GetEnabledSkillsJSON(agent)
+}
+
+func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
+	var skills []string
+	if err := json.Unmarshal([]byte(skillsJSON), &skills); err != nil {
+		return `{"error":"invalid JSON"}`
+	}
+	if err := a.skillSvc.SetEnabledSkills(agent, skills); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	return `{"status":"updated"}`
 }
 
 // ─────────── Sessions ───────────

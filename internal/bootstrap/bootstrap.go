@@ -28,18 +28,16 @@ type App struct {
 	MCPMgr       *mcp.Manager
 	ProactiveMgr *proactive.ProactiveManager
 
+	// 全局 Skill Registry（所有 agent 共享，按各自 enabled_skills.json 加载）
+	SkillRegistry *skill.Registry
+
 	// 内部状态
-	skillRegistries   map[string]*skill.Registry
-	skillRegistryDirs map[string]string
-	logger            *slog.Logger
+	logger *slog.Logger
 }
 
 // NewApp 创建并初始化应用程序
 func NewApp() (*App, error) {
-	app := &App{
-		skillRegistries:   make(map[string]*skill.Registry),
-		skillRegistryDirs: make(map[string]string),
-	}
+	app := &App{}
 
 	// 1. 配置加载
 	if err := app.loadConfig(); err != nil {

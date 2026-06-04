@@ -1,10 +1,10 @@
 package bootstrap
 
 import (
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"go-claw/config"
 	"go-claw/internal/agent"
@@ -45,8 +45,6 @@ func (app *App) SyncAgents(newCfg *config.Config) {
 
 	// 2. 新增或更新 Agent
 	for _, agentCfg := range newCfg.Agents {
-		// 检查是否需要更新（简单策略：总是重新创建）
-		// TODO: 可以优化为只更新配置变化的 agent
 		app.createOrUpdateAgent(agentCfg, newCfg)
 	}
 
@@ -72,10 +70,9 @@ func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Con
 	// 每个 agent 有独立的工作空间目录: clawdata/workspaces/<agent-name>/
 	agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + agentCfg.Name
 	agentSessionsDir := agentWorkspaceDir + "/sessions"
-	agentSkillsDir := agentWorkspaceDir + "/skills"
 
 	// 确保目录存在
-	initDataDirs(agentWorkspaceDir, agentSessionsDir, agentSkillsDir, app.logger)
+	initDataDirs(agentWorkspaceDir, agentSessionsDir, app.logger)
 
 	// 创建该 agent 专属的工作空间加载器
 	wsLoader := workspace.NewLoaderWithAgent(agentWorkspaceDir, agentCfg.Name)
@@ -87,24 +84,11 @@ func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Con
 		return
 	}
 
-	// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
-	globalSkillsDir := app.DataDir + "/skills"
-	var skillReg *skill.Registry
-	if existingReg, exists := app.skillRegistries[agentCfg.Name]; exists {
-		// 使用已有的 registry
-		skillReg = existingReg
-	} else {
-		// 创建新的 registry
-		skillReg = skill.NewRegistry(globalSkillsDir)
-		skillReg.AddDir(agentSkillsDir)
-		if err := skillReg.LoadAll(); err != nil {
-			app.logger.Warn("加载全局 Skill 目录失败", "err", err)
-		}
-		if err := skillReg.LoadFromDir(agentSkillsDir); err != nil {
-			app.logger.Warn("加载 Agent Skill 目录失败", "agent", agentCfg.Name, "err", err)
-		}
-		app.skillRegistries[agentCfg.Name] = skillReg
-		app.skillRegistryDirs[agentCfg.Name] = agentSkillsDir
+	// 加载该 agent 启用的技能
+	agentSkillReg := skill.NewRegistry(app.DataDir + "/skills")
+	enabledSkills := loadEnabledSkills(agentWorkspaceDir)
+	if len(enabledSkills) > 0 {
+		agentSkillReg.LoadEnabled(app.DataDir+"/skills", enabledSkills)
 	}
 
 	ag := agent.NewAgent(&agent.Config{
@@ -121,7 +105,7 @@ func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Con
 		Store:                 agentStore,
 		WorkspaceLoader:       wsLoader,
 		WorkspaceDir:          agentWorkspaceDir,
-		SkillRegistry:         skillReg,
+		SkillRegistry:         agentSkillReg,
 		CompactThresholdRatio: agentCfg.CompactThresholdRatio,
 		ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
 		ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
@@ -131,26 +115,39 @@ func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Con
 		SupportsVideo:         supportsVideo,
 	})
 	app.Gateway.RegisterAgent(agentCfg.Name, ag)
-	app.logger.Info("Agent 已注册/更新", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model)
+	app.logger.Info("Agent 已注册/更新", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model, "skills", len(enabledSkills))
+}
+
+// loadEnabledSkills 从 agent 工作空间读取 enabled_skills.json
+func loadEnabledSkills(agentWorkspaceDir string) []string {
+	file := filepath.Join(agentWorkspaceDir, "enabled_skills.json")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return []string{}
+	}
+	var list []string
+	if err := json.Unmarshal(data, &list); err != nil {
+		return []string{}
+	}
+	return list
 }
 
 // initAgents 注册所有 Agent
 func (app *App) initAgents() {
-	// 全局技能目录（所有 agent 共享）
+	// 初始化全局技能注册表
 	globalSkillsDir := app.DataDir + "/skills"
 	os.MkdirAll(globalSkillsDir, 0755)
+	app.SkillRegistry = skill.NewRegistry(globalSkillsDir)
 
 	for _, agentCfg := range app.Config.Agents {
 		app.createOrUpdateAgent(agentCfg, app.Config)
 	}
 
-	// Skill 热加载
-	if len(app.skillRegistries) > 0 {
-		app.startSkillWatcher(globalSkillsDir)
-	}
+	// Skill 热加载：只监控全局技能目录
+	app.startSkillWatcher(globalSkillsDir)
 }
 
-// startSkillWatcher 启动技能目录监控
+// startSkillWatcher 启动技能目录监控（仅全局目录）
 func (app *App) startSkillWatcher(globalSkillsDir string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -161,11 +158,6 @@ func (app *App) startSkillWatcher(globalSkillsDir string) {
 	watcher.Add(globalSkillsDir)
 	app.logger.Info("Skill 热加载已启动", "global_dir", globalSkillsDir)
 
-	for agentName, agentDir := range app.skillRegistryDirs {
-		watcher.Add(agentDir)
-		app.logger.Info("Skill 热加载监控 Agent 目录", "agent", agentName, "dir", agentDir)
-	}
-
 	go func() {
 		defer watcher.Close()
 		for {
@@ -175,31 +167,9 @@ func (app *App) startSkillWatcher(globalSkillsDir string) {
 					return
 				}
 				if event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Write == fsnotify.Write {
-					time.Sleep(500 * time.Millisecond)
-					eventDir := filepath.Dir(event.Name)
-
-					if eventDir == globalSkillsDir || filepath.Dir(eventDir) == globalSkillsDir {
-						app.logger.Info("全局 Skill 目录变化，重载所有 Agent 技能", "path", event.Name)
-						for agentName, reg := range app.skillRegistries {
-							if err := reg.ReloadAll(); err != nil {
-								app.logger.Warn("重载 Agent Skill 失败", "agent", agentName, "err", err)
-							} else {
-								app.logger.Info("Agent Skill 已重载", "agent", agentName, "count", len(reg.List()))
-							}
-						}
-					} else {
-						for agentName, agentDir := range app.skillRegistryDirs {
-							if eventDir == agentDir || filepath.Dir(eventDir) == agentDir {
-								reg := app.skillRegistries[agentName]
-								if err := reg.ReloadAll(); err != nil {
-									app.logger.Warn("重载 Agent Skill 失败", "agent", agentName, "err", err)
-								} else {
-									app.logger.Info("Agent Skill 已重载", "agent", agentName, "count", len(reg.List()))
-								}
-								break
-							}
-						}
-					}
+					// 全局技能变化 → 重载全局 Registry 并重建所有 agent 的技能
+					app.logger.Info("全局 Skill 目录变化，重载技能", "path", event.Name)
+					app.reloadAllAgentSkills()
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -211,9 +181,25 @@ func (app *App) startSkillWatcher(globalSkillsDir string) {
 	}()
 }
 
+// reloadAllAgentSkills 全局技能变化时，重建所有 agent 的技能注册表
+func (app *App) reloadAllAgentSkills() {
+	agents := app.Gateway.GetAgents()
+	for name, ag := range agents {
+		agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + name
+		enabledSkills := loadEnabledSkills(agentWorkspaceDir)
+
+		newReg := skill.NewRegistry(app.DataDir + "/skills")
+		if len(enabledSkills) > 0 {
+			newReg.LoadEnabled(app.DataDir+"/skills", enabledSkills)
+		}
+		ag.SetSkillRegistry(newReg)
+		app.logger.Info("Agent Skill 已重载", "agent", name, "skills", len(enabledSkills))
+	}
+}
+
 // initDataDirs 初始化数据目录结构和人设文件
-func initDataDirs(workspaceDir, sessionsDir, skillsDir string, logger *slog.Logger) {
-	dirs := []string{workspaceDir, sessionsDir, skillsDir}
+func initDataDirs(workspaceDir, sessionsDir string, logger *slog.Logger) {
+	dirs := []string{workspaceDir, sessionsDir}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			logger.Error("创建目录失败", "dir", d, "err", err)

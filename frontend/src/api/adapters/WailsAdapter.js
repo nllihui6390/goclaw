@@ -133,11 +133,29 @@ export class WailsAdapter {
       return JSON.parse(json)
     } catch (e) { return [] }
   }
-  async getSkills() {
+  async getSkillPool() {
     try {
-      const json = await Call.ByName('main.AppService.GetSkills')
+      const json = await Call.ByName('main.AppService.GetSkillPool')
       return JSON.parse(json)
     } catch (e) { return {} }
+  }
+  async scanSkills() {
+    try {
+      const json = await Call.ByName('main.AppService.ScanSkills')
+      return JSON.parse(json)
+    } catch (e) { return { error: e.message } }
+  }
+  async getEnabledSkills(agent) {
+    try {
+      const json = await Call.ByName('main.AppService.GetEnabledSkills', agent)
+      return JSON.parse(json)
+    } catch (e) { return {} }
+  }
+  async setEnabledSkills(agent, skills) {
+    try {
+      const json = await Call.ByName('main.AppService.SetEnabledSkills', agent, JSON.stringify(skills))
+      return JSON.parse(json)
+    } catch (e) { return { error: e.message } }
   }
 
   // 会话

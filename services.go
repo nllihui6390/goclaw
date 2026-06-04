@@ -41,7 +41,12 @@ func (a *AppService) UpdateChannel(name, configJSON string) string {
 }
 func (a *AppService) GetProviders() string                  { return a.inner.GetProviders() }
 func (a *AppService) GetTools() string                      { return a.inner.GetTools() }
-func (a *AppService) GetSkills() string                     { return a.inner.GetSkills() }
+func (a *AppService) GetSkillPool() string                  { return a.inner.GetSkillPool() }
+func (a *AppService) ScanSkills() string                    { return a.inner.ScanSkills() }
+func (a *AppService) GetEnabledSkills(agent string) string  { return a.inner.GetEnabledSkills(agent) }
+func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
+	return a.inner.SetEnabledSkills(agent, skillsJSON)
+}
 func (a *AppService) GetSessions() string                   { return a.inner.GetSessions() }
 func (a *AppService) DeleteSession(sessionID string) string { return a.inner.DeleteSession(sessionID) }
 func (a *AppService) GetCronJobs() string                   { return a.inner.GetCronJobs() }

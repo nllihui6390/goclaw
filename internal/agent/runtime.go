@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-claw/internal/security"
+	"go-claw/internal/skill"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 	"io"
@@ -34,6 +35,11 @@ func NewRuntime(cfg *Config) *Runtime {
 // SetWorkspaceDir 设置工作空间目录（用于缓存文件）
 func (r *Runtime) SetWorkspaceDir(dir string) {
 	r.workspaceDir = dir
+}
+
+// SetSkillRegistry 设置技能注册中心（用于热重载）
+func (r *Runtime) SetSkillRegistry(reg *skill.Registry) {
+	r.config.SkillRegistry = reg
 }
 
 // ChatMessage 对话消息
