@@ -80,6 +80,8 @@ export class HttpAdapter {
   // 渠道
   getChannels() { return http.get('/channels').then(r => r.data) }
   updateChannel(name, config) { return http.put(`/channels/${name}`, config).then(r => r.data) }
+  getChannelQRCode(channel) { return http.get('/channels/qrcode', { params: { channel } }).then(r => r.data) }
+  getChannelQRCodeStatus(channel, token) { return http.get('/channels/qrcode/status', { params: { channel, token } }).then(r => r.data) }
 
   // 会话
   getSessions() { return http.get('/sessions').then(r => r.data) }

@@ -91,6 +91,24 @@ export class WailsAdapter {
       return { status: 'updated' }
     }
   }
+  async getChannelQRCode(channel) {
+    try {
+      const json = await Call.ByName('main.AppService.GetChannelQRCode', channel)
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getChannelQRCode error:', e)
+      return { error: e.message }
+    }
+  }
+  async getChannelQRCodeStatus(channel, token) {
+    try {
+      const json = await Call.ByName('main.AppService.GetChannelQRCodeStatus', channel, token)
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getChannelQRCodeStatus error:', e)
+      return { error: e.message }
+    }
+  }
 
   // 供应商/模型
   async getProviders() {

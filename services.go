@@ -60,3 +60,7 @@ func (a *AppService) ReadAgentFile(agentName, fileName string) string {
 func (a *AppService) WriteAgentFile(agentName, fileName, content string) string {
 	return a.inner.WriteAgentFile(agentName, fileName, content)
 }
+func (a *AppService) GetChannelQRCode(channel string) string { return a.inner.GetChannelQRCode(channel) }
+func (a *AppService) GetChannelQRCodeStatus(channel, token string) string {
+	return a.inner.GetChannelQRCodeStatus(channel, token)
+}

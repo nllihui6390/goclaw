@@ -57,6 +57,8 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/agents/", api.HandleAgentByID)
 	mux.HandleFunc("/api/v1/channels", api.HandleChannels)
 	mux.HandleFunc("/api/v1/channels/", api.HandleChannelByID)
+	mux.HandleFunc("/api/v1/channels/qrcode", api.HandleChannelQRCode)
+	mux.HandleFunc("/api/v1/channels/qrcode/status", api.HandleChannelQRCodeStatus)
 	mux.HandleFunc("/api/v1/providers", api.HandleProviders)
 	mux.HandleFunc("/api/v1/tools", api.HandleTools)
 	mux.HandleFunc("/api/v1/skills", api.HandleSkills)

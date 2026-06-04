@@ -23,6 +23,7 @@ type AppService struct {
 	logSvc      *service.LogService
 	statusSvc   *service.StatusService
 	fileSvc     *service.FileService
+	qrcodeSvc   *service.QRCodeService
 }
 
 // NewAppService 创建 AppService
@@ -44,6 +45,7 @@ func (a *AppService) initServices() {
 	a.logSvc = service.NewLogService()
 	a.statusSvc = service.NewStatusService()
 	a.fileSvc = service.NewFileService(a.configSvc)
+	a.qrcodeSvc = service.NewQRCodeService(a.configSvc)
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()
@@ -245,4 +247,24 @@ func (a *AppService) WriteAgentFile(agentName, fileName, content string) string 
 		return `{"error":"write failed"}`
 	}
 	return `{"status":"saved"}`
+}
+
+// ─────────── QR Code 扫码登录 ───────────
+
+func (a *AppService) GetChannelQRCode(channel string) string {
+	result, err := a.qrcodeSvc.FetchQRCode(channel)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
+func (a *AppService) GetChannelQRCodeStatus(channel, token string) string {
+	result, err := a.qrcodeSvc.PollQRCodeStatus(channel, token)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
 }
