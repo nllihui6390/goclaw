@@ -39,9 +39,11 @@ func main() {
 	}
 
 	// 写入全局变量
+	global.SetApp(app)
 	global.SetGateway(app.Gateway)
 	global.SetConfig(app.Config)
 	global.SetSessionIndex(app.Gateway.GetSessionIndex())
+	global.SetStartTime(time.Now())
 
 	chatSvc := NewChatService()
 	appSvc := NewAppService()

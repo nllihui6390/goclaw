@@ -218,6 +218,14 @@ func (a *AppService) GetStatus() string {
 	return a.statusSvc.GetJSON()
 }
 
+// Restart 重启系统
+func (a *AppService) Restart() string {
+	if err := global.Restart(); err != nil {
+		return `{"error":"` + err.Error() + `"}`
+	}
+	return `{"status":"restarted"}`
+}
+
 // ─────────── Agent Files ───────────
 
 func (a *AppService) GetAgentFiles(agentName string) string {

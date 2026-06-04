@@ -112,3 +112,19 @@ func (app *App) Shutdown() {
 	tool.CloseBrowser()
 	glog.Close()
 }
+
+// Restart 重启系统（重新加载配置并同步 Agent/Channel）
+func (app *App) Restart() error {
+	app.logger.Info("=======================正在重启系统...=========================")
+	newCfg, err := config.LoadConfig("config.json")
+	if err != nil {
+		app.logger.Error("重启：加载配置失败", "err", err)
+		return err
+	}
+
+	app.SyncChannels(newCfg)
+	app.SyncAgents(newCfg)
+	app.Config = newCfg
+	app.logger.Info("系统已重启", "agents", len(newCfg.Agents))
+	return nil
+}

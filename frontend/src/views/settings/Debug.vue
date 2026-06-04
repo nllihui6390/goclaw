@@ -1,6 +1,6 @@
 <script setup>
 import { ref, inject, onMounted, onUnmounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useDebugStore } from '@/stores/debug'
 
 const api = inject('api')
@@ -8,6 +8,7 @@ const debugStore = useDebugStore()
 const logs = ref('')
 const status = ref({})
 const loading = ref(false)
+const restarting = ref(false)
 let refreshTimer = null
 
 const autoRefresh = computed({
@@ -69,6 +70,29 @@ function toggleAutoRefresh() {
   }
 }
 
+async function handleRestart() {
+  try {
+    await ElMessageBox.confirm('确定要重启系统吗？将重新加载配置并同步所有 Agent 和 Channel。', '重启确认', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    restarting.value = true
+    const result = await api.restart()
+    restarting.value = false
+    if (result.error) {
+      ElMessage.error('重启失败: ' + result.error)
+    } else {
+      ElMessage.success('重启成功')
+      await loadStatus()
+      await loadLogs()
+    }
+  } catch {
+    // 用户取消
+    restarting.value = false
+  }
+}
+
 function formatLog(log) {
   // 简单的颜色标记：ERROR 红色，WARN 黄色，INFO 绿色
   return log
@@ -82,7 +106,12 @@ function formatLog(log) {
   <div class="page">
     <el-card class="status-card">
       <template #header>
-        <span>系统状态</span>
+        <div class="status-header">
+          <span>系统状态</span>
+          <el-button type="warning" size="small" @click="handleRestart" :loading="restarting">
+            重启
+          </el-button>
+        </div>
       </template>
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="运行状态">
@@ -112,6 +141,7 @@ function formatLog(log) {
 <style scoped>
 .page { padding: 24px; display: flex; flex-direction: column; height: calc(100vh - 48px); gap: 16px; box-sizing: border-box; }
 .status-card { flex-shrink: 0; }
+.status-header { display: flex; justify-content: space-between; align-items: center; }
 .logs-card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .logs-card :deep(.el-card__body) { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 16px; }
 .logs-header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }

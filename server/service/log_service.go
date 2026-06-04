@@ -5,6 +5,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"go-claw/global"
 )
 
 // LogService 日志服务
@@ -63,22 +65,18 @@ type StatusInfo struct {
 }
 
 // StatusService 状态服务
-type StatusService struct {
-	startTime time.Time
-}
+type StatusService struct{}
 
 // NewStatusService 创建状态服务
 func NewStatusService() *StatusService {
-	return &StatusService{
-		startTime: time.Now(),
-	}
+	return &StatusService{}
 }
 
 // Get 获取系统状态
 func (s *StatusService) Get() StatusInfo {
 	return StatusInfo{
 		Status: "running",
-		Uptime: s.startTime.Format(time.RFC3339),
+		Uptime: global.GetStartTime().Format(time.RFC3339),
 	}
 }
 

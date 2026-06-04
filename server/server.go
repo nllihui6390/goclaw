@@ -64,6 +64,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/cron/jobs/", api.HandleCronJobByID)
 	mux.HandleFunc("/api/v1/config", api.HandleConfig)
 	mux.HandleFunc("/api/v1/config/reload", api.HandleConfigReload)
+	mux.HandleFunc("/api/v1/restart", api.HandleRestart)
 	mux.HandleFunc("/api/v1/logs", api.HandleLogs)
 	mux.HandleFunc("/api/v1/status", api.HandleStatus)
 	mux.HandleFunc("/api/v1/sessions", api.HandleSessions)

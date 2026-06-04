@@ -52,6 +52,7 @@ func (a *AppService) GetCronEnabled() string                { return a.inner.Get
 func (a *AppService) SetCronEnabled(enabled string) string  { return a.inner.SetCronEnabled(enabled) }
 func (a *AppService) GetLogs() string                       { return a.inner.GetLogs() }
 func (a *AppService) GetStatus() string                     { return a.inner.GetStatus() }
+func (a *AppService) Restart() string                       { return a.inner.Restart() }
 func (a *AppService) GetAgentFiles(agentName string) string { return a.inner.GetAgentFiles(agentName) }
 func (a *AppService) ReadAgentFile(agentName, fileName string) string {
 	return a.inner.ReadAgentFile(agentName, fileName)

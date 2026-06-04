@@ -117,6 +117,9 @@ export class HttpAdapter {
 
   // 状态
   getStatus() { return http.get('/status').then(r => r.data) }
+
+  // 重启
+  restart() { return http.post('/restart').then(r => r.data) }
 }
 
 export default new HttpAdapter()

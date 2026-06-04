@@ -228,4 +228,15 @@ export class WailsAdapter {
       return {}
     }
   }
+
+  // 重启
+  async restart() {
+    try {
+      const json = await Call.ByName('main.AppService.Restart')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] restart error:', e)
+      return { error: e.message }
+    }
+  }
 }
