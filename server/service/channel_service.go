@@ -49,7 +49,58 @@ var channelTypes = map[string]string{
 	"wechat":   "wechat",
 }
 
-// List 获取渠道列表
+// knownChannels 前端定义的渠道列表（前端为权威来源）
+var knownChannels = []string{"console", "lark", "dingtalk", "wecom", "wechat"}
+
+// channelOrder 渠道排序顺序
+var channelOrder = map[string]int{"console": 0, "lark": 1, "dingtalk": 2, "wecom": 3, "wechat": 4}
+
+// defaultChannelConfig 各渠道的默认配置
+var defaultChannelConfig = map[string]map[string]interface{}{
+	"console": {
+		"enabled":          false,
+		"show_tool_messages": false,
+		"show_thinking":    false,
+		"stream_output":    true,
+	},
+	"lark": {
+		"enabled":          false,
+		"app_id":           "",
+		"app_secret":       "",
+		"show_tool_messages": false,
+		"show_thinking":    false,
+		"stream_output":    true,
+	},
+	"dingtalk": {
+		"enabled":          false,
+		"client_id":        "",
+		"client_secret":    "",
+		"show_tool_messages": false,
+		"show_thinking":    false,
+		"stream_output":    true,
+	},
+	"wecom": {
+		"enabled":          false,
+		"bot_id":           "",
+		"secret":           "",
+		"show_tool_messages": false,
+		"show_thinking":    false,
+		"stream_output":    true,
+	},
+	"wechat": {
+		"enabled":          false,
+		"bot_token":        "",
+		"bot_token_file":   "",
+		"bot_prefix":       "",
+		"base_url":         "",
+		"media_dir":        "",
+		"show_tool_messages": false,
+		"show_thinking":    false,
+		"stream_output":    true,
+	},
+}
+
+// List 获取渠道列表（以前端定义的 knownChannels 为准，后端配置不全时补充默认值）
 func (s *ChannelService) List() []ChannelInfo {
 	channelsCfg := s.config.GetChannels()
 	channels := []ChannelInfo{}
@@ -58,8 +109,24 @@ func (s *ChannelService) List() []ChannelInfo {
 	gw := s.gateway
 	s.mu.RUnlock()
 
-	for name, chCfg := range channelsCfg {
-		ch, _ := chCfg.(map[string]interface{})
+	// 遍历前端定义的所有渠道
+	for _, name := range knownChannels {
+		// 从后端配置获取，不存在则使用默认配置
+		ch := defaultChannelConfig[name]
+		if channelsCfg != nil {
+			if cfg, ok := channelsCfg[name].(map[string]interface{}); ok {
+				// 合并：后端配置覆盖默认值
+				merged := make(map[string]interface{})
+				for k, v := range ch {
+					merged[k] = v
+				}
+				for k, v := range cfg {
+					merged[k] = v
+				}
+				ch = merged
+			}
+		}
+
 		enabled, _ := ch["enabled"].(bool)
 
 		// 动态获取实际连接状态
@@ -83,11 +150,10 @@ func (s *ChannelService) List() []ChannelInfo {
 		})
 	}
 
-	// 固定排序：console 优先，其他按预定义顺序
+	// 固定排序：按预定义顺序
 	sort.Slice(channels, func(i, j int) bool {
-		order := map[string]int{"console": 0, "lark": 1, "dingtalk": 2, "wecom": 3, "wechat": 4}
-		oi, _ := order[channels[i].Key]
-		oj, _ := order[channels[j].Key]
+		oi, _ := channelOrder[channels[i].Key]
+		oj, _ := channelOrder[channels[j].Key]
 		return oi < oj
 	})
 
