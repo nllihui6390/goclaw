@@ -47,6 +47,10 @@ func (a *AppService) GetEnabledSkills(agent string) string  { return a.inner.Get
 func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 	return a.inner.SetEnabledSkills(agent, skillsJSON)
 }
+
+func (a *AppService) SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
+	a.inner.SetSkillChangedCallback(cb)
+}
 func (a *AppService) GetSessions() string                   { return a.inner.GetSessions() }
 func (a *AppService) DeleteSession(sessionID string) string { return a.inner.DeleteSession(sessionID) }
 func (a *AppService) GetCronJobs() string                   { return a.inner.GetCronJobs() }

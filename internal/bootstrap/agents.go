@@ -13,8 +13,6 @@ import (
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
 	"go-claw/internal/workspace"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 // SyncAgents 同步 Agent 配置（热加载）
@@ -134,51 +132,14 @@ func loadEnabledSkills(agentWorkspaceDir string) []string {
 
 // initAgents 注册所有 Agent
 func (app *App) initAgents() {
-	// 初始化全局技能注册表
+	// 确保全局技能目录存在
 	globalSkillsDir := app.DataDir + "/skills"
 	os.MkdirAll(globalSkillsDir, 0755)
-	app.SkillRegistry = skill.NewRegistry(globalSkillsDir)
 
+	// 每个 agent 拥有独立的 Skill Registry，按各自的 enabled_skills.json 加载
 	for _, agentCfg := range app.Config.Agents {
 		app.createOrUpdateAgent(agentCfg, app.Config)
 	}
-
-	// Skill 热加载：只监控全局技能目录
-	app.startSkillWatcher(globalSkillsDir)
-}
-
-// startSkillWatcher 启动技能目录监控（仅全局目录）
-func (app *App) startSkillWatcher(globalSkillsDir string) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		app.logger.Error("创建 Skill watcher 失败", "err", err)
-		return
-	}
-
-	watcher.Add(globalSkillsDir)
-	app.logger.Info("Skill 热加载已启动", "global_dir", globalSkillsDir)
-
-	go func() {
-		defer watcher.Close()
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Write == fsnotify.Write {
-					// 全局技能变化 → 重载全局 Registry 并重建所有 agent 的技能
-					app.logger.Info("全局 Skill 目录变化，重载技能", "path", event.Name)
-					app.reloadAllAgentSkills()
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				app.logger.Error("Skill watcher 错误", "err", err)
-			}
-		}
-	}()
 }
 
 // reloadAllAgentSkills 全局技能变化时，重建所有 agent 的技能注册表
@@ -195,6 +156,23 @@ func (app *App) reloadAllAgentSkills() {
 		ag.SetSkillRegistry(newReg)
 		app.logger.Info("Agent Skill 已重载", "agent", name, "skills", len(enabledSkills))
 	}
+}
+
+// ReloadAgentSkills 重载指定 agent 的技能注册表（动态生效）
+func (app *App) ReloadAgentSkills(agentName string, enabledSkills []string) {
+	agents := app.Gateway.GetAgents()
+	ag, exists := agents[agentName]
+	if !exists {
+		app.logger.Warn("ReloadAgentSkills: Agent 不存在", "agent", agentName)
+		return
+	}
+
+	newReg := skill.NewRegistry(app.DataDir + "/skills")
+	if len(enabledSkills) > 0 {
+		newReg.LoadEnabled(app.DataDir+"/skills", enabledSkills)
+	}
+	ag.SetSkillRegistry(newReg)
+	app.logger.Info("Agent Skill 已动态重载", "agent", agentName, "skills", len(enabledSkills))
 }
 
 // initDataDirs 初始化数据目录结构和人设文件

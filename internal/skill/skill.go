@@ -19,7 +19,7 @@ type Skill struct {
 	Description string `yaml:"description"`
 	Metadata    struct {
 		OpenClaw struct {
-			Emoji   string `yaml:"emoji"`
+			Emoji    string `yaml:"emoji"`
 			Requires struct {
 				Bins []string `yaml:"bins"`
 			} `yaml:"requires"`
@@ -27,7 +27,7 @@ type Skill struct {
 	} `yaml:"metadata"`
 
 	// 正文内容 (Markdown)
-	CoreCapabilities string
+	CoreCapabilities  string
 	ExecutionWorkflow string
 	InputRequirements string
 	OutputFormat      string
@@ -36,8 +36,8 @@ type Skill struct {
 	Notes             string
 
 	// 运行时信息
-	Path     string // Skill 目录路径
-	Scripts  []string // scripts/ 目录下的脚本
+	SkillPath string   // Skill 目录路径
+	Scripts   []string // scripts/ 目录下的脚本
 }
 
 // ParseSkill 从 SKILL.md 文件解析 Skill
@@ -56,7 +56,7 @@ func ParseSkill(skillPath string) (*Skill, error) {
 
 	// 解析 YAML
 	yamlContent := strings.TrimSpace(parts[1])
-	skill := &Skill{Path: filepath.Dir(skillPath)}
+	skill := &Skill{SkillPath: filepath.Dir(skillPath)}
 	if err := yaml.Unmarshal([]byte(yamlContent), skill); err != nil {
 		return nil, fmt.Errorf("解析 YAML 失败: %v", err)
 	}
@@ -82,14 +82,14 @@ func ParseSkill(skillPath string) (*Skill, error) {
 // parseMarkdownSections 解析 Markdown 各章节
 func (s *Skill) parseMarkdownSections(body string) {
 	sections := map[string]*string{
-		"核心能力":       &s.CoreCapabilities,
-		"执行步骤":       &s.ExecutionWorkflow,
-		"输入要求":       &s.InputRequirements,
-		"输出格式":       &s.OutputFormat,
-		"异常处理":       &s.ErrorHandling,
-		"使用示例":       &s.Examples,
-		"注意事项":       &s.Notes,
-		"Core Capabilities": &s.CoreCapabilities,
+		"核心能力":               &s.CoreCapabilities,
+		"执行步骤":               &s.ExecutionWorkflow,
+		"输入要求":               &s.InputRequirements,
+		"输出格式":               &s.OutputFormat,
+		"异常处理":               &s.ErrorHandling,
+		"使用示例":               &s.Examples,
+		"注意事项":               &s.Notes,
+		"Core Capabilities":  &s.CoreCapabilities,
 		"Execution Workflow": &s.ExecutionWorkflow,
 		"Input Requirements": &s.InputRequirements,
 		"Output Format":      &s.OutputFormat,
@@ -128,7 +128,7 @@ func (s *Skill) parseMarkdownSections(body string) {
 
 // loadScripts 加载 scripts 目录下的脚本文件
 func (s *Skill) loadScripts() {
-	scriptsDir := filepath.Join(s.Path, "scripts")
+	scriptsDir := filepath.Join(s.SkillPath, "scripts")
 	files, err := os.ReadDir(scriptsDir)
 	if err != nil {
 		return // scripts 目录不存在，跳过
@@ -167,9 +167,13 @@ func (s *Skill) ToPromptSection() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("### %s %s\n", s.Emoji(), s.Name))
 	sb.WriteString(s.Description)
-	sb.WriteString(fmt.Sprintf("\nSKILL.md 路径: %s/SKILL.md\n", s.Path))
+	sb.WriteString(fmt.Sprintf("\nSKILL.md: %s/SKILL.md\n", s.SkillPath))
 	if len(s.Scripts) > 0 {
-		sb.WriteString(fmt.Sprintf("脚本路径: %s\n", s.Scripts[0]))
+		scriptNames := make([]string, 0, len(s.Scripts))
+		for _, sc := range s.Scripts {
+			scriptNames = append(scriptNames, filepath.Base(sc))
+		}
+		sb.WriteString(fmt.Sprintf("脚本: %s\n", strings.Join(scriptNames, ", ")))
 	}
 	return sb.String()
 }
@@ -194,4 +198,3 @@ func SubstituteVariables(text string, vars map[string]string) string {
 	}
 	return text
 }
-

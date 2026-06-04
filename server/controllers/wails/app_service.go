@@ -178,6 +178,11 @@ func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 	return `{"status":"updated"}`
 }
 
+// SetSkillChangedCallback 设置技能变化回调（用于动态重载 agent 技能）
+func (a *AppService) SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
+	a.skillSvc.OnSkillsChanged = cb
+}
+
 // ─────────── Sessions ───────────
 
 func (a *AppService) GetSessions() string {

@@ -43,6 +43,8 @@ type SkillInfo struct {
 type SkillService struct {
 	mu     sync.RWMutex
 	config *ConfigService
+	// 技能启用列表变化时的回调，用于动态重载 agent 技能
+	OnSkillsChanged func(agentName string, enabledSkills []string)
 }
 
 // NewSkillService 创建技能服务
@@ -218,7 +220,16 @@ func (s *SkillService) SetEnabledSkills(agentName string, skills []string) error
 	file := s.enabledSkillsFile(agentName)
 	os.MkdirAll(filepath.Dir(file), 0755)
 	data, _ := json.MarshalIndent(skills, "", "  ")
-	return os.WriteFile(file, data, 0644)
+	err := os.WriteFile(file, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	// 触发回调，动态重载 agent 技能
+	if s.OnSkillsChanged != nil {
+		s.OnSkillsChanged(agentName, skills)
+	}
+	return nil
 }
 
 // GetEnabledSkillsJSON 获取指定 agent 启用技能详情（JSON）

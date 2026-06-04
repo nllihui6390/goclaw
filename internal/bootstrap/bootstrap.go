@@ -11,7 +11,6 @@ import (
 	"go-claw/internal/gateway"
 	"go-claw/internal/mcp"
 	"go-claw/internal/proactive"
-	"go-claw/internal/skill"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 )
@@ -27,9 +26,6 @@ type App struct {
 	CronMgr      *cron.Manager
 	MCPMgr       *mcp.Manager
 	ProactiveMgr *proactive.ProactiveManager
-
-	// 全局 Skill Registry（所有 agent 共享，按各自 enabled_skills.json 加载）
-	SkillRegistry *skill.Registry
 
 	// 内部状态
 	logger *slog.Logger

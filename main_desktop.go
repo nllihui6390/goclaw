@@ -47,6 +47,10 @@ func main() {
 
 	chatSvc := NewChatService()
 	appSvc := NewAppService()
+	// 注入技能变化回调（动态重载 agent 技能）
+	appSvc.SetSkillChangedCallback(func(agentName string, enabledSkills []string) {
+		app.ReloadAgentSkills(agentName, enabledSkills)
+	})
 
 	go app.Run()
 	time.Sleep(500 * time.Millisecond)

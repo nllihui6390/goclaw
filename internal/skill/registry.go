@@ -158,9 +158,8 @@ func (r *Registry) GetSkillPrompt() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# 可用技能\n\n")
-	sb.WriteString("以下是可用技能列表。每个技能有 SKILL.md 文件描述如何使用。\n")
-	sb.WriteString("使用技能前，先用 read_file 工具读取 SKILL.md 了解详细用法，然后用 exec 工具执行相应脚本。\n\n")
+	sb.WriteString("# 已启用的技能\n\n")
+	sb.WriteString("以下是当前 Agent 已启用的技能列表。使用技能前，请先用 read_file 工具读取对应的 SKILL.md 文件了解详细用法和执行步骤。\n\n")
 	for _, s := range r.skills {
 		sb.WriteString(s.ToPromptSection())
 		sb.WriteString("\n")

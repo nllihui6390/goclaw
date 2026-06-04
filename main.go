@@ -56,6 +56,10 @@ func runServer() {
 			return ag.Process(ctx, sessionID, content)
 		},
 	})
+	// 注入技能变化回调（动态重载 agent 技能）
+	api.SetSkillChangedCallback(func(agentName string, enabledSkills []string) {
+		app.ReloadAgentSkills(agentName, enabledSkills)
+	})
 
 	consoleChan := channel.NewConsoleChannel("8080", "", channel.DefaultDisplayConfig())
 	webServer := server.New(server.Config{Port: "8080"})

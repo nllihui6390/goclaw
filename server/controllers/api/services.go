@@ -77,6 +77,13 @@ func SetCronExecutor(cfg *CronExecutorConfig) {
 	}
 }
 
+// SetSkillChangedCallback 设置技能变化回调（用于动态重载 agent 技能）
+func SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
+	if skillSvc != nil {
+		skillSvc.OnSkillsChanged = cb
+	}
+}
+
 // writeJSON 写入 JSON 响应
 func writeJSON(rw http.ResponseWriter, status int, data interface{}) {
 	rw.Header().Set("Content-Type", "application/json")
