@@ -24,7 +24,10 @@ type CronJob struct {
 	AgentName   string                 `json:"agent_name"`
 	Enabled     bool                   `json:"enabled"`
 	LastRun     string                 `json:"last_run,omitempty"`
+	NextRun     string                 `json:"next_run,omitempty"`
 	Schedule    string                 `json:"schedule"`
+	ActiveStart string                 `json:"active_start,omitempty"`
+	ActiveEnd   string                 `json:"active_end,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -78,6 +81,13 @@ func (s *CronService) List() []CronJob {
 		return nil
 	}
 
+	// 为没有 NextRun 的任务计算下次执行时间
+	for i := range jobs {
+		if jobs[i].NextRun == "" && jobs[i].Schedule != "" {
+			jobs[i].NextRun = computeNextRun(jobs[i].Schedule)
+		}
+	}
+
 	return jobs
 }
 
@@ -91,6 +101,9 @@ func (s *CronService) Save(job CronJob) error {
 	if err == nil {
 		json.Unmarshal(data, &jobs)
 	}
+
+	// 计算下次执行时间
+	job.NextRun = computeNextRun(job.Schedule)
 
 	if job.ID != "" {
 		for i, j := range jobs {
@@ -232,7 +245,35 @@ func (s *CronService) Run(id string) {
 		default:
 			logger.Warn("[Cron] 未知任务类型", "type", job.Type)
 		}
+
+		// 更新 LastRun
+		s.updateLastRun(id)
 	}()
+}
+
+// updateLastRun 更新任务的 LastRun 时间
+func (s *CronService) updateLastRun(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := os.ReadFile(s.dataFile)
+	if err != nil {
+		return
+	}
+	var jobs []CronJob
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return
+	}
+
+	for i := range jobs {
+		if jobs[i].ID == id {
+			jobs[i].LastRun = time.Now().Format(time.RFC3339)
+			break
+		}
+	}
+
+	data, _ = json.MarshalIndent(jobs, "", "  ")
+	os.WriteFile(s.dataFile, data, 0644)
 }
 
 // GetEnabled 获取启用状态
@@ -254,4 +295,132 @@ func (s *CronService) SetEnabled(enabled bool) error {
 	}
 	cfg["cron"].(map[string]interface{})["enabled"] = enabled
 	return s.config.Save(cfg)
+}
+
+// computeNextRun 计算下次执行时间
+func computeNextRun(schedule string) string {
+	now := time.Now()
+
+	// @every Nd 格式
+	if strings.HasPrefix(schedule, "@every ") {
+		d, err := time.ParseDuration(schedule[7:])
+		if err != nil {
+			return ""
+		}
+		return now.Add(d).Format(time.RFC3339)
+	}
+
+	// HH:MM 格式 (如 "09:00")
+	if len(schedule) == 5 && schedule[2] == ':' {
+		hour := parseInt(schedule[:2])
+		minute := parseInt(schedule[3:5])
+		next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+		if next.Before(now) || next.Equal(now) {
+			next = next.Add(24 * time.Hour)
+		}
+		return next.Format(time.RFC3339)
+	}
+
+	// 标准 5 字段 cron 表达式
+	fields := strings.Fields(schedule)
+	if len(fields) == 5 {
+		next := parseCronExpr(fields, now)
+		return next.Format(time.RFC3339)
+	}
+
+	return ""
+}
+
+// parseInt 解析整数
+func parseInt(s string) int {
+	var result int
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			result = result*10 + int(c-'0')
+		}
+	}
+	return result
+}
+
+// parseCronExpr 解析标准 5 字段 cron 表达式
+func parseCronExpr(fields []string, now time.Time) time.Time {
+	minuteField := fields[0]
+	hourField := fields[1]
+	dayField := fields[2]
+	monthField := fields[3]
+	weekField := fields[4]
+
+	start := now.Add(1 * time.Minute)
+	t := time.Date(start.Year(), start.Month(), start.Day(), start.Hour(), start.Minute(), 0, 0, start.Location())
+	deadline := now.AddDate(1, 0, 0)
+
+	for t.Before(deadline) {
+		if !cronFieldMatches(monthField, int(t.Month())) {
+			t = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location())
+			continue
+		}
+		if !cronFieldMatches(dayField, t.Day()) {
+			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, t.Location())
+			continue
+		}
+		weekday := int(t.Weekday())
+		if !cronFieldMatches(weekField, weekday) {
+			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, t.Location())
+			continue
+		}
+		if !cronFieldMatches(hourField, t.Hour()) {
+			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, t.Location())
+			continue
+		}
+		if !cronFieldMatches(minuteField, t.Minute()) {
+			nextMin := findNextMatch(minuteField, t.Minute(), 60)
+			if nextMin == -1 || nextMin <= t.Minute() {
+				t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, t.Location())
+			} else {
+				t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), nextMin, 0, 0, t.Location())
+			}
+			continue
+		}
+		return t
+	}
+	return now.AddDate(1, 0, 0)
+}
+
+// cronFieldMatches 检查 cron 字段是否匹配
+func cronFieldMatches(field string, value int) bool {
+	if field == "*" {
+		return true
+	}
+	if strings.HasPrefix(field, "*/") {
+		step := parseInt(field[2:])
+		if step == 0 {
+			return true
+		}
+		return value%step == 0
+	}
+	if strings.Contains(field, "-") {
+		parts := strings.Split(field, "-")
+		start := parseInt(parts[0])
+		end := parseInt(parts[1])
+		return value >= start && value <= end
+	}
+	if strings.Contains(field, ",") {
+		for _, v := range strings.Split(field, ",") {
+			if parseInt(v) == value {
+				return true
+			}
+		}
+		return false
+	}
+	return parseInt(field) == value
+}
+
+// findNextMatch 找到大于 current 的最小匹配值
+func findNextMatch(field string, current int, maxVal int) int {
+	for v := current + 1; v < maxVal; v++ {
+		if cronFieldMatches(field, v) {
+			return v
+		}
+	}
+	return -1
 }
