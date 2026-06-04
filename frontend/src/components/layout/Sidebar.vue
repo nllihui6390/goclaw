@@ -15,6 +15,7 @@ const menuGroups = [
     label: '对话',
     items: [
       { path: '/', icon: 'ChatDotRound', label: '聊天' },
+      
     ]
   },
   {

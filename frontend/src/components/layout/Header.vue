@@ -1,27 +1,29 @@
 <script setup>
 import { useRoute } from 'vue-router'
-import { computed, inject, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, watch } from 'vue'
 import { useAgentStore } from '@/stores/agent'
 
 const route = useRoute()
 const api = inject('api')
 const agentStore = useAgentStore()
-const agentList = ref([])
 const isMobile = inject('isMobile')
 const toggleMobile = inject('toggleMobile')
 const toggleCollapse = inject('toggleCollapse')
 
-// 从配置加载 agent 列表，用于获取 display_name
-onMounted(async () => {
+// 加载 agent 列表到共享 store
+async function loadAgentList() {
   try {
-    agentList.value = await api.getAgents() || []
-  } catch { /* 降级到硬编码 */ }
-})
+    const list = await api.getAgents() || []
+    agentStore.setAgentList(list)
+  } catch { /* 降级 */ }
+}
+
+onMounted(loadAgentList)
 
 // 构建 agent ID → display_name 映射
 const agentNameMap = computed(() => {
   const map = {}
-  agentList.value.forEach(a => {
+  agentStore.agentList.forEach(a => {
     map[a.name] = a.display_name || a.name
   })
   return map

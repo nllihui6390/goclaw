@@ -2,8 +2,10 @@
 import { ref, inject, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useToolsStore } from '@/stores/tools'
+import { useAgentStore } from '@/stores/agent'
 
 const api = inject('api')
+const agentStore = useAgentStore()
 const agents = ref([])
 const providers = ref([])
 const loading = ref(false)
@@ -52,6 +54,8 @@ async function loadData() {
       api.getProviders()
     ])
     agents.value = agList || []
+    // 同步更新共享的 agent 列表，供 Header 等组件使用
+    agentStore.setAgentList(agents.value)
     // API 返回数组 [{name, type, models, ...}]，转为 {name: {...}} 便于查找
     if (Array.isArray(provData)) {
       const map = {}

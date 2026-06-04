@@ -15,7 +15,12 @@ const editContent = ref('')
 const personaFiles = ['AGENTS.md', 'HEARTBEAT.md', 'MEMORY.md', 'PROFILE.md', 'SOUL.md']
 
 onMounted(loadFiles)
-watch(() => agentStore.selectedAgent, loadFiles)
+// 监控 agent 变化，重置编辑框并重新加载文件列表
+watch(() => agentStore.selectedAgent, () => {
+  editFile.value = null
+  editContent.value = ''
+  loadFiles()
+})
 
 async function loadFiles() {
   loading.value = true
