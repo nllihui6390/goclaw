@@ -32,7 +32,9 @@ func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 func (c *ChatService) SetSessionIndex(idx *store.SessionIndex) { c.chatSvc.SetSessionIndex(idx) }
 
 // CreateSession 创建新会话，返回 UUID
-func (c *ChatService) CreateSession() string { return c.chatSvc.CreateSession() }
+func (c *ChatService) CreateSession(agentName string) string {
+	return c.chatSvc.CreateSession(agentName)
+}
 
 // SendMessage 对话接口，返回完整响应
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {

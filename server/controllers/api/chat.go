@@ -21,7 +21,15 @@ func HandleCreateSession(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	result := chatSvc.CreateSession()
+
+	var body map[string]string
+	json.NewDecoder(r.Body).Decode(&body)
+	agentName := body["agent"]
+	if agentName == "" {
+		agentName = "default"
+	}
+
+	result := chatSvc.CreateSession(agentName)
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write([]byte(result))
 }

@@ -45,10 +45,13 @@ func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
 }
 
 // CreateSession 创建新会话，返回 UUID 并注册到索引
-func (c *ChatService) CreateSession() string {
+func (c *ChatService) CreateSession(agentName string) string {
 	id := utils.UUID()
+	if agentName == "" {
+		agentName = "default"
+	}
 	if c.sessionIndex != nil {
-		c.sessionIndex.EnsureEntry(id, "console", id, "")
+		c.sessionIndex.EnsureEntry(id, "console", id, agentName)
 	}
 	data, _ := json.Marshal(map[string]string{"session_id": id})
 	return string(data)

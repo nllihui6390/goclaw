@@ -16,10 +16,10 @@ export class WailsAdapter {
     }
   }
 
-  // 创建新会话（后端生成 UUID）
+  // 创建新会话（后端生成 UUID，按 agent 注册索引）
   async createSession(agent) {
     try {
-      const json = await Call.ByName('main.ChatService.CreateSession')
+      const json = await Call.ByName('main.ChatService.CreateSession', agent || 'default')
       return JSON.parse(json)
     } catch (e) {
       // 降级：返回客户端生成的 UUID

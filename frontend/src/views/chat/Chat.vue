@@ -64,8 +64,12 @@ onMounted(async () => {
 })
 
 // 切换 agent 时重新加载对应聊天记录（仅默认会话模式）
-watch(() => agentStore.selectedAgent, () => {
-  if (!viewingSession.value) loadHistory()
+watch(() => agentStore.selectedAgent, async (newAgent) => {
+  if (!viewingSession.value) {
+    // 切换 agent：获取/创建该 agent 的专属会话
+    await sessionStore.switchAgent(api, newAgent)
+    loadHistory()
+  }
 })
 
 // 从会话管理跳转过来时（query 变化），切换 agent 并重新加载
