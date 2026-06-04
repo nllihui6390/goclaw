@@ -85,6 +85,11 @@ func (a *AppService) SetSender(sender func(ctx context.Context, sessionID, messa
 	})
 }
 
+// SetGateway 注入 Gateway 以获取渠道实际连接状态
+func (a *AppService) SetGateway(gw service.GatewayProvider) {
+	a.channelSvc.SetGateway(gw)
+}
+
 // ─────────── Config ───────────
 
 func (a *AppService) GetConfig() string {
@@ -122,6 +127,12 @@ func (a *AppService) DeleteAgent(name string) string {
 }
 
 // ─────────── Channels ───────────
+
+func (a *AppService) GetChannels() string {
+	channels := a.channelSvc.List()
+	data, _ := json.Marshal(channels)
+	return string(data)
+}
 
 func (a *AppService) UpdateChannel(name, configJSON string) string {
 	if err := a.channelSvc.UpdateJSON(name, configJSON); err != nil {

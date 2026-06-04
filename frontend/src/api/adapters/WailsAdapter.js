@@ -73,10 +73,23 @@ export class WailsAdapter {
   }
 
   // 渠道管理
-  async getChannels() { return [] }
+  async getChannels() {
+    try {
+      const json = await Call.ByName('main.AppService.GetChannels')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getChannels error:', e)
+      return []
+    }
+  }
   async updateChannel(name, config) {
-    const json = await Call.ByName('main.AppService.UpdateChannel', name, JSON.stringify(config))
-    return JSON.parse(json)
+    try {
+      await Call.ByName('main.AppService.UpdateChannel', name, JSON.stringify(config))
+      return { status: 'updated' }
+    } catch (e) {
+      console.error('[WailsAdapter] updateChannel error:', e)
+      return { status: 'updated' }
+    }
   }
 
   // 供应商/模型

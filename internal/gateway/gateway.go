@@ -139,6 +139,15 @@ func (g *Gateway) HasChannel(name string) bool {
 	return exists
 }
 
+// GetRegisteredChannels 获取已注册的渠道名称列表
+func (g *Gateway) GetRegisteredChannels() []string {
+	names := make([]string, 0, len(g.channels))
+	for name := range g.channels {
+		names = append(names, name)
+	}
+	return names
+}
+
 // AddRoute 添加路由规则
 func (g *Gateway) AddRoute(rule RouteRule) {
 	g.router.AddRule(rule)

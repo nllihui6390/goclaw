@@ -14,9 +14,13 @@ func toDisplayConfig(showToolMessages, showThinking, streamOutput bool) channel.
 	}
 }
 
-// initChannels 注册所有渠道
-// 注：console 渠道（HTTP API）由 main.go / main_desktop.go 直接注册，不在这里
+// initChannels 注册所有渠道（包括 console）
 func (app *App) initChannels() {
+	// console（桌面模式下 UI 就是控制台）
+	if app.Config.Channels.Console.Enabled {
+		consoleChan := channel.NewConsoleChannel("desktop", "", channel.DefaultDisplayConfig())
+		app.Gateway.RegisterChannelWithoutServer(consoleChan)
+	}
 
 	if app.Config.Channels.Lark.Enabled {
 		display := toDisplayConfig(
@@ -91,6 +95,17 @@ func (app *App) initChannels() {
 
 // SyncChannels 根据新配置同步渠道（热加载时调用）
 func (app *App) SyncChannels(newCfg *config.Config) {
+	// console（桌面模式下 console 就是 UI，启用即视为已连接）
+	if newCfg.Channels.Console.Enabled && !app.Gateway.HasChannel("console") {
+		// 注册虚拟 console 渠道（仅用于状态显示）
+		consoleChan := channel.NewConsoleChannel("desktop", "", channel.DefaultDisplayConfig())
+		app.Gateway.RegisterChannelWithoutServer(consoleChan)
+		app.logger.Info("控制台渠道已热加载注册")
+	} else if !newCfg.Channels.Console.Enabled && app.Gateway.HasChannel("console") {
+		app.Gateway.UnregisterChannel("console")
+		app.logger.Info("控制台渠道已热加载注销")
+	}
+
 	// 飞书
 	if newCfg.Channels.Lark.Enabled && !app.Gateway.HasChannel("lark") {
 		display := toDisplayConfig(newCfg.Channels.Lark.ShowToolMessages, newCfg.Channels.Lark.ShowThinking, newCfg.Channels.Lark.StreamOutput)

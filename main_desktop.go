@@ -48,6 +48,7 @@ func main() {
 	appSvc.SetAgents(agents)
 	appSvc.SetSender(app.Gateway.SendProactiveMessage)
 	appSvc.SetSessionIndex(app.Gateway.GetSessionIndex())
+	appSvc.SetGateway(app.Gateway)
 
 	// 配置文件热加载：同步渠道启用状态
 	startDesktopConfigWatcher(app)

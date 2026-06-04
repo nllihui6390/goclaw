@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"go-claw/internal/agent"
+	"go-claw/internal/gateway"
 	"go-claw/internal/store"
 	wailsCtrl "go-claw/server/controllers/wails"
 )
@@ -40,7 +41,8 @@ func (a *AppService) SetAgents(agents map[string]*agent.Agent) { a.inner.SetAgen
 func (a *AppService) SetSender(sender func(ctx context.Context, sessionID, message string) error) {
 	a.inner.SetSender(sender)
 }
-func (a *AppService) SetSessionIndex(idx *store.SessionIndex) { a.inner.SetSessionIndex(idx) }
+func (a *AppService) SetSessionIndex(idx *store.SessionIndex)  { a.inner.SetSessionIndex(idx) }
+func (a *AppService) SetGateway(gw *gateway.Gateway)          { a.inner.SetGateway(gw) }
 
 func (a *AppService) GetConfig() string                   { return a.inner.GetConfig() }
 func (a *AppService) SaveConfig(configJSON string) string { return a.inner.SaveConfig(configJSON) }
@@ -49,6 +51,7 @@ func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	return a.inner.UpdateAgent(name, agentJSON)
 }
 func (a *AppService) DeleteAgent(name string) string        { return a.inner.DeleteAgent(name) }
+func (a *AppService) GetChannels() string                   { return a.inner.GetChannels() }
 func (a *AppService) UpdateChannel(name, configJSON string) string {
 	return a.inner.UpdateChannel(name, configJSON)
 }

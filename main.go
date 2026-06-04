@@ -34,8 +34,10 @@ func runServer() {
 	api.InitServices()
 	// 注入 Gateway Agent 到 ChatService
 	api.SetChatAgents(gatewayInstance.Gateway.GetAgents())
-	// 注入会话索引到 SessionService（前端会话列表直接读 sessions_index.json）
+	// 注入会话索引到 SessionService
 	api.SetSessionIndex(gatewayInstance.Gateway.GetSessionIndex())
+	// 注入 Gateway 到 ChannelService（获取渠道实际连接状态）
+	api.SetGateway(gatewayInstance.Gateway)
 	// 注入定时任务执行回调（由 CronService.Run 统一调度）
 	api.SetCronExecutor(&api.CronExecutorConfig{
 		SendMsg: func(ctx context.Context, sessionID, message string) error {

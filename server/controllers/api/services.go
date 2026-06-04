@@ -61,6 +61,13 @@ func SetSessionIndex(idx interface{}) {
 	}
 }
 
+// SetGateway 注入 Gateway 以获取渠道实际连接状态
+func SetGateway(gw service.GatewayProvider) {
+	if channelSvc != nil {
+		channelSvc.SetGateway(gw)
+	}
+}
+
 // CronExecutorConfig HTTP 模式的定时任务执行器配置
 type CronExecutorConfig struct {
 	SendMsg    func(ctx context.Context, sessionID, message string) error
