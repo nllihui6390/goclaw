@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"go-claw/global"
 	"go-claw/server/service"
@@ -36,6 +38,10 @@ func NewAppService() *AppService {
 func (a *AppService) initServices() {
 	a.configSvc = service.NewConfigService()
 	a.agentSvc = service.NewAgentService(a.configSvc)
+	a.agentSvc.SetDeleteDirFunc(func(name string) error {
+		wsBase := a.configSvc.WorkspaceBase()
+		return os.RemoveAll(filepath.Join(wsBase, name))
+	})
 	a.channelSvc = service.NewChannelService(a.configSvc)
 	a.providerSvc = service.NewProviderService(a.configSvc)
 	a.toolSvc = service.NewToolService(a.configSvc)
@@ -111,6 +117,10 @@ func (a *AppService) DeleteAgent(name string) string {
 	}
 	if err := a.agentSvc.Delete(name); err != nil {
 		return `{"error":"delete failed"}`
+	}
+	// 从 gateway 中注销 agent
+	if gw := global.GetGateway(); gw != nil {
+		gw.UnregisterAgent(name)
 	}
 	return `{"status":"deleted"}`
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"go-claw/global"
 	"go-claw/server/service"
@@ -35,6 +37,10 @@ func InitServices() {
 	servicesInited = true
 	configSvc = service.NewConfigService()
 	agentSvc = service.NewAgentService(configSvc)
+	agentSvc.SetDeleteDirFunc(func(name string) error {
+		wsBase := configSvc.WorkspaceBase()
+		return os.RemoveAll(filepath.Join(wsBase, name))
+	})
 	channelSvc = service.NewChannelService(configSvc)
 	providerSvc = service.NewProviderService(configSvc)
 	toolSvc = service.NewToolService(configSvc)

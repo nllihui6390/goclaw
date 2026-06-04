@@ -142,22 +142,6 @@ func (app *App) initAgents() {
 	}
 }
 
-// reloadAllAgentSkills 全局技能变化时，重建所有 agent 的技能注册表
-func (app *App) reloadAllAgentSkills() {
-	agents := app.Gateway.GetAgents()
-	for name, ag := range agents {
-		agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + name
-		enabledSkills := loadEnabledSkills(agentWorkspaceDir)
-
-		newReg := skill.NewRegistry(app.DataDir + "/skills")
-		if len(enabledSkills) > 0 {
-			newReg.LoadEnabled(app.DataDir+"/skills", enabledSkills)
-		}
-		ag.SetSkillRegistry(newReg)
-		app.logger.Info("Agent Skill 已重载", "agent", name, "skills", len(enabledSkills))
-	}
-}
-
 // ReloadAgentSkills 重载指定 agent 的技能注册表（动态生效）
 func (app *App) ReloadAgentSkills(agentName string, enabledSkills []string) {
 	agents := app.Gateway.GetAgents()

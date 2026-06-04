@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"go-claw/global"
 )
 
 // HandleAgents 返回 Agent 列表（GET）
@@ -30,6 +32,10 @@ func HandleAgentByID(rw http.ResponseWriter, r *http.Request) {
 		if err := agentSvc.Delete(name); err != nil {
 			writeError(rw, http.StatusInternalServerError, "delete failed")
 			return
+		}
+		// 从 gateway 中注销 agent
+		if gw := global.GetGateway(); gw != nil {
+			gw.UnregisterAgent(name)
 		}
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
 		return

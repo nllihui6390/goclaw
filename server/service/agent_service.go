@@ -7,13 +7,19 @@ import (
 
 // AgentService Agent 管理服务
 type AgentService struct {
-	config *ConfigService
-	mu     sync.RWMutex
+	config  *ConfigService
+	mu      sync.RWMutex
+	delDir  func(name string) error // 删除 agent 目录的回调
 }
 
 // NewAgentService 创建 Agent 服务
 func NewAgentService(config *ConfigService) *AgentService {
 	return &AgentService{config: config}
+}
+
+// SetDeleteDirFunc 设置删除 agent 目录的回调函数
+func (s *AgentService) SetDeleteDirFunc(fn func(name string) error) {
+	s.delDir = fn
 }
 
 // List 获取 Agent 列表
@@ -42,7 +48,14 @@ func (s *AgentService) UpdateJSON(name, agentJSON string) error {
 	return s.Update(name, agentConfig)
 }
 
-// Delete 删除 Agent
+// Delete 删除 Agent（从配置中移除并删除工作空间目录）
 func (s *AgentService) Delete(name string) error {
-	return s.config.DeleteAgent(name)
+	if err := s.config.DeleteAgent(name); err != nil {
+		return err
+	}
+	// 删除 agent 工作空间目录
+	if s.delDir != nil {
+		s.delDir(name)
+	}
+	return nil
 }
