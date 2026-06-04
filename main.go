@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"go-claw/config"
+	"go-claw/global"
 	"go-claw/internal/bootstrap"
 	"go-claw/internal/channel"
 	"go-claw/internal/gateway"
@@ -14,9 +15,6 @@ import (
 	"go-claw/server/controllers/api"
 	glog "go-claw/pkg/log"
 )
-
-// gatewayInstance 全局 Gateway 实例，供 HTTP API 访问
-var gatewayInstance *bootstrap.App
 
 // runServer 启动 go-claw 完整服务
 // 初始化前端嵌入、go-claw 核心、Chat API、管理后台 HTTP 服务器
@@ -28,23 +26,21 @@ func runServer() {
 		glog.Logger().Error("初始化失败", "err", err)
 		return
 	}
-	gatewayInstance = app
 
-	// 手动初始化 services 层（server.Start 内部也会调用，但我们在那之前需要注入 executor）
+	// 写入全局变量
+	global.SetGateway(app.Gateway)
+	global.SetConfig(app.Config)
+	global.SetSessionIndex(app.Gateway.GetSessionIndex())
+
+	// 初始化 services 层
 	api.InitServices()
-	// 注入 Gateway Agent 到 ChatService
-	api.SetChatAgents(gatewayInstance.Gateway.GetAgents())
-	// 注入会话索引到 SessionService
-	api.SetSessionIndex(gatewayInstance.Gateway.GetSessionIndex())
-	// 注入 Gateway 到 ChannelService（获取渠道实际连接状态）
-	api.SetGateway(gatewayInstance.Gateway)
 	// 注入定时任务执行回调（由 CronService.Run 统一调度）
 	api.SetCronExecutor(&api.CronExecutorConfig{
 		SendMsg: func(ctx context.Context, sessionID, message string) error {
-			return gatewayInstance.Gateway.SendProactiveMessage(ctx, sessionID, message)
+			return global.GetGateway().SendProactiveMessage(ctx, sessionID, message)
 		},
 		ProcessMsg: func(ctx context.Context, agentName, sessionID, content string) (string, error) {
-			agents := gatewayInstance.Gateway.GetAgents()
+			agents := global.GetGateway().GetAgents()
 			ag := agents["default"]
 			if agentName != "" {
 				if a, ok := agents[agentName]; ok {
@@ -85,6 +81,10 @@ func startConfigWatcher(app *bootstrap.App, consoleChan *channel.ConsoleChannel)
 		consoleChan.SetEnabled(newCfg.Channels.Console.Enabled)
 		// 同步机器人渠道（飞书/钉钉/企微/微信）：自动注册或注销
 		app.SyncChannels(newCfg)
+		// 同步 Agent 配置
+		app.SyncAgents(newCfg)
+		// 更新全局配置
+		global.SetConfig(newCfg)
 		glog.Logger().Info("配置已热加载",
 			"console", newCfg.Channels.Console.Enabled,
 			"lark", newCfg.Channels.Lark.Enabled,

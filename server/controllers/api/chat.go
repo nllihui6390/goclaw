@@ -4,16 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"go-claw/internal/agent"
 )
-
-// SetChatAgents 将 Gateway Agent 注入到 ChatService（由 main.go 调用）
-func SetChatAgents(agents map[string]*agent.Agent) {
-	if chatSvc != nil {
-		chatSvc.SetAgents(agents)
-	}
-}
 
 // HandleCreateSession 创建新会话并返回 UUID（POST）
 func HandleCreateSession(rw http.ResponseWriter, r *http.Request) {
@@ -29,6 +20,7 @@ func HandleCreateSession(rw http.ResponseWriter, r *http.Request) {
 		agentName = "default"
 	}
 
+	// sessionIndex 已在 InitServices 中设置
 	result := chatSvc.CreateSession(agentName)
 	rw.Header().Set("Content-Type", "application/json")
 	rw.Write([]byte(result))
@@ -50,6 +42,7 @@ func HandleChatHistory(rw http.ResponseWriter, r *http.Request) {
 
 	reqAgent := r.URL.Query().Get("agent")
 
+	// agents/sessionIndex 已在 InitServices 中设置
 	// 直接委托给 ChatService（Agent 内存 → Store → 磁盘兜底，与 Wails 模式共享同一逻辑）
 	result := chatSvc.GetChatHistory(sessionID, reqAgent)
 

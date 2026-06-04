@@ -14,11 +14,12 @@ import (
 
 // Gateway 网关核心
 type Gateway struct {
-	agents       map[string]*agent.Agent    // agent名称 -> agent实例
+	mu           sync.RWMutex             // 保护 agents/channels 并发访问
+	agents       map[string]*agent.Agent  // agent名称 -> agent实例
 	channels     map[string]channel.Channel // 渠道名称 → 渠道实例
 	router       *Router                    // 路由器
 	bus          *AgentBus                  // Agent间消息总线
-	sessionIndex *store.SessionIndex       // 会话索引（channel:user → UUID）
+	sessionIndex *store.SessionIndex        // 会话索引（channel:user → UUID）
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -36,6 +37,8 @@ func (g *Gateway) GetSessionIndex() *store.SessionIndex {
 
 // GetAgents 获取所有 Agent 实例（供 proactive 等外部模块使用）
 func (g *Gateway) GetAgents() map[string]*agent.Agent {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.agents
 }
 
@@ -49,7 +52,9 @@ func (g *Gateway) SendProactiveMessage(ctx context.Context, sessionID, message s
 	}
 	channelName, user := parts[0], parts[1]
 
+	g.mu.RLock()
 	ch, exists := g.channels[channelName]
+	g.mu.RUnlock()
 	if !exists {
 		return fmt.Errorf("channel not found: %s", channelName)
 	}
@@ -98,8 +103,18 @@ func NewGateway() *Gateway {
 
 // RegisterAgent 注册Agent
 func (g *Gateway) RegisterAgent(name string, ag *agent.Agent) {
+	g.mu.Lock()
 	g.agents[name] = ag
+	g.mu.Unlock()
 	log.Logger().Info("Agent已注册", "name", name)
+}
+
+// UnregisterAgent 注销Agent
+func (g *Gateway) UnregisterAgent(name string) {
+	g.mu.Lock()
+	delete(g.agents, name)
+	g.mu.Unlock()
+	log.Logger().Info("Agent已注销", "name", name)
 }
 
 // RegisterChannel 注册渠道并启动消息处理
@@ -107,7 +122,9 @@ func (g *Gateway) RegisterChannel(ch channel.Channel) error {
 	if err := ch.Start(g.ctx); err != nil {
 		return err
 	}
+	g.mu.Lock()
 	g.channels[ch.GetName()] = ch
+	g.mu.Unlock()
 	g.wg.Add(1)
 	go g.handleChannel(ch.GetName(), ch)
 	log.Logger().Info("渠道已注册", "name", ch.GetName())
@@ -116,7 +133,9 @@ func (g *Gateway) RegisterChannel(ch channel.Channel) error {
 
 // RegisterChannelWithoutServer 注册渠道但不启动其自带 HTTP 服务器（共用外部 mux）
 func (g *Gateway) RegisterChannelWithoutServer(ch channel.Channel) {
+	g.mu.Lock()
 	g.channels[ch.GetName()] = ch
+	g.mu.Unlock()
 	g.wg.Add(1)
 	go g.handleChannel(ch.GetName(), ch)
 	log.Logger().Info("渠道已注册(无自带服务)", "name", ch.GetName())
@@ -124,23 +143,30 @@ func (g *Gateway) RegisterChannelWithoutServer(ch channel.Channel) {
 
 // UnregisterChannel 注销渠道
 func (g *Gateway) UnregisterChannel(name string) {
+	g.mu.Lock()
 	ch, exists := g.channels[name]
 	if !exists {
+		g.mu.Unlock()
 		return
 	}
-	ch.Stop()
 	delete(g.channels, name)
+	g.mu.Unlock()
+	ch.Stop()
 	log.Logger().Info("渠道已注销", "name", name)
 }
 
 // HasChannel 检查渠道是否已注册
 func (g *Gateway) HasChannel(name string) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	_, exists := g.channels[name]
 	return exists
 }
 
 // GetRegisteredChannels 获取已注册的渠道名称列表
 func (g *Gateway) GetRegisteredChannels() []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	names := make([]string, 0, len(g.channels))
 	for name := range g.channels {
 		names = append(names, name)
@@ -166,7 +192,13 @@ func (g *Gateway) Start() error {
 // Stop 停止网关
 func (g *Gateway) Stop() {
 	g.cancel()
+	g.mu.RLock()
+	channelsCopy := make([]channel.Channel, 0, len(g.channels))
 	for _, ch := range g.channels {
+		channelsCopy = append(channelsCopy, ch)
+	}
+	g.mu.RUnlock()
+	for _, ch := range channelsCopy {
 		ch.Stop()
 	}
 	g.wg.Wait()
@@ -174,13 +206,21 @@ func (g *Gateway) Stop() {
 
 // CleanupExpiredSessions 清理所有Agent的过期会话
 func (g *Gateway) CleanupExpiredSessions(ttlMinutes int) {
+	g.mu.RLock()
+	agentsCopy := make([]*agent.Agent, 0, len(g.agents))
 	for _, ag := range g.agents {
+		agentsCopy = append(agentsCopy, ag)
+	}
+	g.mu.RUnlock()
+	for _, ag := range agentsCopy {
 		ag.CleanupExpiredSessions(ttlMinutes)
 	}
 }
 
 // GetAgent 获取指定Agent（外部访问用）
 func (g *Gateway) GetAgent(name string) *agent.Agent {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.agents[name]
 }
 
@@ -203,8 +243,9 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				return
 			}
 
-			// 路由到合适的Agent
+			// 路由到合适的Agent（使用读锁保护）
 			agentName := g.router.Route(msg)
+			g.mu.RLock()
 			ag, exists := g.agents[agentName]
 			if !exists {
 				log.Logger().Warn("目标Agent不存在，回退到默认Agent",
@@ -212,10 +253,11 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 					"default", g.router.defaultAgent)
 				agentName = g.router.defaultAgent
 				ag, exists = g.agents[agentName]
-				if !exists {
-					log.Logger().Error("默认Agent也不存在", "agentName", agentName)
-					continue
-				}
+			}
+			g.mu.RUnlock()
+			if !exists {
+				log.Logger().Error("默认Agent也不存在", "agentName", agentName)
+				continue
 			}
 
 			// 获取会话 ID：渠道消息走索引映射，webhook/console 直接使用 msg.From

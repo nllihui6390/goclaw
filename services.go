@@ -1,28 +1,19 @@
 package main
 
 import (
-	"context"
-	"sync"
-
-	"go-claw/internal/agent"
-	"go-claw/internal/gateway"
-	"go-claw/internal/store"
 	wailsCtrl "go-claw/server/controllers/wails"
 )
 
 // ChatService Wails 对话服务（薄包装层，保持在 main 包以保持绑定名 main.ChatService）
 type ChatService struct {
 	inner *wailsCtrl.ChatService
-	mu    sync.Mutex
 }
 
-func NewChatService(agents map[string]*agent.Agent) *ChatService {
-	return &ChatService{inner: wailsCtrl.NewChatService(agents)}
+func NewChatService() *ChatService {
+	return &ChatService{inner: wailsCtrl.NewChatService()}
 }
 
-func (c *ChatService) SetAgents(agents map[string]*agent.Agent) { c.inner.SetAgents(agents) }
-func (c *ChatService) CreateSession(agentName string) string    { return c.inner.CreateSession(agentName) }
-func (c *ChatService) SetSessionIndex(idx *store.SessionIndex)  { c.inner.SetSessionIndex(idx) }
+func (c *ChatService) CreateSession(agentName string) string { return c.inner.CreateSession(agentName) }
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	return c.inner.SendMessage(sessionID, content, agentName)
 }
@@ -33,16 +24,9 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 // AppService Wails 管理服务（薄包装层，保持在 main 包以保持绑定名 main.AppService）
 type AppService struct {
 	inner *wailsCtrl.AppService
-	mu    sync.Mutex
 }
 
 func NewAppService() *AppService { return &AppService{inner: wailsCtrl.NewAppService()} }
-func (a *AppService) SetAgents(agents map[string]*agent.Agent) { a.inner.SetAgents(agents) }
-func (a *AppService) SetSender(sender func(ctx context.Context, sessionID, message string) error) {
-	a.inner.SetSender(sender)
-}
-func (a *AppService) SetSessionIndex(idx *store.SessionIndex)  { a.inner.SetSessionIndex(idx) }
-func (a *AppService) SetGateway(gw *gateway.Gateway)          { a.inner.SetGateway(gw) }
 
 func (a *AppService) GetConfig() string                   { return a.inner.GetConfig() }
 func (a *AppService) SaveConfig(configJSON string) string { return a.inner.SaveConfig(configJSON) }

@@ -4,19 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
-	"go-claw/internal/agent"
-	"go-claw/internal/store"
+	"go-claw/global"
 	"go-claw/server/service"
 )
 
 // AppService Wails 管理服务
 type AppService struct {
-	mu      sync.Mutex
-	agents  map[string]*agent.Agent
-	sendMsg func(ctx context.Context, sessionID, message string) error
-
 	// service instances
 	configSvc   *service.ConfigService
 	sessionSvc  *service.SessionService
@@ -50,30 +44,28 @@ func (a *AppService) initServices() {
 	a.logSvc = service.NewLogService()
 	a.statusSvc = service.NewStatusService()
 	a.fileSvc = service.NewFileService(a.configSvc)
-}
 
-// SetAgents 注入 Agent 实例
-func (a *AppService) SetAgents(agents map[string]*agent.Agent) {
-	a.mu.Lock()
-	a.agents = agents
-	a.mu.Unlock()
-}
+	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
+	gw := global.GetGateway()
+	if gw != nil {
+		a.channelSvc.SetGateway(gw)
+	}
+	si := global.GetSessionIndex()
+	if si != nil {
+		a.sessionSvc.SetSessionIndex(si)
+		a.cronSvc.SetSessionIndex(si)
+	}
 
-// SetSessionIndex 注入会话索引
-func (a *AppService) SetSessionIndex(idx *store.SessionIndex) {
-	a.sessionSvc.SetSessionIndex(idx)
-	a.cronSvc.SetSessionIndex(idx)
-}
-
-// SetSender 注入消息发送器和 Agent 处理器到 CronService
-func (a *AppService) SetSender(sender func(ctx context.Context, sessionID, message string) error) {
-	a.sendMsg = sender
+	// 设置 cron executor（从 global 获取 gateway）
 	a.cronSvc.SetExecutor(&service.CronExecutor{
-		SendMsg: sender,
+		SendMsg: func(ctx context.Context, sessionID, message string) error {
+			return global.GetGateway().SendProactiveMessage(ctx, sessionID, message)
+		},
 		ProcessMsg: func(ctx context.Context, agentName, sessionID, content string) (string, error) {
-			ag := a.agents["default"]
+			agents := global.GetGateway().GetAgents()
+			ag := agents["default"]
 			if agentName != "" {
-				if ag2, ok := a.agents[agentName]; ok {
+				if ag2, ok := agents[agentName]; ok {
 					ag = ag2
 				}
 			}
@@ -83,11 +75,6 @@ func (a *AppService) SetSender(sender func(ctx context.Context, sessionID, messa
 			return ag.Process(ctx, sessionID, content)
 		},
 	})
-}
-
-// SetGateway 注入 Gateway 以获取渠道实际连接状态
-func (a *AppService) SetGateway(gw service.GatewayProvider) {
-	a.channelSvc.SetGateway(gw)
 }
 
 // ─────────── Config ───────────
@@ -129,6 +116,7 @@ func (a *AppService) DeleteAgent(name string) string {
 // ─────────── Channels ───────────
 
 func (a *AppService) GetChannels() string {
+	// gateway 已在 initServices 中设置
 	channels := a.channelSvc.List()
 	data, _ := json.Marshal(channels)
 	return string(data)
@@ -162,6 +150,7 @@ func (a *AppService) GetSkills() string {
 // ─────────── Sessions ───────────
 
 func (a *AppService) GetSessions() string {
+	// sessionIndex 已在 initServices 中设置
 	sessions := a.sessionSvc.List()
 	data, _ := json.Marshal(sessions)
 	return string(data)

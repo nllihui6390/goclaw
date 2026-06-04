@@ -188,7 +188,7 @@ function getStatusText(channel) {
 .page { padding: 24px; }
 .page-header { margin-bottom: 24px; }
 .page-header h2 { margin: 0; font-weight: 500; }
-.channels-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.channels-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; }
 .channel-card { cursor: pointer; transition: all .2s; }
 .channel-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
 .card-inner { display: flex; flex-direction: column; gap: 16px; }

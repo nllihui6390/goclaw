@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"go-claw/internal/store"
+	"go-claw/global"
 	"go-claw/server/service"
 )
 
@@ -44,27 +44,18 @@ func InitServices() {
 	logSvc = service.NewLogService()
 	statusSvc = service.NewStatusService()
 	fileSvc = service.NewFileService(configSvc)
-}
 
-// SetSessionIndex 注入会话索引（由 main.go 从 gateway 传入）
-func SetSessionIndex(idx interface{}) {
-	if si, ok := idx.(*store.SessionIndex); ok {
-		if sessionSvc != nil {
-			sessionSvc.SetSessionIndex(si)
-		}
-		if cronSvc != nil {
-			cronSvc.SetSessionIndex(si)
-		}
-		if chatSvc != nil {
-			chatSvc.SetSessionIndex(si)
-		}
-	}
-}
-
-// SetGateway 注入 Gateway 以获取渠道实际连接状态
-func SetGateway(gw service.GatewayProvider) {
-	if channelSvc != nil {
+	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
+	gw := global.GetGateway()
+	if gw != nil {
 		channelSvc.SetGateway(gw)
+		chatSvc.SetAgents(gw.GetAgents())
+	}
+	si := global.GetSessionIndex()
+	if si != nil {
+		sessionSvc.SetSessionIndex(si)
+		cronSvc.SetSessionIndex(si)
+		chatSvc.SetSessionIndex(si)
 	}
 }
 

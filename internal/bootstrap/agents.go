@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"go-claw/config"
 	"go-claw/internal/agent"
 	"go-claw/internal/memory"
 	"go-claw/internal/skill"
@@ -16,6 +17,123 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// SyncAgents 同步 Agent 配置（热加载）
+// 对比新旧配置，增删改 Agent
+func (app *App) SyncAgents(newCfg *config.Config) {
+	app.logger.Info("开始同步 Agent 配置")
+
+	// 获取当前已注册的 agent 名称
+	currentAgents := app.Gateway.GetAgents()
+	currentNames := make(map[string]bool)
+	for name := range currentAgents {
+		currentNames[name] = true
+	}
+
+	// 新配置中的 agent 名称
+	newNames := make(map[string]bool)
+	for _, agentCfg := range newCfg.Agents {
+		newNames[agentCfg.Name] = true
+	}
+
+	// 1. 删除不再存在的 Agent
+	for name := range currentNames {
+		if !newNames[name] {
+			app.Gateway.UnregisterAgent(name)
+			app.logger.Info("Agent 已移除", "name", name)
+		}
+	}
+
+	// 2. 新增或更新 Agent
+	for _, agentCfg := range newCfg.Agents {
+		// 检查是否需要更新（简单策略：总是重新创建）
+		// TODO: 可以优化为只更新配置变化的 agent
+		app.createOrUpdateAgent(agentCfg, newCfg)
+	}
+
+	// 3. 更新默认 Agent
+	if newCfg.Gateway.DefaultAgent != "" {
+		app.Gateway.SetDefaultAgent(newCfg.Gateway.DefaultAgent)
+	}
+
+	// 4. 更新 App.Config
+	app.Config = newCfg
+
+	app.logger.Info("Agent 配置同步完成", "total", len(newCfg.Agents))
+}
+
+// createOrUpdateAgent 创建或更新单个 Agent
+func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Config) {
+	tools := loadTools(agentCfg.Tools)
+
+	// 解析配置：从provider获取
+	model, baseURL, apiKey, providerType := cfg.ResolveAgentConfig(&agentCfg)
+	supportsImage, supportsVideo := cfg.ResolveAgentModelConfig(&agentCfg)
+
+	// 每个 agent 有独立的工作空间目录: clawdata/workspaces/<agent-name>/
+	agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + agentCfg.Name
+	agentSessionsDir := agentWorkspaceDir + "/sessions"
+	agentSkillsDir := agentWorkspaceDir + "/skills"
+
+	// 确保目录存在
+	initDataDirs(agentWorkspaceDir, agentSessionsDir, agentSkillsDir, app.logger)
+
+	// 创建该 agent 专属的工作空间加载器
+	wsLoader := workspace.NewLoaderWithAgent(agentWorkspaceDir, agentCfg.Name)
+
+	// 创建该 agent 专属的存储
+	agentStore, err := store.NewFileStore(agentSessionsDir)
+	if err != nil {
+		app.logger.Error("初始化 Agent 存储失败", "agent", agentCfg.Name, "err", err)
+		return
+	}
+
+	// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
+	globalSkillsDir := app.DataDir + "/skills"
+	var skillReg *skill.Registry
+	if existingReg, exists := app.skillRegistries[agentCfg.Name]; exists {
+		// 使用已有的 registry
+		skillReg = existingReg
+	} else {
+		// 创建新的 registry
+		skillReg = skill.NewRegistry(globalSkillsDir)
+		skillReg.AddDir(agentSkillsDir)
+		if err := skillReg.LoadAll(); err != nil {
+			app.logger.Warn("加载全局 Skill 目录失败", "err", err)
+		}
+		if err := skillReg.LoadFromDir(agentSkillsDir); err != nil {
+			app.logger.Warn("加载 Agent Skill 目录失败", "agent", agentCfg.Name, "err", err)
+		}
+		app.skillRegistries[agentCfg.Name] = skillReg
+		app.skillRegistryDirs[agentCfg.Name] = agentSkillsDir
+	}
+
+	ag := agent.NewAgent(&agent.Config{
+		Name:                  agentCfg.Name,
+		SystemPrompt:          agentCfg.SystemPrompt,
+		Model:                 model,
+		APIKey:                apiKey,
+		BaseURL:               baseURL,
+		ProviderType:          providerType,
+		Tools:                 tools,
+		MaxIterations:         agentCfg.MaxIterations,
+		MaxTokens:             agentCfg.MaxTokens,
+		Memory:                memory.NewSimpleMemory(agentStore),
+		Store:                 agentStore,
+		WorkspaceLoader:       wsLoader,
+		WorkspaceDir:          agentWorkspaceDir,
+		SkillRegistry:         skillReg,
+		CompactThresholdRatio: agentCfg.CompactThresholdRatio,
+		ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
+		ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
+		ToolResultExemptTools: agentCfg.ToolResultExemptTools,
+		ToolResultExemptExts:  agentCfg.ToolResultExemptExts,
+		SupportsImage:         supportsImage,
+		SupportsVideo:         supportsVideo,
+	})
+	app.Gateway.RegisterAgent(agentCfg.Name, ag)
+	app.logger.Info("Agent 已注册/更新", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model)
+}
+
 // initAgents 注册所有 Agent
 func (app *App) initAgents() {
 	// 全局技能目录（所有 agent 共享）
@@ -23,75 +141,7 @@ func (app *App) initAgents() {
 	os.MkdirAll(globalSkillsDir, 0755)
 
 	for _, agentCfg := range app.Config.Agents {
-		tools := loadTools(agentCfg.Tools)
-
-		// 解析配置：从provider获取
-		model, baseURL, apiKey, providerType := app.Config.ResolveAgentConfig(&agentCfg)
-	supportsImage, supportsVideo := app.Config.ResolveAgentModelConfig(&agentCfg)
-
-		// 每个 agent 有独立的工作空间目录: clawdata/workspaces/<agent-name>/
-		agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + agentCfg.Name
-		agentSessionsDir := agentWorkspaceDir + "/sessions"
-		agentSkillsDir := agentWorkspaceDir + "/skills"
-
-		// 初始化 agent 的工作空间目录和人设文件
-		initDataDirs(agentWorkspaceDir, agentSessionsDir, agentSkillsDir, app.logger)
-
-		// 创建该 agent 专属的工作空间加载器
-		wsLoader := workspace.NewLoaderWithAgent(agentWorkspaceDir, agentCfg.Name)
-
-		// 创建该 agent 专属的存储
-		agentStore, err := store.NewFileStore(agentSessionsDir)
-		if err != nil {
-			app.logger.Error("初始化 Agent 存储失败", "agent", agentCfg.Name, "err", err)
-			continue
-		}
-
-		// 初始化该 agent 专属的 Skill 系统（全局 + agent 特定）
-		var skillReg *skill.Registry
-		skillReg = skill.NewRegistry(globalSkillsDir)
-		skillReg.AddDir(agentSkillsDir)
-		if err := skillReg.LoadAll(); err != nil {
-			app.logger.Warn("加载全局 Skill 目录失败", "err", err)
-		}
-		globalCount := len(skillReg.List())
-		if err := skillReg.LoadFromDir(agentSkillsDir); err != nil {
-			app.logger.Warn("加载 Agent Skill 目录失败", "agent", agentCfg.Name, "err", err)
-		}
-		agentCount := len(skillReg.List()) - globalCount
-
-		app.skillRegistries[agentCfg.Name] = skillReg
-		app.skillRegistryDirs[agentCfg.Name] = agentSkillsDir
-
-		if len(skillReg.List()) > 0 {
-			app.logger.Info("Agent Skill 已加载（Prompt-based 模式）", "agent", agentCfg.Name, "global", globalCount, "agent_specific", agentCount, "total", len(skillReg.List()))
-		}
-
-		ag := agent.NewAgent(&agent.Config{
-			Name:                  agentCfg.Name,
-			SystemPrompt:          agentCfg.SystemPrompt,
-			Model:                 model,
-			APIKey:                apiKey,
-			BaseURL:               baseURL,
-			ProviderType:          providerType,
-			Tools:                 tools,
-			MaxIterations:         agentCfg.MaxIterations,
-			MaxTokens:             agentCfg.MaxTokens,
-			Memory:                memory.NewSimpleMemory(agentStore),
-			Store:                 agentStore,
-			WorkspaceLoader:       wsLoader,
-			WorkspaceDir:          agentWorkspaceDir,
-			SkillRegistry:         skillReg,
-			CompactThresholdRatio: agentCfg.CompactThresholdRatio,
-			ReserveThresholdRatio: agentCfg.ReserveThresholdRatio,
-			ToolResultMaxBytes:    agentCfg.ToolResultMaxBytes,
-			ToolResultExemptTools: agentCfg.ToolResultExemptTools,
-			ToolResultExemptExts:  agentCfg.ToolResultExemptExts,
-			SupportsImage:         supportsImage,
-			SupportsVideo:         supportsVideo,
-		})
-		app.Gateway.RegisterAgent(agentCfg.Name, ag)
-		app.logger.Info("Agent已注册", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model, "workspace", agentWorkspaceDir)
+		app.createOrUpdateAgent(agentCfg, app.Config)
 	}
 
 	// Skill 热加载

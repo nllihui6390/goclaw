@@ -8,6 +8,7 @@ import (
 
 // HandleChannels 返回渠道列表（GET）
 func HandleChannels(rw http.ResponseWriter, r *http.Request) {
+	// gateway 已在 InitServices 中设置
 	channels := channelSvc.List()
 	writeJSON(rw, http.StatusOK, channels)
 }

@@ -78,7 +78,18 @@ watch(() => agentStore.selectedAgent, loadSessions)
           </template>
         </el-table-column>
         <el-table-column align="center" prop="agent" label="Agent" width="100" />
-        <el-table-column align="center" prop="channel" label="渠道" width="120" />
+        <el-table-column align="center" prop="channel" label="渠道" width="120" >
+          <template #default="{ row }">
+            <el-tag v-if="row.channel === 'console'" type="success">Console</el-tag>
+            <el-tag v-else-if="row.channel === 'wechat'" type="info">WeChat</el-tag>
+            <el-tag v-else-if="row.channel === 'dingtalk'" type="primary">DingTalk</el-tag>
+            <el-tag v-else-if="row.channel === 'lark'" type="success">Lark</el-tag>
+            <el-tag v-else-if="row.channel === 'wecom'" type="warning">WeCom</el-tag>
+            <el-tag v-else-if="row.channel === 'telegram'" type="info">Telegram</el-tag>
+            <el-tag v-else-if="row.channel === 'slack'" type="primary">Slack</el-tag>
+            <el-tag v-else type="info">{{ row.channel }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column align="center" prop="user_id" label="用户" min-width="120" />
         <el-table-column align="center" label="创建时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>

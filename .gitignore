@@ -12,5 +12,6 @@ go-claw
 clawdata/*
 skills/*
 output/*
+docs
 .task
 bin

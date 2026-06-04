@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-claw/config"
+	"go-claw/global"
 	"go-claw/internal/bootstrap"
 	"go-claw/internal/gateway"
 	glog "go-claw/pkg/log"
@@ -37,18 +38,16 @@ func main() {
 		log.Fatal("初始化失败:", err)
 	}
 
-	chatSvc := NewChatService(nil)
+	// 写入全局变量
+	global.SetGateway(app.Gateway)
+	global.SetConfig(app.Config)
+	global.SetSessionIndex(app.Gateway.GetSessionIndex())
+
+	chatSvc := NewChatService()
 	appSvc := NewAppService()
 
 	go app.Run()
 	time.Sleep(500 * time.Millisecond)
-	agents := app.Gateway.GetAgents()
-	chatSvc.SetAgents(agents)
-	chatSvc.SetSessionIndex(app.Gateway.GetSessionIndex())
-	appSvc.SetAgents(agents)
-	appSvc.SetSender(app.Gateway.SendProactiveMessage)
-	appSvc.SetSessionIndex(app.Gateway.GetSessionIndex())
-	appSvc.SetGateway(app.Gateway)
 
 	// 配置文件热加载：同步渠道启用状态
 	startDesktopConfigWatcher(app)
@@ -120,6 +119,10 @@ func startDesktopConfigWatcher(app *bootstrap.App) {
 		}
 		// 同步渠道（自动注册/注销）
 		app.SyncChannels(newCfg)
+		// 同步 Agent 配置
+		app.SyncAgents(newCfg)
+		// 更新全局配置
+		global.SetConfig(newCfg)
 		glog.Logger().Info("配置已热加载",
 			"lark", newCfg.Channels.Lark.Enabled,
 			"dingtalk", newCfg.Channels.DingTalk.Enabled,

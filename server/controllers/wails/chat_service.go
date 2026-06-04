@@ -1,8 +1,7 @@
 package wails
 
 import (
-	"go-claw/internal/agent"
-	"go-claw/internal/store"
+	"go-claw/global"
 	"go-claw/server/service"
 )
 
@@ -12,32 +11,33 @@ type ChatService struct {
 }
 
 // NewChatService 创建 ChatService
-func NewChatService(agents map[string]*agent.Agent) *ChatService {
-	return &ChatService{
-		chatSvc: service.NewChatService(agents, nil),
+func NewChatService() *ChatService {
+	c := &ChatService{
+		chatSvc: service.NewChatService(nil, nil),
 	}
+	// 从 global 获取依赖
+	gw := global.GetGateway()
+	if gw != nil {
+		c.chatSvc.SetAgents(gw.GetAgents())
+	}
+	si := global.GetSessionIndex()
+	if si != nil {
+		c.chatSvc.SetSessionIndex(si)
+	}
+	return c
 }
-
-// SetSessionService 注入 SessionService（用于磁盘兜底）
-func (c *ChatService) SetSessionService(s *service.SessionService) {
-	c.chatSvc.SetSessionService(s)
-}
-
-// SetAgents 注入 Agent 实例
-func (c *ChatService) SetAgents(agents map[string]*agent.Agent) {
-	c.chatSvc.SetAgents(agents)
-}
-
-// SetSessionIndex 注入会话索引
-func (c *ChatService) SetSessionIndex(idx *store.SessionIndex) { c.chatSvc.SetSessionIndex(idx) }
 
 // CreateSession 创建新会话，返回 UUID
 func (c *ChatService) CreateSession(agentName string) string {
+	// 从 global 获取最新 sessionIndex
+	c.chatSvc.SetSessionIndex(global.GetSessionIndex())
 	return c.chatSvc.CreateSession(agentName)
 }
 
 // SendMessage 对话接口，返回完整响应
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
+	// agents 从 global 获取（动态获取以支持热加载）
+	c.chatSvc.SetAgents(global.GetGateway().GetAgents())
 	return c.chatSvc.SendMessage(sessionID, content, agentName)
 }
 
