@@ -12,7 +12,7 @@ const saving = ref(false)
 const editFile = ref(null)
 const editContent = ref('')
 
-const personaFiles = ['AGENTS.md', 'HEARTBEAT.md', 'MEMORY.md', 'PROFILE.md', 'SOUL.md', 'BOOTSTRAP.md']
+const personaFiles = ['AGENTS.md', 'HEARTBEAT.md', 'MEMORY.md', 'PROFILE.md', 'SOUL.md']
 
 onMounted(loadFiles)
 watch(() => agentStore.selectedAgent, loadFiles)
@@ -79,13 +79,8 @@ function formatSize(bytes) {
     <div class="split-layout">
       <!-- 左侧文件列表 -->
       <div class="file-list">
-        <div
-          v-for="file in files"
-          :key="file.name"
-          class="file-item"
-          :class="{ active: editFile?.name === file.name }"
-          @click="openFile(file)"
-        >
+        <div v-for="file in files" :key="file.name" class="file-item"
+          :class="{ active: editFile?.name === file.name }" @click="openFile(file)">
           <el-icon :size="18"><Document /></el-icon>
           <div class="item-info">
             <span class="item-name">{{ file.name }}</span>
@@ -102,12 +97,7 @@ function formatSize(bytes) {
             <span class="editor-title">{{ editFile.name }}</span>
             <el-button type="primary" size="small" @click="saveFile" :loading="saving">保存</el-button>
           </div>
-          <el-input
-            v-model="editContent"
-            type="textarea"
-            class="editor-content"
-            placeholder="选择左侧文件开始编辑..."
-          />
+          <el-input v-model="editContent" type="textarea" class="editor-content" placeholder="选择左侧文件开始编辑..."/>
         </template>
         <div v-else class="editor-empty">
           <span>← 选择左侧文件开始编辑</span>
@@ -172,6 +162,10 @@ function formatSize(bytes) {
   cursor: pointer;
   transition: all .15s;
   color: #606266;
+  background: #fff;
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  margin-bottom: 8px;
 }
 .file-item:hover { background: #f5f7fa; }
 .file-item.active { background: #ecf5ff; color: #409eff; }
@@ -211,6 +205,8 @@ function formatSize(bytes) {
   justify-content: center;
   color: #bbb;
   font-size: 14px;
+  border: 1px solid #ececec;
+
 }
 
 /* 滚动条优化 */

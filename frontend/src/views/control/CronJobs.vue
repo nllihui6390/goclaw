@@ -183,12 +183,12 @@ function formatSchedule(schedule) {
 
       <el-table :data="jobs" stripe>
         <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column prop="schedule" label="调度" width="150">
+        <el-table-column align="center" prop="schedule" label="调度" width="150">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ formatSchedule(row.schedule) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="type" label="类型" width="90">
+        <el-table-column align="center" prop="type" label="类型" width="90">
           <template #default="{ row }">
             <el-tag :type="row.type === 'text' ? 'primary' : 'success'" size="small">
               {{ row.type === 'text' ? '文本' : 'Agent' }}
@@ -200,18 +200,18 @@ function formatSchedule(schedule) {
             <span class="content-text">{{ row.content?.slice(0, 40) }}{{ row.content?.length > 40 ? '...' : '' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="agent_name" label="Agent" width="80" />
-        <el-table-column label="上次执行" width="150">
+        <el-table-column align="center" prop="agent_name" label="Agent" width="80" />
+        <el-table-column align="center" label="上次执行" width="150">
           <template #default="{ row }">
             <span class="time-text">{{ formatTime(row.last_run) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="下次执行" width="150">
+        <el-table-column align="center" label="下次执行" width="150">
           <template #default="{ row }">
             <span class="time-text">{{ formatTime(row.next_run) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column align="center" label="操作" width="200" fixed="right">
           <template #default="{ row, $index }">
             <el-button link type="primary" @click="openEdit($index)">编辑</el-button>
             <el-button link type="success" @click="runJob($index)">执行</el-button>

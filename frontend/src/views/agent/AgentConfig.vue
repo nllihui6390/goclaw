@@ -137,17 +137,17 @@ async function deleteAgent(agent) {
         </div>
       </template>
       <el-table :data="agents" v-loading="loading" stripe>
-        <el-table-column prop="name" label="Agent ID" width="100" />
+        <el-table-column align="center" prop="name" label="Agent ID" width="100" />
         <el-table-column prop="display_name" label="名称" width="120" />
         <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="provider" label="供应商" width="100" />
-        <el-table-column prop="model" label="模型" width="150" />
-        <el-table-column label="工具" min-width="120">
+        <el-table-column align="center"prop="provider" label="供应商" width="100" />
+        <el-table-column align="center" prop="model" label="模型" width="150" />
+        <el-table-column align="center" label="工具" min-width="120">
           <template #default="{ row }">
             <span>{{ row.tools?.length || 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column align="center" label="操作" width="150">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" :disabled="row.name === 'default'" @click="deleteAgent(row)">删除</el-button>
