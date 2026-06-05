@@ -12,14 +12,14 @@ import (
 	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
 	"go-claw/internal/inbox"
-	"go-claw/internal/media"
 	"go-claw/internal/mcp"
+	"go-claw/internal/media"
 	"go-claw/internal/multiagent"
 	"go-claw/internal/proactive"
 	"go-claw/internal/security"
 	"go-claw/internal/tool"
-	"go-claw/pkg/utils"
 	glog "go-claw/pkg/log"
+	"go-claw/pkg/utils"
 )
 
 // initInbox 初始化 Inbox 系统
