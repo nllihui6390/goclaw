@@ -61,6 +61,11 @@ const providerOptions = computed(() => {
   }))
 })
 
+// 供应商切换时重置模型选择
+function onProviderChange() {
+  defaultModel.value = ''
+}
+
 onMounted(async () => {
   await loadConfig()
 })
@@ -220,7 +225,7 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
         </div>
       </template>
       <div class="default-row">
-        <el-select v-model="defaultProvider" placeholder="选择供应商" style="width: 160px">
+        <el-select v-model="defaultProvider" placeholder="选择供应商" style="width: 160px" @change="onProviderChange">
           <el-option v-for="p in providerOptions" :key="p.value" :label="p.label" :value="p.value" />
         </el-select>
         <el-select v-model="defaultModel" placeholder="选择模型" style="width: 200px">
