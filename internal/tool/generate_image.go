@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"go-claw/internal/channel"
+	
 	"go-claw/internal/media"
 )
 
@@ -78,20 +78,11 @@ func (t *GenerateImageTool) Parameters() map[string]interface{} {
 	}
 }
 
-// Execute 纯文本返回（向后兼容 Tool 接口）
+// Execute 执行图片生成（只返回文本结果给 LLM）
 func (t *GenerateImageTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
-	blocks, err := t.ExecuteStructured(ctx, params)
-	if err != nil {
-		return "", err
-	}
-	return channel.TextOnlyContent(blocks), nil
-}
-
-// ExecuteStructured 结构化返回（实现 StructuredTool 接口）
-func (t *GenerateImageTool) ExecuteStructured(ctx context.Context, params map[string]interface{}) (channel.ContentBlocks, error) {
 	prompt, ok := params["prompt"].(string)
 	if !ok || prompt == "" {
-		return nil, fmt.Errorf("缺少 prompt 参数")
+		return "", fmt.Errorf("缺少 prompt 参数")
 	}
 
 	style, _ := params["style"].(string)
@@ -126,10 +117,10 @@ func (t *GenerateImageTool) ExecuteStructured(ctx context.Context, params map[st
 		return t.generateDallE(prompt, size, oaiKey, savePath)
 	}
 
-	return nil, fmt.Errorf("未配置图片生成 API Key，请设置以下环境变量之一：\n- SILICONFLOW_API_KEY\n- ZHIPU_API_KEY\n- OPENAI_API_KEY")
+	return "", fmt.Errorf("未配置图片生成 API Key，请设置以下环境变量之一：\n- SILICONFLOW_API_KEY\n- ZHIPU_API_KEY\n- OPENAI_API_KEY")
 }
 
-func (t *GenerateImageTool) generateDallE(prompt, size, apiKey, savePath string) (channel.ContentBlocks, error) {
+func (t *GenerateImageTool) generateDallE(prompt, size, apiKey, savePath string) (string, error) {
 	baseURL := getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 	url := baseURL + "/images/generations"
 
@@ -144,40 +135,40 @@ func (t *GenerateImageTool) generateDallE(prompt, size, apiKey, savePath string)
 	client := &http.Client{Timeout: 120 * time.Second}
 	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyJSON))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return "", fmt.Errorf("创建请求失败: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %v", err)
+		return "", fmt.Errorf("请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return "", fmt.Errorf("读取响应失败: %v", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API 返回错误 (%d): %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("API 返回错误 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var result dallEResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %v", err)
+		return "", fmt.Errorf("解析响应失败: %v", err)
 	}
 
 	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("未生成图片")
+		return "", fmt.Errorf("未生成图片")
 	}
 
 	imageURL := result.Data[0].URL
 	return t.buildImageResult(imageURL, "dalle", savePath)
 }
 
-func (t *GenerateImageTool) generateSiliconFlow(prompt, size, apiKey, savePath string) (channel.ContentBlocks, error) {
+func (t *GenerateImageTool) generateSiliconFlow(prompt, size, apiKey, savePath string) (string, error) {
 	url := "https://api.siliconflow.cn/v1/images/generations"
 
 	body := map[string]interface{}{
@@ -191,24 +182,24 @@ func (t *GenerateImageTool) generateSiliconFlow(prompt, size, apiKey, savePath s
 	client := &http.Client{Timeout: 120 * time.Second}
 	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyJSON))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return "", fmt.Errorf("创建请求失败: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %v", err)
+		return "", fmt.Errorf("请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return "", fmt.Errorf("读取响应失败: %v", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API 返回错误 (%d): %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("API 返回错误 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
@@ -217,18 +208,18 @@ func (t *GenerateImageTool) generateSiliconFlow(prompt, size, apiKey, savePath s
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %v", err)
+		return "", fmt.Errorf("解析响应失败: %v", err)
 	}
 
 	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("未生成图片")
+		return "", fmt.Errorf("未生成图片")
 	}
 
 	imageURL := result.Data[0].URL
 	return t.buildImageResult(imageURL, "siliconflow", savePath)
 }
 
-func (t *GenerateImageTool) generateCogView(prompt, size, apiKey, savePath string) (channel.ContentBlocks, error) {
+func (t *GenerateImageTool) generateCogView(prompt, size, apiKey, savePath string) (string, error) {
 	url := "https://open.bigmodel.cn/api/paas/v4/images/generations"
 
 	body := map[string]interface{}{
@@ -241,24 +232,24 @@ func (t *GenerateImageTool) generateCogView(prompt, size, apiKey, savePath strin
 	client := &http.Client{Timeout: 120 * time.Second}
 	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyJSON))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return "", fmt.Errorf("创建请求失败: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %v", err)
+		return "", fmt.Errorf("请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return "", fmt.Errorf("读取响应失败: %v", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API 返回错误 (%d): %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("API 返回错误 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
@@ -267,51 +258,36 @@ func (t *GenerateImageTool) generateCogView(prompt, size, apiKey, savePath strin
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %v", err)
+		return "", fmt.Errorf("解析响应失败: %v", err)
 	}
 
 	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("未生成图片")
+		return "", fmt.Errorf("未生成图片")
 	}
 
 	imageURL := result.Data[0].URL
 	return t.buildImageResult(imageURL, "cogview", savePath)
 }
 
-// buildImageResult 构建图片生成结果 ContentBlocks
-// 优先保存到本地，使用 file:// URL；如果保存失败则使用远程 URL
-func (t *GenerateImageTool) buildImageResult(imageURL, subdir, savePath string) (channel.ContentBlocks, error) {
+// buildImageResult 构建图片生成结果（只返回文本给 LLM）
+// 优先保存到本地；如果保存失败则使用远程 URL
+func (t *GenerateImageTool) buildImageResult(imageURL, subdir, savePath string) (string, error) {
 	// 优先保存到本地媒体目录
 	localPath, err := media.SaveGeneratedImageFromURL(imageURL, subdir)
 	if err == nil {
-		// 保存成功：使用 file:// URL
-		fileURL := channel.PathToFileURL(localPath)
-		return channel.ContentBlocks{
-			channel.NewImageBlockURL(fileURL),
-			channel.NewTextBlock(fmt.Sprintf("✅ 图片已生成并保存到本地")),
-		}, nil
+		return fmt.Sprintf("✅ 图片已生成并保存到: %s", localPath), nil
 	}
 
 	// 保存失败但指定了 save_path
 	if savePath != "" {
 		if err := downloadAndSave(imageURL, savePath); err != nil {
-			return channel.ContentBlocks{
-				channel.NewImageBlockURL(imageURL),
-				channel.NewTextBlock(fmt.Sprintf("⚠️ 图片已生成但保存失败: %v", err)),
-			}, nil
+			return fmt.Sprintf("⚠️ 图片已生成但保存失败: %v（远程 URL: %s）", err, imageURL), nil
 		}
-		fileURL := channel.PathToFileURL(savePath)
-		return channel.ContentBlocks{
-			channel.NewImageBlockURL(fileURL),
-			channel.NewTextBlock(fmt.Sprintf("✅ 图片已生成并保存到 %s", savePath)),
-		}, nil
+		return fmt.Sprintf("✅ 图片已生成并保存到: %s", savePath), nil
 	}
 
 	// 全部失败：直接使用远程 URL
-	return channel.ContentBlocks{
-		channel.NewImageBlockURL(imageURL),
-		channel.NewTextBlock(fmt.Sprintf("✅ 图片已生成（远程 URL）")),
-	}, nil
+	return fmt.Sprintf("✅ 图片已生成（远程 URL: %s）", imageURL), nil
 }
 
 func enhancePrompt(prompt, style string) string {
