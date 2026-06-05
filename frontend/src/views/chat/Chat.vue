@@ -99,12 +99,24 @@ async function send() {
     if (api.isStreaming) {
       // SSE 流式模式（HttpAdapter）：逐步接收 chunk，渐进式渲染
       let fullContent = ''
-      for await (const chunk of api.sendMessage(sessionId.value, text, agentStore.selectedAgent)) {
-        fullContent += chunk
-        if (messages.value[messages.value.length - 1].role !== 'assistant') {
-          messages.value.push({ role: 'assistant', content: fullContent })
-        } else {
-          messages.value[messages.value.length - 1].content = fullContent
+      let files = [] // 收集文件事件
+      for await (const event of api.sendMessage(sessionId.value, text, agentStore.selectedAgent)) {
+        if (event.type === 'file') {
+          // 文件事件：立即添加到消息列表
+          files.push(event.info)
+          if (messages.value[messages.value.length - 1].role !== 'assistant') {
+            messages.value.push({ role: 'assistant', content: '', files: [...files] })
+          } else {
+            messages.value[messages.value.length - 1].files = [...files]
+          }
+        } else if (event.type === 'text') {
+          // 文本事件：追加内容
+          fullContent += event.content
+          if (messages.value[messages.value.length - 1].role !== 'assistant') {
+            messages.value.push({ role: 'assistant', content: fullContent, files: [...files] })
+          } else {
+            messages.value[messages.value.length - 1].content = fullContent
+          }
         }
         await nextTick()
         scrollBottom()
@@ -199,6 +211,7 @@ async function confirmNewChat() {
         :key="i"
         :role="msg.role"
         :content="msg.content"
+        :files="msg.files"
       />
       <!-- 等待响应时显示加载动画（最后一条不是assistant时表示还在等待） -->
       <div v-if="sending && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant')" class="chat-loading">

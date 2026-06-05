@@ -12,6 +12,7 @@ export class HttpAdapter {
   createSession(agent) { return http.post('/chat/session', { agent }).then(r => r.data) }
 
   // 对话（SSE 流式）
+  // yield { type: 'text', content } 或 { type: 'file', info: {...} }
   async *sendMessage(sessionId, content, agent) {
     // HTTP 模式下，gateway 会拼接 "webhook:" + session 作为完整 sessionID
     // 如果 sessionId 已含渠道前缀（如 "webhook:xxx"），需剥离前缀避免重复拼接
@@ -48,10 +49,15 @@ export class HttpAdapter {
         const json = dataLine.slice(6)
         try {
           const obj = JSON.parse(json)
-          if (obj.content) yield obj.content
+          // 文件事件
+          if (eventLine === 'event: file') {
+            yield { type: 'file', info: obj }
+          } else if (obj.content) {
+            yield { type: 'text', content: obj.content }
+          }
         } catch {
           // plain text fallback
-          yield json
+          yield { type: 'text', content: json }
         }
       }
     }

@@ -73,3 +73,6 @@ func (a *AppService) GetChannelQRCode(channel string) string { return a.inner.Ge
 func (a *AppService) GetChannelQRCodeStatus(channel, token string) string {
 	return a.inner.GetChannelQRCodeStatus(channel, token)
 }
+func (a *AppService) DownloadFile(path, filename string) string {
+	return a.inner.DownloadFile(path, filename)
+}

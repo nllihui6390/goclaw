@@ -416,10 +416,11 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 		info.Size = fileStat.Size()
 	}
 
-	// 尝试从 context 获取 FileSender 直接发送文件
+	// 获取 channel 和目标用户
 	ch := channel.GetChannelFromCtx(ctx)
 	to := channel.GetToUserFromCtx(ctx)
 
+	// 1. 尝试通过 FileSender 接口直接发送文件（WeCom/DingTalk/Lark 等渠道）
 	if ch != nil && to != "" {
 		if fs, ok := ch.(channel.FileSender); ok {
 			supported, err := fs.SendFile(ctx, to, info)
@@ -427,15 +428,26 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 				if err != nil {
 					return "", fmt.Errorf("文件发送失败: %v", err)
 				}
-				// 文件已直接发送成功，返回纯文本结果给 LLM
 				return fmt.Sprintf("文件 %s 已成功发送给用户", filename), nil
 			}
-			// 不支持该类型文件（如 URL），走回退路径
 		}
+
+		// 2. 通过 ToolEventFile 推送文件信息给前端（SSE 实时推送）
+		ch.SendToolEvent(channel.ToolEvent{
+			Type:     channel.ToolEventFile,
+			ToolName: filename,   // 用 ToolName 传递文件名
+			Args:     info.FileType, // 用 Args 传递文件类型
+			Result:   info.Path,     // 用 Result 传递文件路径
+			To:       to,
+		})
 	}
 
-	// 回退路径：返回 [FILE_BLOCK] 标记（频道在 Send 时解析）
-	return t.buildFileBlock(info)
+	// 3. 返回简单确认文本给 LLM（不再返回 [FILE_BLOCK]，避免被 LLM 过滤）
+	sizeStr := ""
+	if info.Size > 0 {
+		sizeStr = fmt.Sprintf(" (%s)", formatFileSize(info.Size))
+	}
+	return fmt.Sprintf("📎 文件 %s%s 已发送给用户", filename, sizeStr), nil
 }
 
 // buildFileBlock 构建 [FILE_BLOCK] 回退响应

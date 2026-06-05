@@ -24,6 +24,7 @@ type ConsoleChannel struct {
 	mu          sync.RWMutex
 	responses   map[string]chan Response
 	streamResps map[string]chan string
+	fileEvents  map[string]chan ToolEvent // 文件事件推送 channel
 	authToken   string
 	display     DisplayConfig // 显示控制配置
 	enabled     bool          // 是否允许聊天
@@ -43,6 +44,7 @@ func NewConsoleChannel(port, authToken string, display DisplayConfig) *ConsoleCh
 		msgChan:     make(chan Message, 100),
 		responses:   make(map[string]chan Response),
 		streamResps: make(map[string]chan string),
+		fileEvents:  make(map[string]chan ToolEvent),
 		authToken:   authToken,
 		display:     display,
 	}
@@ -140,10 +142,20 @@ func (w *ConsoleChannel) SendProactive(ctx context.Context, userID, content stri
 	return fmt.Errorf("[Webhook] 无法主动发送消息给 %s（无活跃 SSE 连接）", userID)
 }
 
-// SendToolEvent 发送工具执行事件（webhook暂不支持实时输出，忽略）
+// SendToolEvent 发送工具执行事件
+// 文件事件（ToolEventFile）通过 SSE 实时推送给前端；其他事件暂不支持实时输出
 func (w *ConsoleChannel) SendToolEvent(event ToolEvent) error {
-	// Webhook 是请求-响应模式，无法实时推送工具事件
-	// 如需支持，可通过 SSE stream 推送
+	if event.Type == ToolEventFile {
+		w.mu.RLock()
+		ch := w.fileEvents[event.To]
+		w.mu.RUnlock()
+		if ch != nil {
+			select {
+			case ch <- event:
+			default:
+			}
+		}
+	}
 	return nil
 }
 
@@ -226,15 +238,20 @@ func (w *ConsoleChannel) handleChat(rw http.ResponseWriter, r *http.Request) {
 func (w *ConsoleChannel) sendToAgent(msgID, session, content, agentName string, stream bool, rw http.ResponseWriter, r *http.Request) {
 	if stream {
 		streamCh := make(chan string, 32)
+		fileCh := make(chan ToolEvent, 8)
 		w.mu.Lock()
-		w.streamResps[session] = streamCh // 使用 session 匹配 gateway resp.To
+		w.streamResps[session] = streamCh
+		w.fileEvents[session] = fileCh
 		w.mu.Unlock()
 
-		// 确保 SSE 循环退出时清理 streamResps（处理超时/客户端断开等异常情况）
+		// 确保 SSE 循环退出时清理 streamResps 和 fileEvents
 		defer func() {
 			w.mu.Lock()
 			if ch, exists := w.streamResps[session]; exists && ch == streamCh {
 				delete(w.streamResps, session)
+			}
+			if fch, exists := w.fileEvents[session]; exists && fch == fileCh {
+				delete(w.fileEvents, session)
 			}
 			w.mu.Unlock()
 		}()
@@ -266,6 +283,16 @@ func (w *ConsoleChannel) sendToAgent(msgID, session, content, agentName string, 
 				}
 				data, _ := json.Marshal(map[string]string{"content": content})
 				fmt.Fprintf(rw, "event: chunk\ndata: %s\n\n", data)
+				flusher.Flush()
+			case fileEvt := <-fileCh:
+				// 文件事件：推送 JSON 给前端渲染文件卡片
+				fileData, _ := json.Marshal(map[string]interface{}{
+					"fileType":  fileEvt.Args,
+					"path":      fileEvt.Result,
+					"filename":  fileEvt.ToolName,
+					"size":      0,
+				})
+				fmt.Fprintf(rw, "event: file\ndata: %s\n\n", fileData)
 				flusher.Flush()
 			case <-timeout:
 				fmt.Fprintf(rw, "event: error\ndata: {\"error\":\"timeout\"}\n\n")

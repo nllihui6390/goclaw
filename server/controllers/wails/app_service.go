@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"go-claw/global"
 	"go-claw/server/service"
@@ -291,6 +293,38 @@ func (a *AppService) WriteAgentFile(agentName, fileName, content string) string 
 		return `{"error":"write failed"}`
 	}
 	return `{"status":"saved"}`
+}
+
+// ─────────── File Download ───────────
+
+// DownloadFile 打开本地文件或 URL（桌面模式用系统默认程序打开）
+func (a *AppService) DownloadFile(path, filename string) string {
+	// URL 类型：用系统默认浏览器打开
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		if err := exec.Command("open", path).Start(); err != nil {
+			// Windows
+			exec.Command("cmd", "/c", "start", path).Start()
+		}
+		return `{"status":"opened"}`
+	}
+
+	// 本地文件：检查是否存在
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Sprintf(`{"error":"文件不存在: %s"}`, path)
+	}
+
+	// 用系统默认程序打开文件所在目录（让用户自己选择操作）
+	dir := filepath.Dir(path)
+	var cmd *exec.Cmd
+	if _, err := exec.LookPath("explorer"); err == nil {
+		cmd = exec.Command("explorer", dir)
+	} else if _, err := exec.LookPath("open"); err == nil {
+		cmd = exec.Command("open", dir)
+	} else {
+		cmd = exec.Command("xdg-open", dir)
+	}
+	cmd.Start()
+	return fmt.Sprintf(`{"status":"opened","path":"%s","filename":"%s"}`, path, filename)
 }
 
 // ─────────── QR Code 扫码登录 ───────────

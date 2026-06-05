@@ -74,6 +74,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/sessions", api.HandleSessions)
 	mux.HandleFunc("/api/v1/sessions/", api.HandleSessionByID)
 	mux.HandleFunc("/api/v1/agent-files/", api.HandleAgentFiles)
+	mux.HandleFunc("/api/v1/files/download", api.HandleFileDownload)
 
 	// 前端 SPA
 	mux.HandleFunc("/", serveFrontend)

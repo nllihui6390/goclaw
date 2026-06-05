@@ -254,6 +254,17 @@ export class WailsAdapter {
     return await Call.ByName('main.AppService.WriteAgentFile', agent, file, content)
   }
 
+  // 文件下载（打开本地文件或 URL）
+  async downloadFile(path, filename) {
+    try {
+      const json = await Call.ByName('main.AppService.DownloadFile', path, filename || '')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] downloadFile error:', e)
+      return { error: e.message }
+    }
+  }
+
   // 状态
   async getStatus() {
     try {

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,4 +58,154 @@ func HandleAgentFiles(rw http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// HandleFileDownload 文件下载端点
+// GET /api/v1/files/download?path=xxx 或 ?url=xxx
+func HandleFileDownload(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	pathParam := r.URL.Query().Get("path")
+	urlParam := r.URL.Query().Get("url")
+	filename := r.URL.Query().Get("filename")
+
+	// URL 模式：代理下载
+	if urlParam != "" {
+		handleURLDownload(rw, r, urlParam, filename)
+		return
+	}
+
+	// 本地文件模式
+	if pathParam == "" {
+		writeError(rw, http.StatusBadRequest, "缺少 path 或 url 参数")
+		return
+	}
+
+	handleLocalFileDownload(rw, r, pathParam, filename)
+}
+
+// handleLocalFileDownload 处理本地文件下载
+func handleLocalFileDownload(rw http.ResponseWriter, r *http.Request, path, filename string) {
+	// 安全检查：禁止下载敏感路径
+	if isSensitiveDownloadPath(path) {
+		writeError(rw, http.StatusForbidden, "禁止下载敏感路径文件")
+		return
+	}
+
+	// 清理路径，防止路径遍历攻击
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		writeError(rw, http.StatusBadRequest, "非法路径")
+		return
+	}
+
+	// 检查文件是否存在
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		writeError(rw, http.StatusNotFound, "文件不存在")
+		return
+	}
+
+	// 禁止下载目录
+	if info.IsDir() {
+		writeError(rw, http.StatusBadRequest, "不能下载目录")
+		return
+	}
+
+	// 确定文件名
+	if filename == "" {
+		filename = filepath.Base(cleanPath)
+	}
+
+	// 设置响应头
+	rw.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	rw.Header().Set("Content-Type", "application/octet-stream")
+	rw.Header().Set("Content-Length", string(rune(info.Size())))
+
+	// 发送文件
+	http.ServeFile(rw, r, cleanPath)
+}
+
+// handleURLDownload 处理 URL 代理下载
+func handleURLDownload(rw http.ResponseWriter, r *http.Request, targetURL, filename string) {
+	// 解析 URL
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		writeError(rw, http.StatusBadRequest, "无效的 URL")
+		return
+	}
+
+	// 只允许 http/https
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		writeError(rw, http.StatusBadRequest, "只支持 http/https 协议")
+		return
+	}
+
+	// 发起请求
+	resp, err := http.Get(targetURL)
+	if err != nil {
+		writeError(rw, http.StatusBadGateway, "请求远程文件失败")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		writeError(rw, resp.StatusCode, "远程服务器返回错误")
+		return
+	}
+
+	// 确定文件名
+	if filename == "" {
+		// 从 URL 或 Content-Disposition 提取文件名
+		filename = filepath.Base(parsedURL.Path)
+		if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+			if parts := strings.Split(cd, "filename="); len(parts) > 1 {
+				filename = strings.Trim(parts[1], `"`)
+			}
+		}
+	}
+	if filename == "" || filename == "." || filename == "/" {
+		filename = "download"
+	}
+
+	// 设置响应头
+	rw.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		rw.Header().Set("Content-Type", ct)
+	} else {
+		rw.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	// 流式传输
+	io.Copy(rw, resp.Body)
+}
+
+// isSensitiveDownloadPath 检查是否为敏感路径
+func isSensitiveDownloadPath(path string) bool {
+	lower := strings.ToLower(path)
+
+	sensitive := []string{
+		".env",
+		".git",
+		"credentials",
+		"secret",
+		"password",
+		"private_key",
+		"id_rsa",
+		"authorized_keys",
+		"shadow",
+		"passwd",
+		".ssh",
+		".gnupg",
+	}
+
+	for _, s := range sensitive {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
 }
