@@ -219,11 +219,9 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
   <div class="page" v-loading="loading">
     <!-- 上部分：默认模型配置 -->
     <el-card class="default-card">
-      <template #header>
-        <div class="card-header">
-          <span>默认模型</span>
-        </div>
-      </template>
+      <div class="page-header">
+        <div class="header-left"><h3>默认模型</h3></div>
+      </div>
       <div class="default-row">
         <el-select v-model="defaultProvider" placeholder="选择供应商" style="width: 160px" @change="onProviderChange">
           <el-option v-for="p in providerOptions" :key="p.value" :label="p.label" :value="p.value" />
@@ -237,51 +235,45 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
     </el-card>
 
     <!-- 下半部分：提供商 -->
-    <el-card class="providers-card">
-      <template #header>
-        <div class="card-header">
-          <span>提供商配置</span>
-          <div class="toolbar">
-            <el-input v-model="searchKeyword" placeholder="搜索供应商" clearable style="width: 180px">
-              <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
-            <el-button @click="loadConfig" :loading="loading" title="刷新">
-              <el-icon><Refresh /></el-icon>
-            </el-button>
-            <el-button type="primary" @click="openAddProvider">
-              <el-icon><Plus /></el-icon>添加
-            </el-button>
+    <div class="page-header">
+      <div class="header-left"><h2>提供商配置</h2></div>
+      <div class="header-actions">
+        <el-input v-model="searchKeyword" placeholder="搜索供应商" clearable style="width: 180px">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button @click="loadConfig" :loading="loading" title="刷新">
+          <el-icon><Refresh /></el-icon>
+        </el-button>
+        <el-button type="primary" @click="openAddProvider">
+          <el-icon><Plus /></el-icon>添加
+        </el-button>
+      </div>
+    </div>
+    <div class="providers-grid">
+      <el-card v-for="p in filteredProviders" :key="p.name" class="provider-card">
+        <div class="provider-top">
+          <div class="provider-info">
+            <span class="provider-name">{{ p.name }}</span>
+            <el-tag :type="p.type === 'ollama' ? 'success' : 'primary'" size="small">{{ providerTypeMap[p.type] || p.type }}</el-tag>
+          </div>
+          <div class="provider-detail">
+            <div class="detail-item"><span class="detail-label">API 地址</span><span class="detail-value mono">{{ p.base_url }}</span></div>
+            <div class="detail-item"><span class="detail-label">API Key</span><span class="detail-value mono">{{ maskKey(p.api_key) }}</span></div>
+            <div class="detail-item"><span class="detail-label">模型数</span><span class="detail-value">{{ p.modelsCount }}</span></div>
           </div>
         </div>
-      </template>
-
-      <div class="providers-grid">
-        <el-card v-for="p in filteredProviders" :key="p.name" class="provider-card">
-          <div class="provider-top">
-            <div class="provider-info">
-              <span class="provider-name">{{ p.name }}</span>
-              <el-tag :type="p.type === 'ollama' ? 'success' : 'primary'" size="small">{{ providerTypeMap[p.type] || p.type }}</el-tag>
-            </div>
-            <div class="provider-detail">
-              <div class="detail-item"><span class="detail-label">API 地址</span><span class="detail-value mono">{{ p.base_url }}</span></div>
-              <div class="detail-item"><span class="detail-label">API Key</span><span class="detail-value mono">{{ maskKey(p.api_key) }}</span></div>
-              <div class="detail-item"><span class="detail-label">模型数</span><span class="detail-value">{{ p.modelsCount }}</span></div>
-            </div>
-          </div>
-          <div class="provider-models">
-            <el-tag v-for="m in p.models?.slice(0, 3)" :key="m.name" size="small" class="model-tag">{{ m.name }}</el-tag>
-            <span v-if="p.models?.length > 3" class="more-models">+{{ p.models.length - 3 }}</span>
-          </div>
-          <div class="provider-actions">
-            <el-button size="small" @click="openModelSettings(p.name, p)">模型设置</el-button>
-            <el-button size="small" type="primary" @click="openProviderSettings(p.name, p)">设置</el-button>
-            <el-button size="small" type="danger" link @click="deleteProvider(p.name)">删除</el-button>
-          </div>
-        </el-card>
-
-        <el-empty v-if="!filteredProviders.length && !loading" description="暂无供应商" />
-      </div>
-    </el-card>
+        <div class="provider-models">
+          <el-tag v-for="m in p.models?.slice(0, 3)" :key="m.name" size="small" class="model-tag">{{ m.name }}</el-tag>
+          <span v-if="p.models?.length > 3" class="more-models">+{{ p.models.length - 3 }}</span>
+        </div>
+        <div class="provider-actions">
+          <el-button size="small" @click="openModelSettings(p.name, p)">模型设置</el-button>
+          <el-button size="small" type="primary" @click="openProviderSettings(p.name, p)">设置</el-button>
+          <el-button size="small" type="danger" link @click="deleteProvider(p.name)">删除</el-button>
+        </div>
+      </el-card>
+      <el-empty v-if="!filteredProviders.length && !loading" description="暂无供应商" />
+    </div>
 
     <!-- 新增供应商对话框 -->
     <el-dialog v-model="addProviderDialogVisible" title="新增供应商" width="450px">
@@ -357,6 +349,15 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
 
 <style scoped>
 .page { padding: 24px; }
+.page-header {
+  display: flex;justify-content: space-between;align-items: center;
+  margin-bottom: 24px;flex-wrap: wrap;gap: 12px;
+}
+.header-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.header-left h2 { margin: 0; font-weight: 500; }
+.skill-info { color: #909399; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.header-actions { display: flex; gap: 8px; }
+
 .card-header { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 500; }
 .toolbar { display: flex; gap: 8px; align-items: center; }
 
