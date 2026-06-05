@@ -5,6 +5,16 @@ import FileCard from '@/components/chat/FileCard.vue'
 
 marked.setOptions({ breaks: true, gfm: true })
 
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico', 'avif', 'tiff', 'tif']
+
+// 判断文件块是否为图片
+function isImage(info) {
+  if (!info.filename && !info.path) return false
+  const name = info.filename || info.path || ''
+  const ext = name.split('.').pop().toLowerCase().split('?')[0] // 去掉 URL query 参数
+  return IMAGE_EXTENSIONS.includes(ext)
+}
+
 const props = defineProps({
   role: String,
   content: String,
@@ -61,6 +71,11 @@ function renderText(content) {
   if (!content) return ''
   return marked(content.trim())
 }
+
+// 点击图片时在新窗口打开
+function openImage(url) {
+  window.open(url, '_blank')
+}
 </script>
 
 <template>
@@ -75,18 +90,37 @@ function renderText(content) {
       <template v-if="role === 'assistant'">
         <!-- SSE 推送的文件附件 -->
         <div v-if="files && files.length" class="files-container">
-          <FileCard
-            v-for="(f, i) in files"
-            :key="i"
-            :file-type="f.fileType"
-            :path="f.path"
-            :filename="f.filename"
-            :size="f.size"
-          />
+          <template v-for="(f, i) in files" :key="i">
+            <!-- 图片直接展示 -->
+            <img
+              v-if="isImage(f)"
+              :src="f.path"
+              :alt="f.filename || '图片'"
+              class="chat-image"
+              @click="openImage(f.path)"
+            />
+            <!-- 非图片显示文件卡片 -->
+            <FileCard
+              v-else
+              :file-type="f.fileType"
+              :path="f.path"
+              :filename="f.filename"
+              :size="f.size"
+            />
+          </template>
         </div>
         <!-- 文本内容（支持 [FILE_BLOCK] 解析） -->
         <template v-for="(seg, i) in segments" :key="i">
           <div v-if="seg.type === 'text' && seg.content.trim()" class="chat-markdown" v-html="renderText(seg.content)" />
+          <!-- 图片直接展示 -->
+          <img
+            v-else-if="seg.type === 'file' && isImage(seg.info)"
+            :src="seg.info.path"
+            :alt="seg.info.filename || '图片'"
+            class="chat-image"
+            @click="openImage(seg.info.path)"
+          />
+          <!-- 非图片显示文件卡片 -->
           <FileCard
             v-else-if="seg.type === 'file'"
             :file-type="seg.info.fileType"
@@ -134,5 +168,15 @@ function renderText(content) {
   flex-direction: column;
   gap: 8px;
   margin-bottom: 8px;
+}
+.chat-image {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity .2s;
+  display: block;
+  margin-bottom: 8px;
+  &:hover { opacity: 0.85; }
 }
 </style>
