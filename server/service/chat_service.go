@@ -7,7 +7,7 @@ import (
 
 	"go-claw/internal/agent"
 	"go-claw/internal/store"
-	"go-claw/utils"
+	"go-claw/pkg/utils"
 )
 
 // ChatService 聊天服务

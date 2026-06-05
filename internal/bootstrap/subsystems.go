@@ -11,7 +11,7 @@ import (
 	"go-claw/internal/agent"
 	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
-	"go-claw/utils"
+	"go-claw/pkg/utils"
 	"go-claw/internal/inbox"
 	"go-claw/internal/mcp"
 	"go-claw/internal/multiagent"

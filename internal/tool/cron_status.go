@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go-claw/internal/cron"
-	"go-claw/utils"
+	"go-claw/pkg/utils"
 )
 
 // 全局 cron manager（在 main.go 中设置）

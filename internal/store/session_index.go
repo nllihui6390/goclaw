@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"go-claw/utils"
+	"go-claw/pkg/utils"
 )
 
 // SessionIndexEntry 会话索引条目（前端会话管理直接读取）

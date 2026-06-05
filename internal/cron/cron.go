@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"go-claw/utils"
+	"go-claw/pkg/utils"
 	glog "go-claw/pkg/log"
 )
 

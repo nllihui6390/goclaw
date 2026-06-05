@@ -6,7 +6,7 @@ import (
 	"go-claw/internal/agent"
 	"go-claw/internal/channel"
 	"go-claw/internal/store"
-	"go-claw/utils"
+	"go-claw/pkg/utils"
 	"sync"
 
 	"go-claw/pkg/log"
