@@ -7,36 +7,73 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+// SkillCredential 凭证配置
+type SkillCredential struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	HowToGet    string `json:"how_to_get,omitempty"`
+}
+
+// SkillPackage 包依赖
+type SkillPackage struct {
+	Name string `json:"name"`
+}
+
+// SkillEnvVar 环境变量
+type SkillEnvVar struct {
+	Name      string `json:"name"`
+	Required  bool   `json:"required,omitempty"`
+	Sensitive bool   `json:"sensitive,omitempty"`
+}
+
+// SkillRequirements 运行要求
+type SkillRequirements struct {
+	Python             string          `json:"python,omitempty"`
+	Packages           []SkillPackage  `json:"packages,omitempty"`
+	EnvironmentVariables []SkillEnvVar  `json:"environment_variables,omitempty"`
+	NetworkAccess      bool            `json:"network_access,omitempty"`
+}
 
 // SkillRegistryEntry 技能池中的单条记录
 type SkillRegistryEntry struct {
-	Name        string   `json:"name"`
-	Folder      string   `json:"folder"`
-	Description string   `json:"description"`
-	Emoji       string   `json:"emoji,omitempty"`
-	HasScripts  bool     `json:"has_scripts"`
-	Scripts     []string `json:"scripts,omitempty"`
-	Sections    []string `json:"sections,omitempty"`
-	DiscoveredAt string  `json:"discovered_at,omitempty"`
+	Name         string            `json:"name"`
+	Folder       string            `json:"folder"`
+	Description  string            `json:"description"`
+	Author       string            `json:"author,omitempty"`
+	Version      string            `json:"version,omitempty"`
+	Emoji        string            `json:"emoji,omitempty"`
+	Credentials  []SkillCredential `json:"credentials,omitempty"`
+	Requirements *SkillRequirements `json:"requirements,omitempty"`
+	HasScripts   bool              `json:"has_scripts"`
+	Scripts      []string          `json:"scripts,omitempty"`
+	Sections     []string          `json:"sections,omitempty"`
+	DiscoveredAt string            `json:"discovered_at,omitempty"`
 }
 
 // SkillRegistry 技能池注册表
 type SkillRegistry struct {
-	Version int                `json:"version"`
+	Version int                  `json:"version"`
 	Skills  []SkillRegistryEntry `json:"skills"`
 }
 
 // SkillInfo 技能详细信息（用于 API 返回）
 type SkillInfo struct {
-	Folder      string   `json:"folder"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Emoji       string   `json:"emoji,omitempty"`
-	Markdown    string   `json:"markdown"`
-	HasScripts  bool     `json:"has_scripts"`
-	Scripts     []string `json:"scripts,omitempty"`
-	Sections    []string `json:"sections"`
+	Folder       string             `json:"folder"`
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	Author       string             `json:"author,omitempty"`
+	Version      string             `json:"version,omitempty"`
+	Emoji        string             `json:"emoji,omitempty"`
+	Credentials  []SkillCredential  `json:"credentials,omitempty"`
+	Requirements *SkillRequirements `json:"requirements,omitempty"`
+	Markdown     string             `json:"markdown"`
+	HasScripts   bool               `json:"has_scripts"`
+	Scripts      []string           `json:"scripts,omitempty"`
+	Sections     []string           `json:"sections"`
 }
 
 // SkillService 技能管理服务
@@ -157,13 +194,17 @@ func (s *SkillService) Scan() (*SkillRegistry, error) {
 		}
 
 		entryRecord := SkillRegistryEntry{
-			Name:        parsed.Name,
-			Folder:      entry.Name(),
-			Description: parsed.Description,
-			Emoji:       parsed.Emoji,
-			HasScripts:  parsed.HasScripts,
-			Scripts:     parsed.Scripts,
-			Sections:    parsed.Sections,
+			Name:         parsed.Name,
+			Folder:       entry.Name(),
+			Description:  parsed.Description,
+			Author:       parsed.Author,
+			Version:      parsed.Version,
+			Emoji:        parsed.Emoji,
+			Credentials:  parsed.Credentials,
+			Requirements: parsed.Requirements,
+			HasScripts:   parsed.HasScripts,
+			Scripts:      parsed.Scripts,
+			Sections:     parsed.Sections,
 		}
 
 		// 如果已存在，保留 discovered_at
@@ -254,14 +295,18 @@ func (s *SkillService) GetEnabledSkillsJSON(agentName string) string {
 					}
 				}
 				enabledSkills = append(enabledSkills, SkillInfo{
-					Folder:      entry.Folder,
-					Name:        entry.Name,
-					Description: entry.Description,
-					Emoji:       entry.Emoji,
-					Markdown:    markdown,
-					HasScripts:  entry.HasScripts,
-					Scripts:     entry.Scripts,
-					Sections:    entry.Sections,
+					Folder:       entry.Folder,
+					Name:         entry.Name,
+					Description:  entry.Description,
+					Author:       entry.Author,
+					Version:      entry.Version,
+					Emoji:        entry.Emoji,
+					Credentials:  entry.Credentials,
+					Requirements: entry.Requirements,
+					Markdown:     markdown,
+					HasScripts:   entry.HasScripts,
+					Scripts:      entry.Scripts,
+					Sections:     entry.Sections,
 				})
 				break
 			}
@@ -289,14 +334,33 @@ func (s *SkillService) SetEnabledSkillsJSON(agentName, skillsJSON string) error 
 
 // ─────────── 解析 SKILL.md ───────────
 
+// skillYAMLFrontmatter YAML 前置元数据结构
+type skillYAMLFrontmatter struct {
+	Name        string             `yaml:"name"`
+	Description string             `yaml:"description"`
+	Author      string             `yaml:"author"`
+	Version     string             `yaml:"version"`
+	Credentials []SkillCredential  `yaml:"credentials"`
+	Requirements *SkillRequirements `yaml:"requirements"`
+	Metadata    struct {
+		OpenClaw struct {
+			Emoji string `yaml:"emoji"`
+		} `yaml:"openclaw"`
+	} `yaml:"metadata"`
+}
+
 // parsedSkill 解析 SKILL.md 的结果
 type parsedSkill struct {
-	Name        string
-	Description string
-	Emoji       string
-	HasScripts  bool
-	Scripts     []string
-	Sections    []string
+	Name         string
+	Description  string
+	Author       string
+	Version      string
+	Emoji        string
+	Credentials  []SkillCredential
+	Requirements *SkillRequirements
+	HasScripts   bool
+	Scripts      []string
+	Sections     []string
 }
 
 // parseSkillMD 解析 SKILL.md 文件内容
@@ -310,19 +374,74 @@ func (s *SkillService) parseSkillMD(data []byte) *parsedSkill {
 	yamlContent := strings.TrimSpace(parts[1])
 	markdownBody := strings.TrimSpace(parts[2])
 
-	skill := &parsedSkill{
-		HasScripts: false,
+	// 使用 YAML 解析器解析前置元数据
+	var frontmatter skillYAMLFrontmatter
+	if err := yaml.Unmarshal([]byte(yamlContent), &frontmatter); err != nil {
+		// YAML 解析失败，尝试简单的行解析作为降级
+		return s.parseSkillMDSimple(yamlContent, markdownBody)
 	}
 
-	// 解析 YAML 字段
+	if frontmatter.Name == "" {
+		return nil
+	}
+
+	skill := &parsedSkill{
+		Name:         frontmatter.Name,
+		Description:  frontmatter.Description,
+		Author:       frontmatter.Author,
+		Version:      frontmatter.Version,
+		Emoji:        frontmatter.Metadata.OpenClaw.Emoji,
+		Credentials:  frontmatter.Credentials,
+		Requirements: frontmatter.Requirements,
+		HasScripts:   false,
+	}
+
+	// 检查 scripts 目录
+	skillDir := s.skillDir()
+	scriptsDir := filepath.Join(skillDir, frontmatter.Name, "scripts")
+	// 也通过 folder 名查找
+	if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
+		if files, _ := os.ReadDir(scriptsDir); len(files) > 0 {
+			skill.HasScripts = true
+			for _, f := range files {
+				if !f.IsDir() {
+					skill.Scripts = append(skill.Scripts, f.Name())
+				}
+			}
+		}
+	}
+
+	// 解析 markdown 章节标题
+	for _, line := range strings.Split(markdownBody, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			skill.Sections = append(skill.Sections, strings.TrimPrefix(line, "## "))
+		}
+	}
+
+	return skill
+}
+
+// parseSkillMDSimple 简单解析（YAML 解析失败时的降级方案）
+func (s *SkillService) parseSkillMDSimple(yamlContent, markdownBody string) *parsedSkill {
+	skill := &parsedSkill{}
+
+	// 简单的行解析
 	for _, line := range strings.Split(yamlContent, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "name:") {
 			skill.Name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
 		} else if strings.HasPrefix(line, "description:") {
 			skill.Description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+		} else if strings.HasPrefix(line, "author:") {
+			skill.Author = strings.TrimSpace(strings.TrimPrefix(line, "author:"))
+		} else if strings.HasPrefix(line, "version:") {
+			skill.Version = strings.TrimSpace(strings.TrimPrefix(line, "version:"))
 		} else if strings.Contains(line, "emoji:") {
-			skill.Emoji = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "emoji:"))
+			// 处理嵌套的 emoji: metadata.openclaw.emoji
+			parts := strings.Split(line, "emoji:")
+			if len(parts) > 1 {
+				skill.Emoji = strings.TrimSpace(parts[len(parts)-1])
+			}
 		}
 	}
 
@@ -330,38 +449,12 @@ func (s *SkillService) parseSkillMD(data []byte) *parsedSkill {
 		return nil
 	}
 
-	dir := s.skillDir()
-	// 检查是否有 scripts 目录
-	scriptsDir := filepath.Join(dir, skill.Name, "scripts")
-	// 也通过 folder 查找
-	if skill.Name != "" {
-		scriptsDirByFolder := filepath.Join(dir, skill.Name, "scripts")
-		if info, err := os.Stat(scriptsDirByFolder); err == nil && info.IsDir() {
-			scriptsDir = scriptsDirByFolder
-		}
-	}
-
-	if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
-		if files, _ := os.ReadDir(scriptsDir); len(files) > 0 {
-			skill.HasScripts = true
-			scripts := []string{}
-			for _, f := range files {
-				if !f.IsDir() {
-					scripts = append(scripts, f.Name())
-				}
-			}
-			skill.Scripts = scripts
-		}
-	}
-
 	// 解析 markdown 章节标题
-	sections := []string{}
 	for _, line := range strings.Split(markdownBody, "\n") {
 		if strings.HasPrefix(line, "## ") {
-			sections = append(sections, strings.TrimPrefix(line, "## "))
+			skill.Sections = append(skill.Sections, strings.TrimPrefix(line, "## "))
 		}
 	}
-	skill.Sections = sections
 
 	return skill
 }
