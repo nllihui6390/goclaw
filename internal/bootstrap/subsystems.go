@@ -11,21 +11,23 @@ import (
 	"go-claw/internal/agent"
 	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
-	"go-claw/pkg/utils"
 	"go-claw/internal/inbox"
+	"go-claw/internal/media"
 	"go-claw/internal/mcp"
 	"go-claw/internal/multiagent"
 	"go-claw/internal/proactive"
 	"go-claw/internal/security"
 	"go-claw/internal/tool"
+	"go-claw/pkg/utils"
 	glog "go-claw/pkg/log"
 )
 
 // initInbox 初始化 Inbox 系统
 func (app *App) initInbox() {
 	inbox.NewStore(app.DataDir)
-	// 设置全局数据目录（用于工具的临时文件）
+	// 设置全局数据目录（用于工具的临时文件和媒体存储）
 	tool.SetGlobalDataDir(app.DataDir)
+	media.SetDataDir(app.DataDir)
 	app.logger.Info("Inbox 系统已初始化")
 }
 

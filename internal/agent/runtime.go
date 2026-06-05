@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go-claw/internal/channel"
 	"go-claw/internal/security"
 	"go-claw/internal/skill"
 	"go-claw/internal/tool"
@@ -124,12 +125,13 @@ type ToolEventHandler func(event ToolEvent)
 
 // ToolEvent 工具执行事件
 type ToolEvent struct {
-	Type     string // "calling", "result", "error", "thinking"
+	Type     string // "calling", "result", "error", "thinking", "content"
 	ToolName string
 	Args     string
 	Result   string
 	Error    string
 	Thinking string
+	Content  channel.ContentBlocks // 结构化内容块（用于 StructuredTool 返回结果）
 }
 
 // Execute 执行Agent循环（阻塞版）
@@ -143,15 +145,15 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 	logger := glog.Logger()
 
 	// 如果提供了增强消息，临时替换会话中最后一条 user 消息的 content
-	var originalContent string
+	var originalContent channel.ContentBlocks
 	var enhanced bool
 	if enhancedMessage != "" && len(session.Messages) > 0 {
 		lastIdx := len(session.Messages) - 1
 		if session.Messages[lastIdx].Role == "user" {
 			originalContent = session.Messages[lastIdx].Content
-			session.Messages[lastIdx].Content = enhancedMessage
+			session.Messages[lastIdx].Content = channel.ContentBlocksFromText(enhancedMessage)
 			enhanced = true
-			logger.Debug("[Runtime] 已替换最后一条 user 消息为增强版本", "original_len", len(originalContent), "enhanced_len", len(enhancedMessage))
+			logger.Debug("[Runtime] 已替换最后一条 user 消息为增强版本", "original_len", len(channel.TextOnlyContent(originalContent)), "enhanced_len", len(enhancedMessage))
 		}
 	}
 
@@ -299,7 +301,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				})
 			}
 			// 执行工具并捕获结果（带结果裁剪）
-			result, err := r.executeTool(ctx, tc, tools)
+			result, contentBlocks, err := r.executeTool(ctx, tc, tools)
 			if err != nil {
 				result = fmt.Sprintf("工具执行错误: %v", err)
 				logger.Error("[Runtime] 工具执行出错", "tool_name", tc.Function.Name, "err", err)
@@ -329,7 +331,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 						ToolName: tc.Function.Name,
 						Result:   result,
 					})
-					// send_file 工具额外发送 file 事件（供前端实时渲染 + session 持久化）
+					// send_file 工具额外发送 file 事件（供前端实时渲染）
 					if tc.Function.Name == "send_file" {
 						var toolParams map[string]interface{}
 						if json.Unmarshal([]byte(tc.Function.Arguments), &toolParams) == nil {
@@ -349,6 +351,13 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 								Result:   path,
 							})
 						}
+					}
+					// StructuredTool 返回的结构化内容块（用于 session 持久化）
+					if len(contentBlocks) > 0 {
+						handler(ToolEvent{
+							Type:    "content",
+							Content: contentBlocks,
+						})
 					}
 				}
 			}
@@ -405,7 +414,7 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 						})
 					}
 
-					result, execErr := r.executeTool(ctx, tc, tools)
+					result, contentBlocks, execErr := r.executeTool(ctx, tc, tools)
 					if execErr != nil {
 						result = fmt.Sprintf("工具执行错误: %v", execErr)
 						if handler != nil {
@@ -421,6 +430,13 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 							ToolName: tc.Function.Name,
 							Result:   result,
 						})
+						// StructuredTool 返回的结构化内容块（用于 session 持久化）
+						if len(contentBlocks) > 0 {
+							handler(ToolEvent{
+								Type:    "content",
+								Content: contentBlocks,
+							})
+						}
 					}
 					toolMsg := ChatMessage{
 						Role:       "tool",
@@ -690,7 +706,7 @@ func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb 
 }
 
 // executeTool 执行工具（带结果裁剪）
-func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Tool) (string, error) {
+func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Tool) (string, channel.ContentBlocks, error) {
 	logger := glog.Logger()
 	logger.Debug("[Runtime] 开始执行工具",
 		"tool_name", tc.Function.Name,
@@ -706,7 +722,7 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 
 	if targetTool == nil {
 		logger.Error("[Runtime] 工具未注册", "tool_name", tc.Function.Name)
-		return "", fmt.Errorf("tool not found: %s", tc.Function.Name)
+		return "", nil, fmt.Errorf("tool not found: %s", tc.Function.Name)
 	}
 
 	var params map[string]interface{}
@@ -715,7 +731,7 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			"tool_name", tc.Function.Name,
 			"args", tc.Function.Arguments,
 			"err", err)
-		return "", err
+		return "", nil, err
 	}
 
 	logger.Debug("[Runtime] 工具参数解析成功",
@@ -728,17 +744,31 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 		if guardResult.Decision == security.DecisionDeny {
 			logger.Warn("[Runtime] 工具调用被安全守卫拒绝",
 				"tool", tc.Function.Name, "reason", guardResult.Reason)
-			return fmt.Sprintf("操作被拒绝: %s", guardResult.Message), nil
+			return fmt.Sprintf("操作被拒绝: %s", guardResult.Message), nil, nil
 		}
 		if guardResult.Decision == security.DecisionGuard {
 			logger.Warn("[Runtime] 工具调用需要确认",
 				"tool", tc.Function.Name, "reason", guardResult.Reason)
-			return fmt.Sprintf("此操作需要确认: %s\n请明确确认后再执行。", guardResult.Message), nil
+			return fmt.Sprintf("此操作需要确认: %s\n请明确确认后再执行。", guardResult.Message), nil, nil
 		}
 	}
 
 	startTime := time.Now()
-	result, err := targetTool.Execute(ctx, params)
+
+	// 优先使用 StructuredTool 接口
+	var result string
+	var contentBlocks channel.ContentBlocks
+	var err error
+
+	if st := tool.AsStructuredTool(targetTool); st != nil {
+		contentBlocks, err = st.ExecuteStructured(ctx, params)
+		if err == nil {
+			result = channel.TextOnlyContent(contentBlocks)
+		}
+	} else {
+		result, err = targetTool.Execute(ctx, params)
+	}
+
 	elapsed := time.Since(startTime)
 
 	if err != nil {
@@ -746,12 +776,13 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			"tool_name", tc.Function.Name,
 			"elapsed_ms", elapsed.Milliseconds(),
 			"err", err)
-		return "", err
+		return "", nil, err
 	}
 
 	logger.Info("[Runtime] 工具执行完成",
 		"tool_name", tc.Function.Name,
 		"result_len", len(result),
+		"content_blocks", len(contentBlocks),
 		"elapsed_ms", elapsed.Milliseconds())
 
 	// 工具结果裁剪：超长结果截断并保存到缓存文件
@@ -764,7 +795,7 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			result = r.pruneToolResult(tc.Function.Name, result, maxBytes)
 		}
 	}
-	return result, nil
+	return result, contentBlocks, nil
 }
 
 // isToolResultExempt 检查工具结果是否豁免裁剪
@@ -876,7 +907,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	// 检查用户是否要创建技能，动态注入技能创建模板
 	if len(session.Messages) > 0 {
 		lastMsg := session.Messages[len(session.Messages)-1]
-		if lastMsg.Role == "user" && wantsCreateSkill(lastMsg.Content) {
+		if lastMsg.Role == "user" && wantsCreateSkill(channel.TextOnlyContent(lastMsg.Content)) {
 			systemContent += "\n\n" + getSkillCreationTemplate()
 			logger.Info("[Runtime] 检测到技能创建意图，注入模板")
 		}
@@ -913,7 +944,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	for _, msg := range session.Messages {
 		chatMsg := ChatMessage{
 			Role:       msg.Role,
-			Content:    msg.Content,
+			Content:    channel.TextOnlyContent(msg.Content),
 			ToolCallID: msg.ToolCallID,
 		}
 		if msg.Role == "tool" && msg.Name != "" {

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/internal/media"
 	"go-claw/internal/store"
 	"go-claw/pkg/log"
 )
@@ -60,6 +61,8 @@ func (w *ConsoleChannel) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/v1/chat", w.handleChat)
 	mux.HandleFunc("/api/v1/sessions", w.handleSessions)
 	mux.HandleFunc("/api/v1/sessions/", w.handleSessionByID)
+	mux.HandleFunc("/api/v1/files/preview", w.handleFilePreview)
+	mux.HandleFunc("/api/v1/files/download", w.handleFileDownload)
 	mux.HandleFunc("/webhook", w.handleWebhook)
 	mux.HandleFunc("/health", func(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusOK)
@@ -143,9 +146,9 @@ func (w *ConsoleChannel) SendProactive(ctx context.Context, userID, content stri
 }
 
 // SendToolEvent 发送工具执行事件
-// 文件事件（ToolEventFile）通过 SSE 实时推送给前端；其他事件暂不支持实时输出
+// 文件事件和内容块事件通过 SSE 实时推送给前端；其他事件暂不支持实时输出
 func (w *ConsoleChannel) SendToolEvent(event ToolEvent) error {
-	if event.Type == ToolEventFile {
+	if event.Type == ToolEventFile || event.Type == ToolEventContent {
 		w.mu.RLock()
 		ch := w.fileEvents[event.To]
 		w.mu.RUnlock()
@@ -285,15 +288,26 @@ func (w *ConsoleChannel) sendToAgent(msgID, session, content, agentName string, 
 				fmt.Fprintf(rw, "event: chunk\ndata: %s\n\n", data)
 				flusher.Flush()
 			case fileEvt := <-fileCh:
-				// 文件事件：推送 JSON 给前端渲染文件卡片
-				fileData, _ := json.Marshal(map[string]interface{}{
-					"fileType":  fileEvt.Args,
-					"path":      fileEvt.Result,
-					"filename":  fileEvt.ToolName,
-					"size":      0,
-				})
-				fmt.Fprintf(rw, "event: file\ndata: %s\n\n", fileData)
-				flusher.Flush()
+				// 根据事件类型分发
+				switch fileEvt.Type {
+				case ToolEventFile:
+					// 文件事件：推送 JSON 给前端渲染文件卡片
+					fileData, _ := json.Marshal(map[string]interface{}{
+						"fileType":  fileEvt.Args,
+						"path":      fileEvt.Result,
+						"filename":  fileEvt.ToolName,
+						"size":      0,
+					})
+					fmt.Fprintf(rw, "event: file\ndata: %s\n\n", fileData)
+					flusher.Flush()
+				case ToolEventContent:
+					// 内容块事件：推送结构化内容给前端（用于实时渲染）
+					contentData, _ := json.Marshal(map[string]interface{}{
+						"blocks": fileEvt.Content,
+					})
+					fmt.Fprintf(rw, "event: content\ndata: %s\n\n", contentData)
+					flusher.Flush()
+				}
 			case <-timeout:
 				fmt.Fprintf(rw, "event: error\ndata: {\"error\":\"timeout\"}\n\n")
 				flusher.Flush()
@@ -504,4 +518,118 @@ func (w *ConsoleChannel) handleWebhook(rw http.ResponseWriter, r *http.Request) 
 	case <-time.After(60 * time.Second):
 		http.Error(rw, "Timeout", http.StatusGatewayTimeout)
 	}
+}
+
+
+// handleFilePreview GET /api/v1/files/preview?path=xxx
+// 提供本地媒体文件预览（图片、视频、音频等）
+func (w *ConsoleChannel) handleFilePreview(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		w.writeError(rw, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+
+	// 将 file:// URL 转换为本地路径
+	localPath := FileURLToLocalPath(path)
+
+	// 安全检查：防止路径穿越
+	if !isSafeFilePath(localPath) {
+		w.writeError(rw, http.StatusBadRequest, "invalid file path")
+		return
+	}
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		w.writeError(rw, http.StatusNotFound, "file not found")
+		return
+	}
+
+	// 设置 Content-Type
+	mime := media.GetMediaType(filepath.Base(localPath))
+	rw.Header().Set("Content-Type", mime)
+	rw.Header().Set("Cache-Control", "public, max-age=3600")
+	rw.Write(data)
+}
+
+// handleFileDownload GET /api/v1/files/download?path=xxx&filename=xxx
+// 提供文件下载
+func (w *ConsoleChannel) handleFileDownload(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	filename := r.URL.Query().Get("filename")
+	if path == "" {
+		w.writeError(rw, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+
+	// 将 file:// URL 转换为本地路径
+	localPath := FileURLToLocalPath(path)
+
+	// 安全检查
+	if !isSafeFilePath(localPath) {
+		w.writeError(rw, http.StatusBadRequest, "invalid file path")
+		return
+	}
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		w.writeError(rw, http.StatusNotFound, "file not found")
+		return
+	}
+
+	if filename == "" {
+		filename = filepath.Base(localPath)
+	}
+
+	mime := media.GetMediaType(filename)
+	rw.Header().Set("Content-Type", mime)
+	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	rw.Write(data)
+}
+
+// isSafeFilePath 检查文件路径是否安全（防止路径穿越）
+func isSafeFilePath(path string) bool {
+	// 禁止空路径
+	if path == "" {
+		return false
+	}
+
+	// 获取绝对路径
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+
+	// 检查路径穿越
+	// 允许的目录：media 目录、当前工作目录下的文件
+	allowedDirs := []string{"media", "clawdata"}
+	for _, dir := range allowedDirs {
+		allowedAbs, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(absPath, allowedAbs) {
+			return true
+		}
+	}
+
+	// 允许绝对路径下的文件（但禁止系统目录）
+	blockedPrefixes := []string{"/etc", "/sys", "/proc"}
+	for _, prefix := range blockedPrefixes {
+		if strings.HasPrefix(absPath, prefix) {
+			return false
+		}
+	}
+
+	return true
 }

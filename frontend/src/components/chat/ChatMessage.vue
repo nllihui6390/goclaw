@@ -5,77 +5,61 @@ import FileCard from '@/components/chat/FileCard.vue'
 
 marked.setOptions({ breaks: true, gfm: true })
 
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico', 'avif', 'tiff', 'tif']
-
-// 判断文件块是否为图片
-function isImage(info) {
-  if (!info.filename && !info.path) return false
-  const name = info.filename || info.path || ''
-  const ext = name.split('.').pop().toLowerCase().split('?')[0] // 去掉 URL query 参数
-  return IMAGE_EXTENSIONS.includes(ext)
-}
-
 const props = defineProps({
   role: String,
-  content: String,
-  files: Array // 文件附件列表（SSE file 事件推送）
+  content: [Array, String], // ContentBlocks 数组或纯文本字符串
+  files: Array // SSE file 事件推送的文件信息（旧格式兼容）
 })
 
-// 解析 [FILE_BLOCK] 标记，将 content 拆分为 segments（向后兼容）
-const segments = computed(() => {
-  if (!props.content) return []
-  const text = props.content
-  const result = []
-  const regex = /\[FILE_BLOCK\]\n([\s\S]*?)\n?\[\/FILE_BLOCK\]/g
-  let lastIndex = 0
-  let match
-
-  while ((match = regex.exec(text)) !== null) {
-    // match 前面的文本段
-    if (match.index > lastIndex) {
-      result.push({ type: 'text', content: text.slice(lastIndex, match.index) })
-    }
-    // 解析文件块信息
-    const block = match[1]
-    const info = { fileType: '', path: '', filename: '', size: 0 }
-    for (const line of block.split('\n')) {
-      const trimmed = line.trim()
-      if (trimmed.startsWith('类型:')) info.fileType = trimmed.slice(3).trim()
-      else if (trimmed.startsWith('路径:')) info.path = trimmed.slice(3).trim()
-      else if (trimmed.startsWith('文件名:')) info.filename = trimmed.slice(4).trim()
-      else if (trimmed.startsWith('大小:')) {
-        const sizeStr = trimmed.slice(3).trim()
-        const num = parseInt(sizeStr)
-        if (!isNaN(num)) info.size = num
-      }
-    }
-    result.push({ type: 'file', info })
-    lastIndex = match.index + match[0].length
-  }
-
-  // 尾部文本
-  if (lastIndex < text.length) {
-    result.push({ type: 'text', content: text.slice(lastIndex) })
-  }
-
-  // 没有 FILE_BLOCK 时，整体作为 text 段
-  if (result.length === 0) {
-    result.push({ type: 'text', content: text })
-  }
-
-  return result
-})
-
-// 渲染文本段
-function renderText(content) {
-  if (!content) return ''
-  return marked(content.trim())
+// getDisplayUrl 将路径转换为前端可访问的 URL
+// file:// URL → /api/v1/files/preview?path=xxx（后端负责解码和路径转换）
+// http(s):// URL → 保持不变
+// 本地路径 → /api/v1/files/preview?path=xxx（后端负责安全检查）
+function getDisplayUrl(url) {
+  if (!url) return ''
+  // 远程 URL 直接使用
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
+  // file:// URL 和本地路径 → 传给后端预览端点（后端处理 URL 解码 + file:// → 本地路径转换）
+  return `/api/v1/files/preview?path=${encodeURIComponent(url)}`
 }
 
-// 点击图片时在新窗口打开
+// 判断是否为图片类型的文件信息
+function isImage(info) {
+  if (!info) return false
+  const name = info.filename || info.path || ''
+  const ext = name.split('.').pop().toLowerCase().split('?')[0]
+  return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico', 'avif'].includes(ext)
+}
+
+// 将 content 统一转换为 blocks 数组用于渲染
+const blocks = computed(() => {
+  // 如果 content 已经是数组（ContentBlocks 格式）
+  if (Array.isArray(props.content)) {
+    return props.content
+  }
+  // 如果 content 是字符串（旧格式兼容）
+  if (typeof props.content === 'string' && props.content) {
+    return [{ type: 'text', text: props.content }]
+  }
+  return []
+})
+
+// 渲染 markdown 文本
+function renderMarkdown(text) {
+  if (!text) return ''
+  return marked(text.trim())
+}
+
+// 点击图片时在新窗口打开原图
 function openImage(url) {
-  window.open(url, '_blank')
+  window.open(getDisplayUrl(url), '_blank')
 }
+
+// 处理 SSE 推送的旧格式文件信息，转换为 ContentBlock 格式渲染
+const sseFiles = computed(() => {
+  if (!props.files || !props.files.length) return []
+  return props.files
+})
 </script>
 
 <template>
@@ -88,13 +72,13 @@ function openImage(url) {
     </div>
     <div class="chat-bubble">
       <template v-if="role === 'assistant'">
-        <!-- SSE 推送的文件附件 -->
-        <div v-if="files && files.length" class="files-container">
-          <template v-for="(f, i) in files" :key="i">
+        <!-- SSE 推送的旧格式文件附件（向后兼容） -->
+        <div v-if="sseFiles.length" class="files-container">
+          <template v-for="(f, i) in sseFiles" :key="'sse-' + i">
             <!-- 图片直接展示 -->
             <img
               v-if="isImage(f)"
-              :src="f.path"
+              :src="getDisplayUrl(f.path)"
               :alt="f.filename || '图片'"
               class="chat-image"
               @click="openImage(f.path)"
@@ -109,28 +93,37 @@ function openImage(url) {
             />
           </template>
         </div>
-        <!-- 文本内容（支持 [FILE_BLOCK] 解析） -->
-        <template v-for="(seg, i) in segments" :key="i">
-          <div v-if="seg.type === 'text' && seg.content.trim()" class="chat-markdown" v-html="renderText(seg.content)" />
-          <!-- 图片直接展示 -->
+
+        <!-- 结构化 ContentBlocks 渲染 -->
+        <template v-for="(block, i) in blocks" :key="'block-' + i">
+          <!-- 文本块 -->
+          <div v-if="block.type === 'text' && block.text" class="chat-markdown" v-html="renderMarkdown(block.text)" />
+
+          <!-- 图片块 -->
           <img
-            v-else-if="seg.type === 'file' && isImage(seg.info)"
-            :src="seg.info.path"
-            :alt="seg.info.filename || '图片'"
+            v-else-if="block.type === 'image'"
+            :src="getDisplayUrl(block.source?.url || '')"
+            :alt="block.filename || '图片'"
             class="chat-image"
-            @click="openImage(seg.info.path)"
+            @click="openImage(block.source?.url || '')"
           />
-          <!-- 非图片显示文件卡片 -->
+
+          <!-- 视频块 -->
+          <video v-else-if="block.type === 'video'" :src="getDisplayUrl(block.source?.url || '')" controls class="chat-video" />
+
+          <!-- 音频块 -->
+          <audio v-else-if="block.type === 'audio'" :src="getDisplayUrl(block.source?.url || '')" controls class="chat-audio" />
+
+          <!-- 文件块 -->
           <FileCard
-            v-else-if="seg.type === 'file'"
-            :file-type="seg.info.fileType"
-            :path="seg.info.path"
-            :filename="seg.info.filename"
-            :size="seg.info.size"
+            v-else-if="block.type === 'file'"
+            :path="block.source?.url || ''"
+            :filename="block.filename || ''"
           />
         </template>
       </template>
-      <div v-else class="chat-text">{{ content }}</div>
+      <!-- 用户消息：纯文本显示 -->
+      <div v-else class="chat-text">{{ typeof content === 'string' ? content : (Array.isArray(content) ? content.map(b => b.text || '').join('') : content) }}</div>
     </div>
   </div>
 </template>
@@ -178,5 +171,14 @@ function openImage(url) {
   display: block;
   margin-bottom: 8px;
   &:hover { opacity: 0.85; }
+}
+.chat-video {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.chat-audio {
+  width: 100%;
+  margin-bottom: 8px;
 }
 </style>

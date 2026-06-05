@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"go-claw/internal/agent"
+	"go-claw/internal/channel"
 	"go-claw/internal/store"
 	"go-claw/pkg/utils"
 )
@@ -94,17 +95,18 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 	defer c.mu.RUnlock()
 
 	// 从单个 Agent 提取历史的辅助函数
-	tryAgent := func(ag *agent.Agent) []map[string]string {
+	tryAgent := func(ag *agent.Agent) []map[string]interface{} {
 		if ag == nil {
 			return nil
 		}
 		// 内存
 		if msgs, exists := ag.GetSessionMessages(sessionID); exists {
-			result := make([]map[string]string, 0, len(msgs))
+			result := make([]map[string]interface{}, 0, len(msgs))
 			for _, m := range msgs {
 				if m.Role == "user" || m.Role == "assistant" {
-					result = append(result, map[string]string{
-						"role": m.Role, "content": m.Content,
+					result = append(result, map[string]interface{}{
+						"role":    m.Role,
+						"content": m.Content,
 					})
 				}
 			}
@@ -113,11 +115,17 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 		// Store
 		if st := ag.GetStore(); st != nil {
 			if sessData, err := st.GetSession(context.Background(), sessionID); err == nil && sessData != nil {
-				result := make([]map[string]string, 0, len(sessData.Messages))
+				result := make([]map[string]interface{}, 0, len(sessData.Messages))
 				for _, m := range sessData.Messages {
 					if m.Role == "user" || m.Role == "assistant" {
-						result = append(result, map[string]string{
-							"role": m.Role, "content": m.Content,
+						// 解析 Content JSON 为 ContentBlocks
+						var content channel.ContentBlocks
+						if len(m.Content) > 0 {
+							json.Unmarshal(m.Content, &content)
+						}
+						result = append(result, map[string]interface{}{
+							"role":    m.Role,
+							"content": content,
 						})
 					}
 				}

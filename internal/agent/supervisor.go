@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"go-claw/internal/channel"
 	"go-claw/internal/memory"
 	"go-claw/internal/store"
 )
@@ -69,8 +70,8 @@ func (s *SupervisorAgent) Process(ctx context.Context, sessionID, userMessage st
 	}
 
 	// 3. 记录交互
-	session.AddMessage("user", userMessage)
-	session.AddMessage("assistant", fmt.Sprintf("[由 %s 处理] %s", targetAgent.config.Name, response))
+	session.AddTextMessage("user", userMessage)
+	session.AddTextMessage("assistant", fmt.Sprintf("[由 %s 处理] %s", targetAgent.config.Name, response))
 
 	return response, nil
 }
@@ -114,7 +115,7 @@ func (s *SupervisorAgent) processSelf(ctx context.Context, session *Session, use
 	for _, msg := range session.Messages {
 		messages = append(messages, ChatMessage{
 			Role:    msg.Role,
-			Content: msg.Content,
+			Content: channel.TextOnlyContent(msg.Content),
 		})
 	}
 

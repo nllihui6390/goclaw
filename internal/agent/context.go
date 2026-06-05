@@ -2,20 +2,22 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
 
+	"go-claw/internal/channel"
 	"go-claw/internal/store"
 	"go-claw/pkg/log"
 )
 
 // Message 历史消息
 type Message struct {
-	Role       string // "user", "assistant", "system", "tool"
-	Content    string
-	ToolCallID string // 工具调用ID（tool角色消息专用）
-	Name       string // 工具名称（tool角色消息专用）
+	Role       string             // "user", "assistant", "system", "tool"
+	Content    channel.ContentBlocks // 从 string 改为 ContentBlocks
+	ToolCallID string             // 工具调用ID（tool角色消息专用）
+	Name       string             // 工具名称（tool角色消息专用）
 	Timestamp  time.Time
 }
 
@@ -55,14 +57,16 @@ func (s *Session) SetSessionID(id string) {
 	s.mu.Unlock()
 }
 
-// AddMessage 添加消息
-func (s *Session) AddMessage(role, content string) {
+// AddMessage 添加消息（ContentBlocks 版本）
+func (s *Session) AddMessage(role string, content channel.ContentBlocks) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// 如果是第一条用户消息，设置为会话名称
 	if s.Name == "" && role == "user" && len(s.Messages) == 0 {
-		s.Name = content
+		// 从 ContentBlocks 提取文本作为会话名称
+		text := channel.TextOnlyContent(content)
+		s.Name = text
 		// 截断过长的标题
 		if len(s.Name) > 50 {
 			s.Name = s.Name[:50] + "..."
@@ -85,15 +89,21 @@ func (s *Session) AddMessage(role, content string) {
 	s.persistLocked()
 }
 
+// AddTextMessage 添加纯文本消息（便捷方法）
+func (s *Session) AddTextMessage(role, text string) {
+	s.AddMessage(role, channel.ContentBlocksFromText(text))
+}
+
 func (s *Session) persistLocked() {
 	if s.store == nil {
 		return
 	}
 	msgs := make([]store.SessionMessage, 0, len(s.Messages))
 	for _, m := range s.Messages {
+		contentJSON, _ := json.Marshal(m.Content)
 		msgs = append(msgs, store.SessionMessage{
 			Role:       m.Role,
-			Content:    m.Content,
+			Content:    json.RawMessage(contentJSON),
 			ToolCallID: m.ToolCallID,
 			Name:       m.Name,
 			Timestamp:  m.Timestamp.Format(time.RFC3339),
@@ -141,7 +151,7 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 
 	// 尝试从持久化存储加载已有会话
 	var messages []Message
-	var channel, userID, name string
+	var chName, userID, name string
 	var sessionIDFromData string
 	createdAt := time.Now()
 	updatedAt := createdAt
@@ -149,15 +159,20 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 	if sm.store != nil {
 		if data, err := sm.store.GetSession(context.Background(), sessionID); err == nil && data != nil {
 			for _, m := range data.Messages {
+				// 解析 Content JSON 为 ContentBlocks
+				var content channel.ContentBlocks
+				if len(m.Content) > 0 {
+					json.Unmarshal(m.Content, &content)
+				}
 				messages = append(messages, Message{
 					Role:       m.Role,
-					Content:    m.Content,
+					Content:    content,
 					ToolCallID: m.ToolCallID,
 					Name:       m.Name,
 					Timestamp:  parseRFC3339(m.Timestamp),
 				})
 			}
-			channel = data.Channel
+			chName = data.Channel
 			userID = data.UserID
 			name = data.Name
 			sessionIDFromData = data.SessionID
@@ -171,10 +186,10 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 	}
 
 	// 解析 sessionID (格式: "channel:user")
-	if channel == "" {
+	if chName == "" {
 		parts := strings.SplitN(sessionID, ":", 2)
 		if len(parts) == 2 {
-			channel = parts[0]
+			chName = parts[0]
 			userID = parts[1]
 		}
 	}
@@ -183,8 +198,8 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 	}
 	// SessionID 格式: channel:user（如 web:uuid 或 wecom:userid）
 	if sessionIDFromData == "" {
-		if channel != "" && userID != "" {
-			sessionIDFromData = channel + ":" + userID
+		if chName != "" && userID != "" {
+			sessionIDFromData = chName + ":" + userID
 		} else {
 			sessionIDFromData = sessionID
 		}
@@ -195,7 +210,7 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 		SessionID: sessionIDFromData,
 		Name:      name,
 		UserID:    userID,
-		Channel:   channel,
+		Channel:   chName,
 		Messages:  messages,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"go-claw/internal/channel"
 	"go-claw/internal/inbox"
 	"go-claw/internal/memory"
 	"go-claw/internal/security"
@@ -141,17 +142,16 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 	}
 
 	// 会话历史只保存原始用户消息，不保存增强后的记忆上下文
-	session.AddMessage("user", userMessage)
+	session.AddTextMessage("user", userMessage)
 	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages))
 
 	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）
-	// 收集文件事件（用于追加到最终响应，确保 session 持久化）
-	fileBlocks := []string{}
+	// 收集内容块（用于追加到最终响应，确保 session 持久化）
+	contentBlocks := channel.ContentBlocks{}
 	wrappedHandler := func(event ToolEvent) {
-		// 收集文件事件
-		if event.Type == "file" {
-			fileBlock := fmt.Sprintf("[FILE_BLOCK]\n类型: %s\n路径: %s\n文件名: %s\n[/FILE_BLOCK]", event.Args, event.Result, event.ToolName)
-			fileBlocks = append(fileBlocks, fileBlock)
+		// 收集内容块事件
+		if event.Type == "content" && len(event.Content) > 0 {
+			contentBlocks = append(contentBlocks, event.Content...)
 		}
 		// 调用原始 handler
 		if handler != nil {
@@ -169,12 +169,15 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 		return "", err
 	}
 
-	// 将文件块放到响应开头（确保 session 持久化包含文件信息，且前端解析时文件卡片显示在前面）
-	if len(fileBlocks) > 0 {
-		finalResponse = strings.Join(fileBlocks, "\n") + "\n" + finalResponse
+	// 将内容块放到响应开头（确保 session 持久化包含图片等媒体信息）
+	// 然后追加 LLM 的文本响应
+	if len(contentBlocks) > 0 {
+		contentBlocks = append(contentBlocks, channel.NewTextBlock(finalResponse))
+	} else {
+		contentBlocks = channel.ContentBlocksFromText(finalResponse)
 	}
 
-	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse))
+	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse), "blocks_count", len(contentBlocks))
 
 	// 存储记忆
 	if a.memory != nil {
@@ -199,7 +202,7 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 		logger.Debug("[Agent] 对话已存入记忆")
 	}
 
-	session.AddMessage("assistant", finalResponse)
+	session.AddMessage("assistant", contentBlocks)
 	logger.Info("[Agent] 消息处理完成", "session", sessionID)
 
 	// 自动记忆提取：对话后提取关键信息存入长期记忆
@@ -348,7 +351,7 @@ func GetUserFromCtx(ctx context.Context) string {
 // SessionMessage 会话消息
 type SessionMessage struct {
 	Role      string
-	Content   string
+	Content   channel.ContentBlocks
 	Timestamp time.Time
 }
 

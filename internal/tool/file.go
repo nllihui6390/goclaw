@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go-claw/internal/channel"
+	"go-claw/internal/media"
 )
 
 // WriteFileTool 写文件工具
@@ -381,9 +382,18 @@ func (t *SendFileTool) Parameters() map[string]interface{} {
 }
 
 func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	blocks, err := t.ExecuteStructured(ctx, params)
+	if err != nil {
+		return "", err
+	}
+	return channel.TextOnlyContent(blocks), nil
+}
+
+// ExecuteStructured 结构化返回（实现 StructuredTool 接口）
+func (t *SendFileTool) ExecuteStructured(ctx context.Context, params map[string]interface{}) (channel.ContentBlocks, error) {
 	path, ok := params["path"].(string)
 	if !ok || path == "" {
-		return "", fmt.Errorf("缺少 path 参数")
+		return nil, fmt.Errorf("缺少 path 参数")
 	}
 
 	filename := filepath.Base(path)
@@ -391,65 +401,87 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 		filename = fn
 	}
 
-	// 构建 FileBlockInfo
-	info := &channel.FileBlockInfo{
-		Filename: filename,
-	}
+	// 判断是 URL 还是本地文件
+	isURL := strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
 
-	// 检查是 URL 还是本地文件
-	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
-		info.FileType = "url"
-		info.Path = path
-	} else {
-		// 本地文件
+	if !isURL {
+		// 本地文件：安全检查
 		if isSensitivePath(path) {
-			return "", fmt.Errorf("禁止发送敏感文件: %s", path)
+			return nil, fmt.Errorf("禁止发送敏感文件: %s", path)
 		}
 
 		fileStat, err := os.Stat(path)
 		if err != nil {
-			return "", fmt.Errorf("文件不存在: %v", err)
+			return nil, fmt.Errorf("文件不存在: %v", err)
 		}
-
-		info.FileType = "file"
-		info.Path = path
-		info.Size = fileStat.Size()
+		// 更新 filename 为实际文件名（如果用户没有指定）
+		if fn, ok := params["filename"].(string); !ok || fn == "" {
+			filename = filepath.Base(path)
+		}
+		_ = fileStat.Size() // 保留信息但不用于 FILE_BLOCK
 	}
 
-	// 获取 channel 和目标用户
-	ch := channel.GetChannelFromCtx(ctx)
-	to := channel.GetToUserFromCtx(ctx)
+	// 构建 FileBlockInfo 用于 FileSender 接口（如 WeCom/DingTalk 等渠道）
+	info := &channel.FileBlockInfo{
+		Filename: filename,
+	}
+	if isURL {
+		info.FileType = "url"
+		info.Path = path
+	} else {
+		info.FileType = "file"
+		info.Path = path
+	}
 
 	// 1. 尝试通过 FileSender 接口直接发送文件（WeCom/DingTalk/Lark 等渠道）
+	ch := channel.GetChannelFromCtx(ctx)
+	to := channel.GetToUserFromCtx(ctx)
 	if ch != nil && to != "" {
 		if fs, ok := ch.(channel.FileSender); ok {
 			supported, err := fs.SendFile(ctx, to, info)
 			if supported {
 				if err != nil {
-					return "", fmt.Errorf("文件发送失败: %v", err)
+					return nil, fmt.Errorf("文件发送失败: %v", err)
 				}
-				return fmt.Sprintf("文件 %s 已成功发送给用户", filename), nil
+				return channel.ContentBlocks{
+					channel.NewTextBlock(fmt.Sprintf("文件 %s 已成功发送给用户", filename)),
+				}, nil
 			}
 		}
 	}
 
-	// 2. 返回简单确认文本给 LLM
-	// 注意：file 事件由 runtime 在工具执行后通过 handler 发送，不再在此处直接推送
-
-	// 3. 返回简单确认文本给 LLM（不再返回 [FILE_BLOCK]，避免被 LLM 过滤）
-	sizeStr := ""
-	if info.Size > 0 {
-		sizeStr = fmt.Sprintf(" (%s)", formatFileSize(info.Size))
+	// 2. 对于 HTTP/WebSocket 等渠道：返回结构化内容块
+	// 根据 MIME 类型自动选择 block 类型
+	displayURL := path
+	if !isURL {
+		displayURL = channel.PathToFileURL(path)
 	}
-	return fmt.Sprintf("📎 文件 %s%s 已发送给用户", filename, sizeStr), nil
-}
 
-// buildFileBlock 构建 [FILE_BLOCK] 回退响应
-func (t *SendFileTool) buildFileBlock(info *channel.FileBlockInfo) (string, error) {
-	if info.FileType == "url" {
-		return fmt.Sprintf("[FILE_BLOCK]\n类型: url\n路径: %s\n文件名: %s\n[/FILE_BLOCK]", info.Path, info.Filename), nil
+	mime := media.GetMediaType(filename)
+	asType := media.IsMediaType(mime)
+
+	switch asType {
+	case "image":
+		return channel.ContentBlocks{
+			channel.NewImageBlockURL(displayURL),
+			channel.NewTextBlock(fmt.Sprintf("图片 %s 已发送给用户", filename)),
+		}, nil
+	case "video":
+		return channel.ContentBlocks{
+			channel.NewVideoBlockURL(displayURL),
+			channel.NewTextBlock(fmt.Sprintf("视频 %s 已发送给用户", filename)),
+		}, nil
+	case "audio":
+		return channel.ContentBlocks{
+			channel.NewAudioBlockURL(displayURL),
+			channel.NewTextBlock(fmt.Sprintf("音频 %s 已发送给用户", filename)),
+		}, nil
+	default:
+		return channel.ContentBlocks{
+			channel.NewFileBlockURL(displayURL, filename),
+			channel.NewTextBlock(fmt.Sprintf("文件 %s 已发送给用户", filename)),
+		}, nil
 	}
-	return fmt.Sprintf("[FILE_BLOCK]\n类型: file\n路径: %s\n文件名: %s\n大小: %d 字节\n[/FILE_BLOCK]", info.Path, info.Filename, info.Size), nil
 }
 
 // ============================================================

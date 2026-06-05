@@ -47,7 +47,15 @@ async function loadHistory() {
   if (sending.value) return
   try {
     const history = await api.getChatHistory(sessionId.value, agentStore.selectedAgent)
-    messages.value = (history && history.length > 0)? history.map(m => ({ role: m.role, content: m.content })): []
+    // content 可能是 ContentBlocks（数组）或纯文本（字符串）
+    // ChatMessage.vue 组件支持两种格式
+    messages.value = (history && history.length > 0)
+      ? history.map(m => ({
+          role: m.role,
+          content: m.content, // ContentBlocks 数组或纯字符串
+          files: undefined    // 从历史加载时不需要 files 数组
+        }))
+      : []
     await nextTick()
     scrollBottom()
   } catch (e) {
@@ -99,23 +107,46 @@ async function send() {
     if (api.isStreaming) {
       // SSE 流式模式（HttpAdapter）：逐步接收 chunk，渐进式渲染
       let fullContent = ''
-      let files = [] // 收集文件事件
+      let files = [] // 收集文件事件（旧格式兼容）
+      let contentBlocks = [] // 收集结构化内容块（新格式）
       for await (const event of api.sendMessage(sessionId.value, text, agentStore.selectedAgent)) {
         if (event.type === 'file') {
-          // 文件事件：立即添加到消息列表
+          // 文件事件：立即添加到消息列表（旧格式兼容）
           files.push(event.info)
           if (messages.value[messages.value.length - 1].role !== 'assistant') {
             messages.value.push({ role: 'assistant', content: '', files: [...files] })
           } else {
             messages.value[messages.value.length - 1].files = [...files]
           }
+        } else if (event.type === 'content') {
+          // 内容块事件：收集结构化内容（新格式）
+          // 同时清除旧格式的 files，避免重复渲染
+          if (event.blocks && Array.isArray(event.blocks)) {
+            contentBlocks.push(...event.blocks)
+            files = [] // 清除旧格式，优先使用 contentBlocks
+            // 立即更新消息，实现实时渲染
+            const finalContent = [...contentBlocks, { type: 'text', text: fullContent }]
+            if (messages.value[messages.value.length - 1].role !== 'assistant') {
+              messages.value.push({ role: 'assistant', content: finalContent, files: [] })
+            } else {
+              messages.value[messages.value.length - 1].content = finalContent
+              messages.value[messages.value.length - 1].files = []
+            }
+          }
         } else if (event.type === 'text') {
           // 文本事件：追加内容
           fullContent += event.content
+          // 构建最终 content：如果有 contentBlocks，使用数组格式；否则使用纯文本
+          const finalContent = contentBlocks.length > 0
+            ? [...contentBlocks, { type: 'text', text: fullContent }]
+            : fullContent
+          // 如果有 contentBlocks，不再传 files 避免重复渲染
+          const finalFiles = contentBlocks.length > 0 ? [] : [...files]
           if (messages.value[messages.value.length - 1].role !== 'assistant') {
-            messages.value.push({ role: 'assistant', content: fullContent, files: [...files] })
+            messages.value.push({ role: 'assistant', content: finalContent, files: finalFiles })
           } else {
-            messages.value[messages.value.length - 1].content = fullContent
+            messages.value[messages.value.length - 1].content = finalContent
+            messages.value[messages.value.length - 1].files = finalFiles
           }
         }
         await nextTick()

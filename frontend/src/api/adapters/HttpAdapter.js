@@ -52,6 +52,8 @@ export class HttpAdapter {
           // 文件事件
           if (eventLine === 'event: file') {
             yield { type: 'file', info: obj }
+          } else if (eventLine === 'event: content') {
+            yield { type: 'content', blocks: obj.blocks }
           } else if (obj.content) {
             yield { type: 'text', content: obj.content }
           }

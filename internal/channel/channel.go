@@ -61,6 +61,7 @@ const (
 	ToolEventResult   ToolEventType = "result"    // 工具返回结果
 	ToolEventError    ToolEventType = "error"     // 工具执行出错
 	ToolEventFile    ToolEventType = "file"      // 文件发送事件（send_file 工具直接推送给前端）
+	ToolEventContent ToolEventType = "content"   // 结构化内容块事件（StructuredTool 返回结果）
 )
 
 // ToolEvent 工具执行事件（用于实时输出工具调用过程）
@@ -71,6 +72,7 @@ type ToolEvent struct {
 	Result   string        // 工具返回结果
 	Error    string        // 错误信息
 	Thinking string        // 思考内容
+	Content  ContentBlocks // 结构化内容块（用于 StructuredTool 返回结果）
 	To       string        // 目标用户ID（用于指定发送对象）
 }
 
