@@ -73,5 +73,5 @@ export const useSessionStore = defineStore('session', () => {
     initialized.value[currentAgent.value] = false
   }
 
-  return { sessionId, currentAgent, initialized, initSession, switchAgent, newSession }
+  return { sessionId, currentAgent, initialized, initSession, switchAgent, newSession, saveId }
 })

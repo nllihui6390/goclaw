@@ -2,6 +2,7 @@
 import { ref, inject, nextTick, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { useAgentStore } from '@/stores/agent'
 import { useSessionStore } from '@/stores/session'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
@@ -16,6 +17,7 @@ const input = ref('')
 const sending = ref(false)
 const files = ref([])
 const fileInput = ref(null)
+const showNewChatOverlay = ref(false)
 
 // 从 route.query 读取会话 ID，无参数时使用 UUID 格式的默认值
 const sessionId = computed(() => route.query.session || sessionStore.sessionId)
@@ -135,10 +137,55 @@ function formatSize(bytes) {
 function onKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
 }
+
+// 显示新建聊天遮罩
+function openNewChat() {
+  showNewChatOverlay.value = true
+}
+
+// 关闭遮罩
+function closeNewChat() {
+  showNewChatOverlay.value = false
+}
+
+// 确认新建聊天：创建全新会话ID，清空消息
+async function confirmNewChat() {
+  if (viewingSession.value) {
+    router.push('/')
+  }
+  closeNewChat()
+  sending.value = true
+  try {
+    const data = await api.createSession(agentStore.selectedAgent)
+    sessionStore.sessionId = data.session_id
+    sessionStore.saveId(agentStore.selectedAgent, data.session_id)
+    messages.value = []
+    ElMessage.success('新会话已创建')
+  } catch (e) {
+    ElMessage.error('创建会话失败: ' + e.message)
+  } finally {
+    sending.value = false
+  }
+}
 </script>
 
 <template>
   <div class="chat-page">
+    <!-- 右上角新建聊天按钮 -->
+    <div class="new-chat-btn" @click="openNewChat" title="新建聊天">
+      <el-icon :size="14"><Plus /></el-icon>
+    </div>
+    <!-- 新建聊天磨砂遮罩 -->
+    <div v-if="showNewChatOverlay" class="new-chat-overlay" @click.self="closeNewChat">
+      <div class="new-chat-panel">
+        <p class="new-chat-text">开始一段新对话？</p>
+        <p class="new-chat-sub">当前聊天记录将保留在会话历史中</p>
+        <div class="new-chat-actions">
+          <el-button @click="closeNewChat">取消</el-button>
+          <el-button type="primary" @click="confirmNewChat">新建聊天</el-button>
+        </div>
+      </div>
+    </div>
     <!-- 非默认会话提示条：从会话管理跳转过来时显示 -->
     <div v-if="viewingSession" class="session-banner">
       <span>正在查看会话：<strong>{{ sessionId }}</strong>（Agent: {{ route.query.agent || agentStore.selectedAgent }}）</span>
@@ -402,5 +449,67 @@ function onKeydown(e) {
   &:hover:not(:disabled) { background: #337ecc; }
   &:disabled { background: #d0d5dd; cursor: not-allowed; }
   &.stop { background: #e6a23c; }
+}
+
+/* 新建聊天按钮 */
+.new-chat-btn {
+  position: fixed;
+  top: 64px;
+  right: 20px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #409eff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all .2s;
+  box-shadow: 0 2px 6px rgba(64, 158, 255, .25);
+  z-index: 100;
+  &:hover {
+    background: #337ecc;
+    transform: scale(1.08);
+  }
+}
+
+/* 新建聊天遮罩 */
+.new-chat-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.new-chat-panel {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  padding: 24px 32px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, .1);
+}
+.new-chat-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #303133;
+  margin: 0 0 8px 0;
+}
+.new-chat-sub {
+  font-size: 13px;
+  color: #909399;
+  margin: 0 0 20px 0;
+}
+.new-chat-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
 }
 </style>
