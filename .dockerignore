@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# IDE / 工具
+.vscode
+.idea
+*.swp
+*.swo
+
+# Claude Code
+.claude
+
+# Node 依赖（Dockerfile 中单独安装）
+frontend/node_modules
+
+# Wails 构建产物
+bin/
+wails3*
+
+# 本地数据
+clawdata/
+logs/
+data.json
+
+# Docker / 脚本
+docker-build.sh
+docker-build.bat
+docker-run.sh
+docker-run.bat
+
+# 临时文件
+*.tmp
+*.bak
+*.log

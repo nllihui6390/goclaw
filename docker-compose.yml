@@ -1,15 +1,32 @@
 services:
   go-claw:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: go-claw:latest
     container_name: go-claw
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      - "8080:8080"   # HTTP API + Web 前端
+      - "8081:8081"   # WebSocket (可选)
     volumes:
+      # 配置文件（可编辑修改配置）
       - ./config.json:/app/config.json
-      - ./data.json:/app/data.json
+      # 数据持久化目录
+      - ./clawdata:/app/clawdata
+      # 日志目录
+      - ./logs:/app/logs
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
-      - HEFENG_API_KEY=${HEFENG_API_KEY}
+      # OpenAI API 配置（可选，config.json 中也可配置）
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      # 天气 API（可选）
+      - HEFENG_API_KEY=${HEFENG_API_KEY:-}
+      # 配置热重载
+      - GOCLAW_HOT_RELOAD=${GOCLAW_HOT_RELOAD:-false}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
