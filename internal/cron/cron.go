@@ -95,9 +95,21 @@ func (m *Manager) loadFromFile() {
 		glog.Logger().Warn("[Cron] 加载任务文件失败", "err", err)
 		return
 	}
+	now := time.Now()
+	needSave := false
 	for _, job := range jobs {
-		job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
+		// 如果 next_run 已过期，重新计算下次执行时间
+		nextRun := parseTimeSafe(job.NextRun)
+		if nextRun.Before(now) || nextRun.Equal(now) {
+			job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
+			needSave = true
+		}
 		m.jobs[job.ID] = job
+	}
+	// 有过期任务需要更新保存
+	if needSave {
+		m.saveToFile()
+		glog.Logger().Info("[Cron] 已更新过期任务的下次执行时间")
 	}
 	glog.Logger().Info("[Cron] 从文件加载任务", "count", len(jobs), "file", m.dataFile)
 }
@@ -272,6 +284,11 @@ func (m *Manager) checkAndRun() {
 		}
 	}
 	m.mu.Unlock()
+
+	// 持久化更新的 LastRun/NextRun
+	if len(jobsToRun) > 0 {
+		m.saveToFile()
+	}
 
 	// 在独立 goroutine 中执行每个任务
 	for _, job := range jobsToRun {
