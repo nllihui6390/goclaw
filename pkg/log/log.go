@@ -153,7 +153,14 @@ func Init(level string, jsonMode bool, filePath string, console bool) {
 		case "error":
 			lvl = slog.LevelError
 		}
-		opts := &slog.HandlerOptions{Level: lvl}
+		opts := &slog.HandlerOptions{Level: lvl, ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+				if a.Key == slog.TimeKey {
+					if t, ok := a.Value.Any().(time.Time); ok {
+						return slog.Attr{Key: a.Key, Value: slog.StringValue(t.Format("2006-01-02 15:04:05"))}
+					}
+				}
+				return a
+			}}
 
 		var writers []io.Writer
 		if console {
