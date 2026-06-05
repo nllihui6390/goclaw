@@ -346,6 +346,9 @@ type skillYAMLFrontmatter struct {
 		OpenClaw struct {
 			Emoji string `yaml:"emoji"`
 		} `yaml:"openclaw"`
+		ClawdBot struct {
+			Emoji string `yaml:"emoji"`
+		} `yaml:"clawdbot"`
 	} `yaml:"metadata"`
 }
 
@@ -395,6 +398,10 @@ func (s *SkillService) parseSkillMD(data []byte) *parsedSkill {
 		Requirements: frontmatter.Requirements,
 		HasScripts:   false,
 	}
+	// ClawdBot emoji 兜底（sill 格式兼容）
+	if skill.Emoji == "" {
+		skill.Emoji = frontmatter.Metadata.ClawdBot.Emoji
+	}
 
 	// 检查 scripts 目录
 	skillDir := s.skillDir()
@@ -437,10 +444,25 @@ func (s *SkillService) parseSkillMDSimple(yamlContent, markdownBody string) *par
 		} else if strings.HasPrefix(line, "version:") {
 			skill.Version = strings.TrimSpace(strings.TrimPrefix(line, "version:"))
 		} else if strings.Contains(line, "emoji:") {
-			// 处理嵌套的 emoji: metadata.openclaw.emoji
+			// 处理嵌套的 emoji: metadata.openclaw.emoji 或 metadata.clawdbot.emoji
 			parts := strings.Split(line, "emoji:")
 			if len(parts) > 1 {
 				skill.Emoji = strings.TrimSpace(parts[len(parts)-1])
+			}
+		} else if strings.HasPrefix(line, "metadata:") {
+			// sill 格式: metadata 行是 JSON 字符串，如 metadata: {"clawdbot":{"emoji":"📘"}}
+			metaJSON := strings.TrimSpace(strings.TrimPrefix(line, "metadata:"))
+			if strings.HasPrefix(metaJSON, "{") {
+				var meta map[string]interface{}
+				if json.Unmarshal([]byte(metaJSON), &meta) == nil {
+					for _, key := range []string{"clawdbot", "openclaw"} {
+						if sub, ok := meta[key].(map[string]interface{}); ok {
+							if emoji, ok := sub["emoji"].(string); ok && emoji != "" {
+								skill.Emoji = emoji
+							}
+						}
+					}
+				}
 			}
 		}
 	}
