@@ -145,7 +145,6 @@ function isSkillSelected(skill) {
               <span class="skill-emoji">{{ skill.emoji || '🔧' }}</span>
               <span class="skill-name">{{ skill.name }}</span>
             </div>
-            <el-tag v-if="skill.has_scripts" size="small" type="warning">含脚本</el-tag>
           </div>
         </template>
 
@@ -154,12 +153,13 @@ function isSkillSelected(skill) {
           <div class="skill-meta">
             <el-icon><Folder /></el-icon>
             <code>{{ skill.folder }}</code>
-            <el-tag v-if="skill.has_scripts" size="small" type="warning" style="margin-left: auto">脚本</el-tag>
+            <el-tag v-if="skill.version" size="small" type="info" style="margin-left: auto">v{{ skill.version }}</el-tag>
+            <el-tag v-if="skill.has_scripts" size="small" type="warning" style="margin-left: 4px">脚本</el-tag>
           </div>
         </div>
 
         <div class="skill-footer">
-          <el-button type="danger" link size="small" @click="removeSkill(skill.name)">移除</el-button>
+          <el-button type="danger" size="small" @click="removeSkill(skill.name)">移除</el-button>
         </div>
       </el-card>
     </div>
@@ -197,6 +197,7 @@ function isSkillSelected(skill) {
           <p class="pool-card-desc">{{ skill.description || '无描述' }}</p>
           <div class="pool-card-meta">
             <code>{{ skill.folder }}</code>
+            <el-tag v-if="skill.version" size="small" type="info">v{{ skill.version }}</el-tag>
           </div>
         </div>
       </div>
@@ -224,7 +225,7 @@ function isSkillSelected(skill) {
 .skill-info { color: #909399; font-size: 13px; display: flex; align-items: center; gap: 6px; }
 .header-actions { display: flex; gap: 8px; }
 .skills-grid { display: grid;grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));gap: 16px;}
-.skill-card { transition: all .2s; }
+.skill-card { position: relative; transition: all .2s; }
 .skill-card :deep(.el-card__body) { display: flex; flex-direction: column; }
 .skill-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.1); }
 .card-header { display: flex;justify-content: space-between;align-items: center;}
@@ -235,7 +236,11 @@ function isSkillSelected(skill) {
 .skill-desc { margin: 0; color: #606266; font-size: 14px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .skill-meta { display: flex; align-items: center; gap: 4px; color: #909399; font-size: 13px; }
 .skill-meta code { background: #f5f7fa; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
-.skill-footer { margin-top: auto; padding-top: 10px; border-top: 1px solid #ebeef5; text-align: right; }
+.skill-footer {
+  position: absolute; top: 21px; right: 18px;
+  opacity: 0; transition: opacity .2s;
+}
+.skill-card:hover .skill-footer { opacity: 1; }
 .empty-hint { color: #909399; font-size: 13px; text-align: center; }
 
 /* 技能池对话框 */
