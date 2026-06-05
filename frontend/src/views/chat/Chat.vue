@@ -172,9 +172,11 @@ async function confirmNewChat() {
 <template>
   <div class="chat-page">
     <!-- 右上角新建聊天按钮 -->
-    <div class="new-chat-btn" @click="openNewChat" title="新建聊天">
-      <el-icon :size="14"><Plus /></el-icon>
-    </div>
+    <el-tooltip content="新建聊天" placement="left">
+      <div class="new-chat-btn" @click="openNewChat">
+        <el-icon :size="14"><Plus /></el-icon>
+      </div>
+    </el-tooltip>
     <!-- 新建聊天磨砂遮罩 -->
     <div v-if="showNewChatOverlay" class="new-chat-overlay" @click.self="closeNewChat">
       <div class="new-chat-panel">
