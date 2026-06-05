@@ -107,6 +107,14 @@ export class HttpAdapter {
   getTools() { return http.get('/tools').then(r => r.data) }
   getSkillPool() { return http.get('/skills/pool').then(r => r.data) }
   scanSkills() { return http.post('/skills/scan').then(r => r.data) }
+  uploadSkill(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return fetch('/api/v1/skills/upload', {
+      method: 'POST',
+      body: formData
+    }).then(r => r.json())
+  }
   getEnabledSkills(agent) { return http.get('/skills/enabled', { params: { agent } }).then(r => r.data) }
   setEnabledSkills(agent, skills) { return http.put('/skills/enabled', skills, { params: { agent } }).then(r => r.data) }
 

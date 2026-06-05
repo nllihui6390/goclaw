@@ -1,7 +1,11 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -479,4 +483,126 @@ func (s *SkillService) parseSkillMDSimple(yamlContent, markdownBody string) *par
 	}
 
 	return skill
+}
+
+// ImportFromZip 从 zip 数据导入技能
+// 返回导入结果 map
+func (s *SkillService) ImportFromZip(data []byte) (map[string]interface{}, error) {
+	// 创建临时目录
+	tmpDir, err := os.MkdirTemp("", "skill_upload_")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpDir) // 清理临时目录
+
+	// 解压 zip
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+
+	// 解压文件
+	for _, f := range reader.File {
+		info := f.FileInfo()
+		if info.IsDir() || strings.HasPrefix(f.Name, "__MACOSX") || strings.Contains(f.Name, ".DS_Store") {
+			continue
+		}
+
+		targetPath := filepath.Join(tmpDir, f.Name)
+		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(tmpDir)+string(os.PathSeparator)) {
+			continue // 防止路径遍历
+		}
+
+		os.MkdirAll(filepath.Dir(targetPath), 0755)
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		dst, _ := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		io.Copy(dst, rc)
+		dst.Close()
+		rc.Close()
+	}
+
+	// 扫描临时目录寻找 SKILL.md
+	var imported []SkillRegistryEntry
+	entries, _ := os.ReadDir(tmpDir)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		skillDir := filepath.Join(tmpDir, entry.Name())
+		skillFile := filepath.Join(skillDir, "SKILL.md")
+		if _, err := os.Stat(skillFile); err != nil {
+			continue
+		}
+
+		// 解析 SKILL.md
+		skillData, _ := os.ReadFile(skillFile)
+		parsed := s.parseSkillMD(skillData)
+		if parsed == nil || parsed.Name == "" {
+			continue
+		}
+
+		// 检查技能是否已存在
+		targetSkillDir := filepath.Join(s.skillDir(), parsed.Name)
+		if _, err := os.Stat(targetSkillDir); err == nil {
+			return nil, fmt.Errorf("技能 '%s' 已存在", parsed.Name)
+		}
+
+		// 复制到技能目录（使用 parsed.Name 作为目录名）
+		os.MkdirAll(targetSkillDir, 0755)
+		copyDir(skillDir, targetSkillDir)
+
+		// 记录导入信息
+		imported = append(imported, SkillRegistryEntry{
+			Name:         parsed.Name,
+			Folder:       parsed.Name,
+			Description:  parsed.Description,
+			Author:       parsed.Author,
+			Version:      parsed.Version,
+			Emoji:        parsed.Emoji,
+			Credentials:  parsed.Credentials,
+			Requirements: parsed.Requirements,
+			HasScripts:   parsed.HasScripts,
+			Scripts:      parsed.Scripts,
+			Sections:     parsed.Sections,
+			DiscoveredAt: time.Now().Format(time.RFC3339),
+		})
+	}
+
+	if len(imported) == 0 {
+		return nil, fmt.Errorf("未找到有效技能（缺少 SKILL.md 或 name 字段）")
+	}
+
+	// 更新技能池注册表
+	reg, _ := s.GetPool()
+	reg.Skills = append(reg.Skills, imported...)
+	s.SavePool(reg)
+
+	return map[string]interface{}{
+		"message": "导入成功",
+		"skills":  imported,
+		"total":   len(imported),
+	}, nil
+}
+
+// copyDir 复制目录内容
+func copyDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			os.MkdirAll(dstPath, 0755)
+			copyDir(srcPath, dstPath)
+		} else {
+			data, _ := os.ReadFile(srcPath)
+			os.WriteFile(dstPath, data, 0644)
+		}
+	}
+	return nil
 }

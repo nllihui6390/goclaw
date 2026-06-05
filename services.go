@@ -43,6 +43,7 @@ func (a *AppService) GetProviders() string                  { return a.inner.Get
 func (a *AppService) GetTools() string                      { return a.inner.GetTools() }
 func (a *AppService) GetSkillPool() string                  { return a.inner.GetSkillPool() }
 func (a *AppService) ScanSkills() string                    { return a.inner.ScanSkills() }
+func (a *AppService) UploadSkill(filename, base64 string) string { return a.inner.UploadSkill(filename, base64) }
 func (a *AppService) GetEnabledSkills(agent string) string  { return a.inner.GetEnabledSkills(agent) }
 func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 	return a.inner.SetEnabledSkills(agent, skillsJSON)

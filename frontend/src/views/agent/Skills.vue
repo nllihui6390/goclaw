@@ -9,6 +9,8 @@ const agentStore = useAgentStore()
 const loading = ref(false)
 const saving = ref(false)
 const scanning = ref(false)
+const uploading = ref(false)
+const fileInput = ref(null)
 
 // 当前 agent 已启用的技能
 const enabledSkills = ref([])
@@ -111,6 +113,38 @@ function toggleSkill(skill) {
 function isSkillSelected(skill) {
   return selectedFromPool.value.includes(skill.name)
 }
+
+// 上传技能 zip
+async function uploadSkill() {
+  fileInput.value?.click()
+}
+
+// 处理文件选择
+async function onFileSelected(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  e.target.value = ''
+
+  if (!file.name.endsWith('.zip')) {
+    ElMessage.warning('只支持 .zip 文件')
+    return
+  }
+
+  uploading.value = true
+  try {
+    const res = await api.uploadSkill(file)
+    if (res.error) {
+      ElMessage.error(res.error)
+    } else {
+      ElMessage.success(res.message || `导入成功，${res.total} 个技能`)
+      await scanSkills()
+      await loadEnabledSkills()
+    }
+  } catch (e) {
+    ElMessage.error('上传失败: ' + e.message)
+  }
+  uploading.value = false
+}
 </script>
 
 <template>
@@ -119,13 +153,16 @@ function isSkillSelected(skill) {
       <div class="header-left">
         <h2>技能管理</h2>
         <span class="skill-info">
-          当前 Agent: <el-tag size="small">{{ agentStore.selectedAgent }}</el-tag>
-          · 已启用 {{ enabledSkills.length }} 个技能
+          当前 Agent: <el-tag size="small">{{ agentStore.selectedAgent }}</el-tag>· 已启用 {{ enabledSkills.length }} 个技能
         </span>
       </div>
       <div class="header-actions">
+        <input ref="fileInput" type="file" accept=".zip" hidden @change="onFileSelected" />
         <el-button type="primary" @click="openPoolDialog">
           <el-icon><Plus /></el-icon>从技能池载入
+        </el-button>
+        <el-button @click="uploadSkill" :loading="uploading">
+          <el-icon><Upload /></el-icon>上传技能
         </el-button>
         <el-button @click="scanSkills" :loading="scanning">
           <el-icon><Search /></el-icon>扫描

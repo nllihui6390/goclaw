@@ -76,7 +76,7 @@ const agentModel = computed({
       <h1 class="header-title">{{ pageTitle }}</h1>
     </div>
     <div class="header-right">
-
+      <label class="label-agent">当前Agent</label>
       <el-select v-model="agentModel" placeholder="选择 Agent" size="small" style="width: 140px">
         <el-option v-for="a in agentOptions" :key="a.value" :label="a.label" :value="a.value" />
       </el-select>
@@ -94,6 +94,7 @@ const agentModel = computed({
 .header-left { display: flex; align-items: center; gap: 10px; }
 .header-title { font-size: 16px; font-weight: 500; color: #303133; margin: 0; }
 .header-right { display: flex; align-items: center; gap: 12px; }
+.label-agent { font-size: 12px; }
 .github-link {
   display: flex; align-items: center; justify-content: center;
   color: #606266;

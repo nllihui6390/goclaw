@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -173,6 +174,22 @@ func (a *AppService) ScanSkills() string {
 		"message":   "扫描完成",
 	})
 	return string(data)
+}
+
+func (a *AppService) UploadSkill(filename, base64Data string) string {
+	// 解码 base64
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"解码文件失败: %s"}`, err.Error())
+	}
+
+	result, err := a.skillSvc.ImportFromZip(data)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+
+	resultJSON, _ := json.Marshal(result)
+	return string(resultJSON)
 }
 
 func (a *AppService) GetEnabledSkills(agent string) string {

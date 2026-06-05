@@ -2,6 +2,20 @@
 // 使用 @wailsio/runtime 的 Call.ByName API，无需依赖生成的 bindings 文件
 import { Call } from '@wailsio/runtime'
 
+// readFileAsBase64 读取文件为 base64 字符串
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result
+      const base64 = dataUrl.split(',')[1]
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 export class WailsAdapter {
   // 非流式适配器标志，Chat.vue 根据此标志选择消费方式
   isStreaming = false
@@ -142,6 +156,13 @@ export class WailsAdapter {
   async scanSkills() {
     try {
       const json = await Call.ByName('main.AppService.ScanSkills')
+      return JSON.parse(json)
+    } catch (e) { return { error: e.message } }
+  }
+  async uploadSkill(file) {
+    try {
+      const base64 = await readFileAsBase64(file)
+      const json = await Call.ByName('main.AppService.UploadSkill', file.name, base64)
       return JSON.parse(json)
     } catch (e) { return { error: e.message } }
   }

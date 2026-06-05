@@ -63,6 +63,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/tools", api.HandleTools)
 	mux.HandleFunc("/api/v1/skills/pool", api.HandleSkillPool)
 	mux.HandleFunc("/api/v1/skills/scan", api.HandleSkillScan)
+	mux.HandleFunc("/api/v1/skills/upload", api.HandleSkillUpload)
 	mux.HandleFunc("/api/v1/skills/enabled", api.HandleSkillEnabled)
 	mux.HandleFunc("/api/v1/cron/jobs", api.HandleCronJobs)
 	mux.HandleFunc("/api/v1/cron/jobs/", api.HandleCronJobByID)
