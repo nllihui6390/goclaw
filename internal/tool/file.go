@@ -431,16 +431,10 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 				return fmt.Sprintf("文件 %s 已成功发送给用户", filename), nil
 			}
 		}
-
-		// 2. 通过 ToolEventFile 推送文件信息给前端（SSE 实时推送）
-		ch.SendToolEvent(channel.ToolEvent{
-			Type:     channel.ToolEventFile,
-			ToolName: filename,   // 用 ToolName 传递文件名
-			Args:     info.FileType, // 用 Args 传递文件类型
-			Result:   info.Path,     // 用 Result 传递文件路径
-			To:       to,
-		})
 	}
+
+	// 2. 返回简单确认文本给 LLM
+	// 注意：file 事件由 runtime 在工具执行后通过 handler 发送，不再在此处直接推送
 
 	// 3. 返回简单确认文本给 LLM（不再返回 [FILE_BLOCK]，避免被 LLM 过滤）
 	sizeStr := ""

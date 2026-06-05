@@ -296,6 +296,7 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)
 			}
+
 			// 统一记录会话活动
 			if g.sessionIndex != nil {
 				g.sessionIndex.RecordSession(sessionID, msg.Channel, msg.From, agentName, msg.Content)

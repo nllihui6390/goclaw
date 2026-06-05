@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -328,6 +329,27 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 						ToolName: tc.Function.Name,
 						Result:   result,
 					})
+					// send_file 工具额外发送 file 事件（供前端实时渲染 + session 持久化）
+					if tc.Function.Name == "send_file" {
+						var toolParams map[string]interface{}
+						if json.Unmarshal([]byte(tc.Function.Arguments), &toolParams) == nil {
+							path, _ := toolParams["path"].(string)
+							filename, _ := toolParams["filename"].(string)
+							if filename == "" && path != "" {
+								filename = filepath.Base(path)
+							}
+							fileType := "file"
+							if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+								fileType = "url"
+							}
+							handler(ToolEvent{
+								Type:     "file",
+								ToolName: filename,
+								Args:     fileType,
+								Result:   path,
+							})
+						}
+					}
 				}
 			}
 

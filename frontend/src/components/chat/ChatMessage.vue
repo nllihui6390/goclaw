@@ -16,7 +16,7 @@ const segments = computed(() => {
   if (!props.content) return []
   const text = props.content
   const result = []
-  const regex = /\[FILE_BLOCK\]\n?(.*?)\n?\[\/FILE_BLOCK\]/g
+  const regex = /\[FILE_BLOCK\]\n([\s\S]*?)\n?\[\/FILE_BLOCK\]/g
   let lastIndex = 0
   let match
 

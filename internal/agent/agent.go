@@ -145,14 +145,33 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages))
 
 	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）
+	// 收集文件事件（用于追加到最终响应，确保 session 持久化）
+	fileBlocks := []string{}
+	wrappedHandler := func(event ToolEvent) {
+		// 收集文件事件
+		if event.Type == "file" {
+			fileBlock := fmt.Sprintf("[FILE_BLOCK]\n类型: %s\n路径: %s\n文件名: %s\n[/FILE_BLOCK]", event.Args, event.Result, event.ToolName)
+			fileBlocks = append(fileBlocks, fileBlock)
+		}
+		// 调用原始 handler
+		if handler != nil {
+			handler(event)
+		}
+	}
+
 	logger.Info("[Agent] 开始执行Runtime",
 		"tools_count", len(a.config.Tools),
 		"max_iterations", a.config.MaxIterations)
 
-	finalResponse, err := a.runtime.ExecuteWithEnhancedMessage(ctx, session, llmMessage, a.config.Tools, a.config.MaxIterations, handler)
+	finalResponse, err := a.runtime.ExecuteWithEnhancedMessage(ctx, session, llmMessage, a.config.Tools, a.config.MaxIterations, wrappedHandler)
 	if err != nil {
 		logger.Error("[Agent] Runtime执行失败", "err", err)
 		return "", err
+	}
+
+	// 将文件块放到响应开头（确保 session 持久化包含文件信息，且前端解析时文件卡片显示在前面）
+	if len(fileBlocks) > 0 {
+		finalResponse = strings.Join(fileBlocks, "\n") + "\n" + finalResponse
 	}
 
 	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse))
