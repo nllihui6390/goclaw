@@ -193,9 +193,23 @@ function highlightLog(text) {
   :deep(.hl-info)   { color: #10b981; font-weight: 600; }
   :deep(.hl-debug)  { color: #8b5cf6; font-weight: 600; }
   :deep(.hl-time)   { color: #6b7280; }
-  :deep(.hl-num)    { color: #00d4ff; }
-  :deep(.hl-string) { color: #f59e0b; }
-  :deep(.hl-path)   { color: #60a5fa; }
-  :deep(.hl-key)    { color: #c084fc; }
+  :deep(.hl-num)    { color: #0891b2; }
+  :deep(.hl-string) { color: #d97706; }
+  :deep(.hl-path)   { color: #3b82f6; }
+  :deep(.hl-key)    { color: #a855f7; }
+}
+
+// Dark mode - toned down colors
+:global([data-theme="dark"]) {
+  .logs-content {
+    :deep(.hl-error)  { color: #fb7185; }
+    :deep(.hl-warn)   { color: #fbbf24; }
+    :deep(.hl-info)   { color: #34d399; }
+    :deep(.hl-debug)  { color: #a78bfa; }
+    :deep(.hl-num)    { color: #22d3ee; }
+    :deep(.hl-string) { color: #fbbf24; }
+    :deep(.hl-path)   { color: #60a5fa; }
+    :deep(.hl-key)    { color: #c084fc; }
+  }
 }
 </style>

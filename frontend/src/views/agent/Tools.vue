@@ -81,8 +81,6 @@ watch(agentName, loadConfig)
             <span class="tool-name">{{ toolName }}</span>
             <span class="tool-desc">{{ toolMeta(toolName).desc || '—' }}</span>
           </div>
-        </div>
-        <div class="tool-footer">
           <el-switch
             :model-value="isToolEnabled(toolName)"
             @change="val => toggleTool(toolName, val)"
@@ -117,10 +115,10 @@ watch(agentName, loadConfig)
   transition: all 0.2s;
 
   &:hover { border-color: $border-default; }
-  &.enabled { border-color: $accent-cyan; background: $accent-cyan-dim; }
+  &.enabled { border-color: rgba(0, 212, 255, 0.4); background: $accent-cyan-dim; }
 }
 
-.tool-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.tool-header { display: flex; align-items: center; gap: 12px; }
 .tool-icon {
   font-size: 24px; width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
@@ -132,5 +130,4 @@ watch(agentName, loadConfig)
 .tool-info { flex: 1; min-width: 0; }
 .tool-name { font-size: $font-size-sm; font-weight: 600; color: $text-primary; font-family: $font-display; display: block; margin-bottom: 4px; }
 .tool-desc { font-size: $font-size-xs; color: $text-muted; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tool-footer { display: flex; justify-content: flex-end; }
 </style>
