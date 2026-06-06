@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"go-claw/internal/channel"
@@ -92,14 +93,17 @@ func HandleFileDownload(rw http.ResponseWriter, r *http.Request) {
 
 // handleLocalFileDownload 处理本地文件下载
 func handleLocalFileDownload(rw http.ResponseWriter, r *http.Request, path, filename string) {
+	// 将 file:// URL 转换为本地路径
+	localPath := channel.FileURLToLocalPath(path)
+
 	// 安全检查：禁止下载敏感路径
-	if isSensitiveDownloadPath(path) {
+	if isSensitiveDownloadPath(localPath) {
 		writeError(rw, http.StatusForbidden, "禁止下载敏感路径文件")
 		return
 	}
 
 	// 清理路径，防止路径遍历攻击
-	cleanPath := filepath.Clean(path)
+	cleanPath := filepath.Clean(localPath)
 	if strings.Contains(cleanPath, "..") {
 		writeError(rw, http.StatusBadRequest, "非法路径")
 		return
@@ -126,7 +130,7 @@ func handleLocalFileDownload(rw http.ResponseWriter, r *http.Request, path, file
 	// 设置响应头
 	rw.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	rw.Header().Set("Content-Type", "application/octet-stream")
-	rw.Header().Set("Content-Length", string(rune(info.Size())))
+	rw.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 
 	// 发送文件
 	http.ServeFile(rw, r, cleanPath)

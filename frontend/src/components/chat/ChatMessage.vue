@@ -78,6 +78,22 @@ const blocks = computed(() => {
   return []
 })
 
+// 从 URL 提取文件名（带扩展名）
+function extractFilename(url) {
+  if (!url) return '图片'
+  // 处理 file:// 路径和普通路径
+  let path = url
+  if (path.startsWith('file:///')) path = path.slice(8) // Windows: file:///C:/...
+  else if (path.startsWith('file://')) path = path.slice(7) // Unix: file:///home/...
+  else if (path.startsWith('file:')) path = path.slice(5)
+  // 取最后一段路径作为文件名
+  const parts = path.split(/[\/\\]/)
+  const last = parts[parts.length - 1]
+  if (last && last.includes('.')) return last
+  // URL 没有扩展名，回退
+  return '图片'
+}
+
 function renderMarkdown(text) {
   if (!text) return ''
   return marked(text.trim())
@@ -187,6 +203,103 @@ function onPreviewMouseMove(e) {
 function onPreviewMouseUp() {
   isDragging = false
 }
+
+// ─────────── 图片右键菜单 ───────────
+const ctxMenuVisible = ref(false)
+const ctxMenuStyle = ref({ left: '0px', top: '0px' })
+const ctxMenuSourceUrl = ref('')
+const ctxMenuDisplayUrl = ref('')
+const ctxMenuFilename = ref('')
+
+function onImageContextMenu(e, sourceUrl, displayUrl, filename) {
+  e.preventDefault()
+  ctxMenuSourceUrl.value = sourceUrl || ''
+  ctxMenuDisplayUrl.value = displayUrl || ''
+  ctxMenuFilename.value = filename || extractFilename(sourceUrl)
+  // 计算菜单位置，防止溢出屏幕
+  const menuWidth = 160
+  const menuHeight = 120
+  let left = e.clientX
+  let top = e.clientY
+  if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 8
+  if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 8
+  ctxMenuStyle.value = { left: left + 'px', top: top + 'px' }
+  ctxMenuVisible.value = true
+}
+
+function closeCtxMenu() {
+  ctxMenuVisible.value = false
+}
+
+// 复制图片到剪贴板
+async function copyImage() {
+  closeCtxMenu()
+  const url = ctxMenuDisplayUrl.value
+  if (!url) return
+  try {
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    await navigator.clipboard.write([
+      new ClipboardItem({ [blob.type]: blob })
+    ])
+  } catch (e) {
+    console.error('[ChatMessage] copyImage error:', e)
+    // fallback: 复制链接
+    try { await navigator.clipboard.writeText(ctxMenuSourceUrl.value) } catch {}
+  }
+}
+
+// 复制图片链接/路径
+async function copyImageLink() {
+  closeCtxMenu()
+  try { await navigator.clipboard.writeText(ctxMenuSourceUrl.value) } catch {}
+}
+
+// 另存为（Wails 用保存对话框，Web 用浏览器下载）
+async function saveImageAs() {
+  closeCtxMenu()
+  const sourceUrl = ctxMenuSourceUrl.value
+  const displayUrl = ctxMenuDisplayUrl.value
+  const filename = ctxMenuFilename.value
+
+  if (isWails && api?.downloadFile) {
+    // Wails 模式：调用后端保存对话框
+    api.downloadFile(sourceUrl, filename)
+  } else if (displayUrl.startsWith('blob:')) {
+    // Web 模式 + Blob URL：直接从 blob 下载
+    try {
+      const resp = await fetch(displayUrl)
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      console.error('[ChatMessage] saveImageAs blob error:', e)
+    }
+  } else if (displayUrl.startsWith('data:')) {
+    // Data URL：直接下载
+    const a = document.createElement('a')
+    a.href = displayUrl
+    a.download = filename
+    a.click()
+  } else if (sourceUrl.startsWith('file://') || sourceUrl.startsWith('file:')) {
+    // Web 模式 + file:// 路径：通过 HTTP 端点下载
+    const a = document.createElement('a')
+    a.href = `/api/v1/files/download?path=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
+    a.download = filename
+    a.click()
+  } else if (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://')) {
+    // 远程 URL：直接下载
+    const a = document.createElement('a')
+    a.href = sourceUrl
+    a.download = filename
+    a.target = '_blank'
+    a.click()
+  }
+}
 </script>
 
 <template>
@@ -207,6 +320,7 @@ function onPreviewMouseUp() {
               :alt="f.filename || '图片'"
               class="chat-image"
               @click="openPreview(getDisplayUrl(f.path), getImageIndex(f.path))"
+              @contextmenu="onImageContextMenu($event, f.path, getDisplayUrl(f.path), f.filename || extractFilename(f.path))"
             />
             <FileCard v-else :file-type="f.fileType" :path="f.path" :filename="f.filename" :size="f.size" />
           </template>
@@ -221,6 +335,7 @@ function onPreviewMouseUp() {
             :alt="block.filename || '图片'"
             class="chat-image"
             @click="openPreview(getDisplayUrl(block.source?.url || ''), getImageIndex(block.source?.url || ''))"
+            @contextmenu="onImageContextMenu($event, block.source?.url || '', getDisplayUrl(block.source?.url || ''), block.filename || extractFilename(block.source?.url || ''))"
           />
 
           <video v-else-if="block.type === 'video'" :src="getDisplayUrl(block.source?.url || '')" controls class="chat-video" />
@@ -253,6 +368,20 @@ function onPreviewMouseUp() {
         <span>{{ Math.round(previewScale * 100) }}%</span>
       </div>
     </div>
+
+    <!-- 图片右键菜单 -->
+    <div
+      v-if="ctxMenuVisible"
+      class="ctx-menu"
+      :style="ctxMenuStyle"
+      @click.stop
+    >
+      <div class="ctx-menu-item" @click="copyImage">📋 复制图片</div>
+      <div class="ctx-menu-item" @click="copyImageLink">🔗 复制链接</div>
+      <div class="ctx-menu-item" @click="saveImageAs">💾 另存为...</div>
+      <div class="ctx-menu-item" @click="closeCtxMenu">❌ 取消</div>
+    </div>
+    <div v-if="ctxMenuVisible" class="ctx-menu-backdrop" @click="closeCtxMenu"></div>
   </Teleport>
 </template>
 
@@ -271,4 +400,8 @@ function onPreviewMouseUp() {
 .preview-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 50px; height: 50px; border: none; border-radius: 50%; background: rgba(255,255,255,.1); color: #fff; font-size: 28px; cursor: pointer; &:hover { background: rgba(255,255,255,.2); } &.prev { left: 20px; } &.next { right: 20px; } }
 .preview-image { max-width: 90vw; max-height: 90vh; object-fit: contain; cursor: grab; transition: transform .05s; &:active { cursor: grabbing; } }
 .preview-info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 8px 16px; border-radius: 20px; color: #fff; font-size: 14px; display: flex; gap: 20px; }
+
+.ctx-menu { position: fixed; background: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,.15); padding: 6px 0; z-index: 10001; min-width: 140px; }
+.ctx-menu-item { padding: 8px 16px; cursor: pointer; font-size: 14px; color: #333; transition: background .15s; &:hover { background: #f0f7ff; } }
+.ctx-menu-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 10000; }
 </style>
