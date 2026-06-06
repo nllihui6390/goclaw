@@ -46,9 +46,9 @@ func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	return a.inner.UpdateAgent(name, agentJSON)
 }
 func (a *AppService) DeleteAgent(name string) string { return a.inner.DeleteAgent(name) }
-func (a *AppService) GetChannels() string            { return a.inner.GetChannels() }
-func (a *AppService) UpdateChannel(name, configJSON string) string {
-	return a.inner.UpdateChannel(name, configJSON)
+func (a *AppService) GetChannels(agentName string) string { return a.inner.GetChannels(agentName) }
+func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) string {
+	return a.inner.UpdateChannel(agentName, channelName, configJSON)
 }
 func (a *AppService) GetProviders() string { return a.inner.GetProviders() }
 func (a *AppService) GetTools() string     { return a.inner.GetTools() }
@@ -64,6 +64,9 @@ func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 
 func (a *AppService) SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
 	a.inner.SetSkillChangedCallback(cb)
+}
+func (a *AppService) SetChannelChangedCallback(cb func(agentName, channelName string)) {
+	a.inner.SetChannelChangedCallback(cb)
 }
 func (a *AppService) GetSessions() string                   { return a.inner.GetSessions() }
 func (a *AppService) DeleteSession(sessionID string) string { return a.inner.DeleteSession(sessionID) }

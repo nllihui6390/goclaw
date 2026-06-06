@@ -2,9 +2,9 @@ package config
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -69,8 +69,8 @@ var providerPresets = []struct {
 	},
 }
 
-// RunWizard 运行交互式配置向导，返回生成的 Config
-func RunWizard() *Config {
+// RunWizard 运行交互式配置向导，返回生成的 Config 和 AgentConfig
+func RunWizard() (*Config, *AgentConfig) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println()
@@ -174,16 +174,6 @@ func RunWizard() *Config {
 	fmt.Println("步骤 3/3: 可选渠道配置")
 	fmt.Println()
 
-	webhookEnabled := askYesNo(reader, "启用 HTTP API (webhook)?", false)
-	webhookPort := "8080"
-	if webhookEnabled {
-		fmt.Print("  端口 [8080]: ")
-		port := readLine(reader)
-		if port != "" {
-			webhookPort = port
-		}
-	}
-
 	larkEnabled := askYesNo(reader, "启用飞书机器人?", false)
 	larkAppID := ""
 	larkAppSecret := ""
@@ -216,10 +206,10 @@ func RunWizard() *Config {
 
 	wechatEnabled := askYesNo(reader, "启用微信个人 Bot (iLink)?", false)
 	if wechatEnabled {
-		fmt.Println("  提示: 首次启动时会自动弹出扫码登录，无需预先配置 Token")
+		fmt.Println("  提示: 次启动时会自动弹出扫码登录，无需预先配置 Token")
 	}
 
-	// ── 构建配置 ──
+	// ── 构建根配置 ──
 	cfg := &Config{
 		Gateway: GatewayConfig{
 			DefaultProvider: providerName,
@@ -237,23 +227,10 @@ func RunWizard() *Config {
 				Models:  []ModelConfig{{Name: model, Description: "默认模型"}},
 			},
 		},
-		Agents: []AgentConfig{
-			{
-				Name:          "default",
-				Provider:      providerName,
-				Model:         model,
-				SystemPrompt:  "你是一个有用的AI助手。你可以使用工具来帮助用户。",
-				Tools:         []string{"weather", "exec", "write_file", "read_file", "edit_file", "append_file", "send_file", "get_current_time", "set_user_timezone", "cron_status"},
-				MaxIterations: 20,
-				MaxTokens:     32000,
-			},
-		},
-		Channels: ChannelsConfig{
-			Console:   ConsoleConfig{Enabled: true},
-			Lark:      LarkConfig{Enabled: larkEnabled, AppID: larkAppID, AppSecret: larkAppSecret},
-			DingTalk:  DingTalkConfig{Enabled: dingtalkEnabled, ClientID: dingtalkClientID, ClientSecret: dingtalkClientSecret},
-			WeCom:     WeComConfig{Enabled: wecomEnabled, BotID: wecomBotID, Secret: wecomSecret},
-			WeChat:    WeChatConfig{Enabled: wechatEnabled, BotTokenFile: "clawdata/wechat_bot_token", MediaDir: "clawdata/media/wechat"},
+		Agents: AgentsRefConfig{
+			DefaultAgent: "default",
+			Order:        []string{"default"},
+			Profiles:     map[string]AgentProfileRef{"default": {Enabled: true}},
 		},
 		Logging: LoggingConfig{
 			Level:    "info",
@@ -270,14 +247,27 @@ func RunWizard() *Config {
 		Cron: CronConfig{Enabled: true},
 	}
 
+	// ── 构建 Agent 配置 ──
+	agentCfg := GetDefaultAgentConfig("default", providerName, model)
+	agentCfg.Channels = ChannelsConfig{
+		Console: ConsoleConfig{Enabled: true, ShowToolMessages: true, ShowThinking: true, StreamOutput: true},
+		Lark:    LarkConfig{Enabled: larkEnabled, AppID: larkAppID, AppSecret: larkAppSecret},
+		DingTalk: DingTalkConfig{Enabled: dingtalkEnabled, ClientID: dingtalkClientID, ClientSecret: dingtalkClientSecret},
+		WeCom:   WeComConfig{Enabled: wecomEnabled, BotID: wecomBotID, Secret: wecomSecret},
+		WeChat:  WeChatConfig{Enabled: wechatEnabled, BotTokenFile: "clawdata/wechat_bot_token", MediaDir: "clawdata/media/wechat"},
+	}
+
 	// ── 保存配置 ──
 	if err := SaveConfig("config.json", cfg); err != nil {
-		fmt.Printf("保存配置失败: %v\n", err)
+		fmt.Printf("保存根配置失败: %v\n", err)
 	} else {
-		channels := "console"
-		if webhookEnabled {
-			channels += ", webhook:" + webhookPort
+		// 保存 agent.json
+		workspaceDir := filepath.Join(cfg.Gateway.DataDir, cfg.Gateway.Workspace)
+		if err := SaveAgentConfig(workspaceDir, "default", agentCfg); err != nil {
+			fmt.Printf("保存 Agent 配置失败: %v\n", err)
 		}
+
+		channels := "console"
 		if larkEnabled {
 			channels += ", 飞书"
 		}
@@ -293,9 +283,9 @@ func RunWizard() *Config {
 
 		fmt.Println()
 		fmt.Println("╔══════════════════════════════════════════════════════════╗")
-		fmt.Println("║  配置完成！已保存到 config.json                            ║")
+		fmt.Println("║  配置完成！                                                ║")
 		fmt.Println("║                                                          ║")
-		fmt.Printf("║  供应商: %s 		    									║\n", titleCase(providerName))
+		fmt.Printf("║  供应商: %s                                                ║\n", titleCase(providerName))
 		fmt.Printf("║  模型:   %s                                               ║\n", model)
 		fmt.Printf("║  渠道:   %s                                               ║\n", channels)
 		fmt.Println("╚══════════════════════════════════════════════════════════╝")
@@ -303,16 +293,7 @@ func RunWizard() *Config {
 		fmt.Println("正在启动 go-claw...")
 	}
 
-	return cfg
-}
-
-// SaveConfig 保存配置到文件
-func SaveConfig(path string, cfg *Config) error {
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
+	return cfg, agentCfg
 }
 
 // readLine 读取一行输入
@@ -365,4 +346,68 @@ func titleCase(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// WriteInitialConfigs 写入初始配置文件（首次启动或桌面模式默认配置）
+func WriteInitialConfigs(configPath, workspaceDir string) error {
+	// 默认根配置
+	defaultCfg := getDefaultRootConfig()
+
+	if err := SaveConfig(configPath, defaultCfg); err != nil {
+		return fmt.Errorf("保存根配置失败: %w", err)
+	}
+
+	// 默认 Agent 配置
+	defaultAgent := GetDefaultAgentConfig("default", "deepseek", "deepseek-chat")
+	agentPath := filepath.Join(workspaceDir, "default", "agent.json")
+
+	if err := SaveAgentConfig(workspaceDir, "default", defaultAgent); err != nil {
+		return fmt.Errorf("保存 Agent 配置失败: %w", err)
+	}
+
+	// 验证 agent.json 写入
+	if _, err := os.Stat(agentPath); err != nil {
+		return fmt.Errorf("验证 Agent 配置文件失败: %w", err)
+	}
+
+	return nil
+}
+
+func getDefaultRootConfig() *Config {
+	return &Config{
+		Gateway: GatewayConfig{
+			DefaultAgent:    "default",
+			DefaultProvider: "deepseek",
+			DefaultModel:    "deepseek-chat",
+			SessionTTL:      0,
+			DataDir:         "clawdata",
+			Workspace:       "workspaces",
+		},
+		Providers: map[string]ProviderConfig{
+			"deepseek": {
+				Type:    "openai",
+				BaseURL: "https://api.deepseek.com/v1",
+				APIKey:  "",
+				Models:  []ModelConfig{{Name: "deepseek-chat", Description: "默认模型"}},
+			},
+		},
+		Agents: AgentsRefConfig{
+			DefaultAgent: "default",
+			Order:        []string{"default"},
+			Profiles:     map[string]AgentProfileRef{"default": {Enabled: true}},
+		},
+		Logging: LoggingConfig{
+			Level:    "info",
+			FilePath: "logs/app.log",
+			Console:  false,
+		},
+		Auth:   AuthConfig{Enabled: false},
+		Skills: SkillsConfig{},
+		Security: SecurityConfig{
+			Enabled:           true,
+			DenyShellInject:   true,
+			DenySensitivePath: true,
+		},
+		Cron: CronConfig{Enabled: true},
+	}
 }

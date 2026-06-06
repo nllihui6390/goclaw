@@ -132,15 +132,20 @@ func (a *AppService) DeleteAgent(name string) string {
 
 // ─────────── Channels ───────────
 
-func (a *AppService) GetChannels() string {
-	// gateway 已在 initServices 中设置
-	channels := a.channelSvc.List()
+func (a *AppService) GetChannels(agentName string) string {
+	if agentName == "" {
+		agentName = a.channelSvc.GetDefaultAgent()
+	}
+	channels := a.channelSvc.List(agentName)
 	data, _ := json.Marshal(channels)
 	return string(data)
 }
 
-func (a *AppService) UpdateChannel(name, configJSON string) string {
-	if err := a.channelSvc.UpdateJSON(name, configJSON); err != nil {
+func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) string {
+	if agentName == "" {
+		agentName = a.channelSvc.GetDefaultAgent()
+	}
+	if err := a.channelSvc.UpdateJSON(agentName, channelName, configJSON); err != nil {
 		return `{"error":"update failed"}`
 	}
 	return `{"status":"updated"}`
@@ -212,6 +217,11 @@ func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 // SetSkillChangedCallback 设置技能变化回调（用于动态重载 agent 技能）
 func (a *AppService) SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
 	a.skillSvc.OnSkillsChanged = cb
+}
+
+// SetChannelChangedCallback 设置渠道变化回调（用于动态注册渠道）
+func (a *AppService) SetChannelChangedCallback(cb func(agentName, channelName string)) {
+	a.channelSvc.SetChannelChangedCallback(cb)
 }
 
 // ─────────── Sessions ───────────

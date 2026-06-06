@@ -3,14 +3,18 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 )
 
-// Config 全局配置
+// Config 全局配置（根 config.json）
 type Config struct {
 	Gateway   GatewayConfig             `json:"gateway"`
 	Providers map[string]ProviderConfig `json:"providers"` // 模型供应商配置
-	Agents    []AgentConfig             `json:"agents"`
-	Channels  ChannelsConfig            `json:"channels"`
+	Agents    AgentsRefConfig           `json:"agents"`    // Agent 轻量引用（完整配置在 agent.json）
 	Skills    SkillsConfig              `json:"skills"`
 	Logging   LoggingConfig             `json:"logging"`
 	Auth      AuthConfig                `json:"auth"`
@@ -21,10 +25,22 @@ type Config struct {
 	Security  SecurityConfig            `json:"security"`
 }
 
+// AgentsRefConfig Agent 轻量引用配置（根 config.json 中）
+type AgentsRefConfig struct {
+	DefaultAgent string                       `json:"default_agent"` // 默认 agent
+	Order        []string                     `json:"order"`         // 显示顺序
+	Profiles     map[string]AgentProfileRef   `json:"profiles"`      // agent 引用（key = agent name）
+}
+
+// AgentProfileRef Agent 轻量引用（仅 id + enabled）
+type AgentProfileRef struct {
+	Enabled bool `json:"enabled"` // 是否启用
+}
+
 // CronConfig 定时任务配置
 type CronConfig struct {
 	Enabled        bool      `json:"enabled"`
-	DefaultChannel string    `json:"default_channel"` // 默认发送渠道
+	DefaultChannel string    `json:"default_channel"` // 默认发送渠道（格式：agent:channel）
 	DefaultUser    string    `json:"default_user"`    // 默认目标用户
 	Jobs           []CronJob `json:"jobs"`
 }
@@ -126,25 +142,28 @@ type AuthConfig struct {
 	Token   string `json:"token"`
 }
 
+// AgentConfig Agent 完整配置（agent.json）
 type AgentConfig struct {
-	Name                 string   `json:"name"`
-	DisplayName          string   `json:"display_name"`          // 中文展示名称
-	Description          string   `json:"description"`           // 描述说明
-	Provider             string   `json:"provider"`
-	Model                string   `json:"model"`
-	SystemPrompt         string   `json:"system_prompt"`
-	Tools                []string `json:"tools"`
-	MaxIterations        int      `json:"max_iterations"`
-	MaxTokens            int      `json:"max_tokens"`
-	CompactThresholdRatio  float64 `json:"compact_threshold_ratio"`
-	ReserveThresholdRatio float64 `json:"reserve_threshold_ratio"`
-	ToolResultMaxBytes    int      `json:"tool_result_max_bytes"`
-	ToolResultExemptTools []string `json:"tool_result_exempt_tools"`
-	ToolResultExemptExts  []string `json:"tool_result_exempt_extensions"`
-	SupportsImage         bool     `json:"supports_image"`
-	SupportsVideo         bool     `json:"supports_video"`
+	Name                   string         `json:"name"`
+	DisplayName            string         `json:"display_name"`          // 中文展示名称
+	Description            string         `json:"description"`           // 描述说明
+	Provider               string         `json:"provider"`
+	Model                  string         `json:"model"`
+	SystemPrompt           string         `json:"system_prompt"`
+	Tools                  []string       `json:"tools"`
+	MaxIterations          int            `json:"max_iterations"`
+	MaxTokens              int            `json:"max_tokens"`
+	CompactThresholdRatio  float64        `json:"compact_threshold_ratio"`
+	ReserveThresholdRatio  float64        `json:"reserve_threshold_ratio"`
+	ToolResultMaxBytes     int            `json:"tool_result_max_bytes"`
+	ToolResultExemptTools  []string       `json:"tool_result_exempt_tools"`
+	ToolResultExemptExts   []string       `json:"tool_result_exempt_extensions"`
+	SupportsImage          bool           `json:"supports_image"`
+	SupportsVideo          bool           `json:"supports_video"`
+	Channels               ChannelsConfig `json:"channels"` // Agent 自己的渠道配置
 }
 
+// ChannelsConfig 渠道配置集合
 type ChannelsConfig struct {
 	Console  ConsoleConfig  `json:"console"`
 	Lark     LarkConfig     `json:"lark"`
@@ -224,20 +243,181 @@ type WeChatConfig struct {
 	StreamOutput     bool   `json:"stream_output"`
 }
 
-// LoadConfig 加载配置
+// ─────────────────────────────────────────────────────────────────────────────
+// 配置加载与缓存
+// ─────────────────────────────────────────────────────────────────────────────
+
+var (
+	configCache      *Config
+	configMtime      int64
+	configCacheMutex sync.RWMutex
+
+	agentConfigCache   = make(map[string]*agentCacheEntry)
+	agentConfigMutex   sync.RWMutex
+	agentCacheEntryTTL = 5 * time.Second // 缓存 TTL
+)
+
+type agentCacheEntry struct {
+	config *AgentConfig
+	mtime  int64
+	cached time.Time
+}
+
+// LoadConfig 加载根配置（带 mtime 缓存）
 func LoadConfig(path string) (*Config, error) {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	mtime := stat.ModTime().UnixNano()
+
+	configCacheMutex.RLock()
+	if configCache != nil && configMtime == mtime {
+		cfg := configCache
+		configCacheMutex.RUnlock()
+		return cfg, nil
+	}
+	configCacheMutex.RUnlock()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
 
-	return &config, nil
+	configCacheMutex.Lock()
+	configCache = &cfg
+	configMtime = mtime
+	configCacheMutex.Unlock()
+
+	return &cfg, nil
 }
+
+// LoadAgentConfig 加载 Agent 配置（从 workspace 目录）
+func LoadAgentConfig(workspaceDir, agentName string) (*AgentConfig, error) {
+	agentPath := filepath.Join(workspaceDir, agentName, "agent.json")
+
+	stat, err := os.Stat(agentPath)
+	if err != nil {
+		return nil, err
+	}
+	mtime := stat.ModTime().UnixNano()
+
+	agentConfigMutex.RLock()
+	if entry, ok := agentConfigCache[agentName]; ok {
+		if entry.mtime == mtime && time.Since(entry.cached) < agentCacheEntryTTL {
+			cfg := entry.config
+			agentConfigMutex.RUnlock()
+			return cfg, nil
+		}
+	}
+	agentConfigMutex.RUnlock()
+
+	data, err := os.ReadFile(agentPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg AgentConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	agentConfigMutex.Lock()
+	agentConfigCache[agentName] = &agentCacheEntry{
+		config: &cfg,
+		mtime:  mtime,
+		cached: time.Now(),
+	}
+	agentConfigMutex.Unlock()
+
+	return &cfg, nil
+}
+
+// SaveAgentConfig 保存 Agent 配置
+func SaveAgentConfig(workspaceDir, agentName string, cfg *AgentConfig) error {
+	agentPath := filepath.Join(workspaceDir, agentName, "agent.json")
+
+	// 确保目录存在
+	if err := os.MkdirAll(filepath.Dir(agentPath), 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(agentPath, data, 0644); err != nil {
+		return err
+	}
+
+	// 清除缓存
+	agentConfigMutex.Lock()
+	delete(agentConfigCache, agentName)
+	agentConfigMutex.Unlock()
+
+	return nil
+}
+
+// ListAgentConfigs 扫描 workspace 目录，返回所有 agent 名称
+func ListAgentConfigs(workspaceDir string) ([]string, error) {
+	entries, err := os.ReadDir(workspaceDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var agents []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		agentPath := filepath.Join(workspaceDir, entry.Name(), "agent.json")
+		if _, err := os.Stat(agentPath); err == nil {
+			agents = append(agents, entry.Name())
+		}
+	}
+
+	sort.Strings(agents)
+	return agents, nil
+}
+
+// DeleteAgentConfig 删除 Agent 配置文件
+func DeleteAgentConfig(workspaceDir, agentName string) error {
+	agentPath := filepath.Join(workspaceDir, agentName, "agent.json")
+
+	// 清除缓存
+	agentConfigMutex.Lock()
+	delete(agentConfigCache, agentName)
+	agentConfigMutex.Unlock()
+
+	return os.Remove(agentPath)
+}
+
+// InvalidateAgentCache 清除指定 agent 的缓存
+func InvalidateAgentCache(agentName string) {
+	agentConfigMutex.Lock()
+	delete(agentConfigCache, agentName)
+	agentConfigMutex.Unlock()
+}
+
+// InvalidateAllAgentCache 清除所有 agent 缓存
+func InvalidateAllAgentCache() {
+	agentConfigMutex.Lock()
+	agentConfigCache = make(map[string]*agentCacheEntry)
+	agentConfigMutex.Unlock()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 配置解析辅助方法
+// ─────────────────────────────────────────────────────────────────────────────
 
 // GetProviderConfig 获取供应商配置（支持环境变量覆盖）
 func (c *Config) GetProviderConfig(providerName string) *ProviderConfig {
@@ -273,7 +453,7 @@ func (c *Config) ResolveDataPaths() (workspaceDir, sessionsDir, skillsDir string
 	}
 	workspaceDir = dataDir + "/" + workspace
 	sessionsDir = workspaceDir + "/sessions"
-	skillsDir = workspaceDir + "/skills"
+	skillsDir = dataDir + "/skills"
 	return
 }
 
@@ -353,4 +533,231 @@ func (c *Config) ResolveAgentModelConfig(agentCfg *AgentConfig) (supportsImage, 
 	}
 
 	return false, false
+}
+
+// GetDefaultAgent 获取默认 agent 名称
+func (c *Config) GetDefaultAgent() string {
+	if c.Agents.DefaultAgent != "" {
+		return c.Agents.DefaultAgent
+	}
+	return c.Gateway.DefaultAgent // 兼容旧配置
+}
+
+// GetEnabledAgents 获取启用的 agent 列表（按 order 排序）
+func (c *Config) GetEnabledAgents() []string {
+	var agents []string
+	for name, profile := range c.Agents.Profiles {
+		if profile.Enabled {
+			agents = append(agents, name)
+		}
+	}
+
+	// 按 order 排序
+	orderMap := make(map[string]int)
+	for i, name := range c.Agents.Order {
+		orderMap[name] = i
+	}
+	sort.Slice(agents, func(i, j int) bool {
+		oi, oki := orderMap[agents[i]]
+		oj, okj := orderMap[agents[j]]
+		if !oki {
+			oi = 999
+		}
+		if !okj {
+			oj = 999
+		}
+		return oi < oj
+	})
+
+	return agents
+}
+
+// IsAgentEnabled 检查 agent 是否启用
+func (c *Config) IsAgentEnabled(agentName string) bool {
+	profile, ok := c.Agents.Profiles[agentName]
+	if !ok {
+		return false
+	}
+	return profile.Enabled
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 迁移与兼容
+// ─────────────────────────────────────────────────────────────────────────────
+
+// MigrateFromOldConfig 从旧格式迁移（检测到旧格式时自动迁移）
+type OldConfig struct {
+	Gateway   GatewayConfig             `json:"gateway"`
+	Providers map[string]ProviderConfig `json:"providers"`
+	Agents    []AgentConfig             `json:"agents"` // 旧格式：完整配置数组
+	Channels  ChannelsConfig            `json:"channels"`
+	Skills    SkillsConfig              `json:"skills"`
+	Logging   LoggingConfig             `json:"logging"`
+	Auth      AuthConfig                `json:"auth"`
+	Proactive ProactiveConfig           `json:"proactive"`
+	Cron      CronConfig                `json:"cron"`
+	MCP       MCPConfig                 `json:"mcp"`
+	ACP       ACPConfig                 `json:"acp"`
+	Security  SecurityConfig            `json:"security"`
+}
+
+// DetectAndMigrate 检测旧格式并迁移
+func DetectAndMigrate(path string, workspaceDir string) (*Config, []*AgentConfig, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	// 尝试解析为新格式
+	var newCfg Config
+	if err := json.Unmarshal(data, &newCfg); err == nil {
+		// 检查是否为新格式（agents.profiles 存在且 agents 数组不存在）
+		var raw map[string]interface{}
+		json.Unmarshal(data, &raw)
+		if agents, ok := raw["agents"]; ok {
+			if agentsMap, ok := agents.(map[string]interface{}); ok {
+				if _, hasProfiles := agentsMap["profiles"]; hasProfiles {
+					if _, hasArray := raw["agents"].([]interface{}); !hasArray {
+						// 新格式，无需迁移
+						return nil, nil, false, nil
+					}
+				}
+			}
+		}
+	}
+
+	// 解析为旧格式
+	var oldCfg OldConfig
+	if err := json.Unmarshal(data, &oldCfg); err != nil {
+		return nil, nil, false, err
+	}
+
+	// 检查是否需要迁移
+	if len(oldCfg.Agents) == 0 || oldCfg.Agents[0].Name == "" {
+		return nil, nil, false, nil
+	}
+
+	// 执行迁移
+	newConfig := &Config{
+		Gateway:   oldCfg.Gateway,
+		Providers: oldCfg.Providers,
+		Agents: AgentsRefConfig{
+			DefaultAgent: oldCfg.Gateway.DefaultAgent,
+			Order:        make([]string, 0),
+			Profiles:     make(map[string]AgentProfileRef),
+		},
+		Skills:    oldCfg.Skills,
+		Logging:   oldCfg.Logging,
+		Auth:      oldCfg.Auth,
+		Proactive: oldCfg.Proactive,
+		Cron:      oldCfg.Cron,
+		MCP:       oldCfg.MCP,
+		ACP:       oldCfg.ACP,
+		Security:  oldCfg.Security,
+	}
+
+	var agentConfigs []*AgentConfig
+	for _, oldAgent := range oldCfg.Agents {
+		// 构建 agent.json 配置
+		agentCfg := &AgentConfig{
+			Name:                   oldAgent.Name,
+			DisplayName:            oldAgent.DisplayName,
+			Description:            oldAgent.Description,
+			Provider:               oldAgent.Provider,
+			Model:                  oldAgent.Model,
+			SystemPrompt:           oldAgent.SystemPrompt,
+			Tools:                  oldAgent.Tools,
+			MaxIterations:          oldAgent.MaxIterations,
+			MaxTokens:              oldAgent.MaxTokens,
+			CompactThresholdRatio:  oldAgent.CompactThresholdRatio,
+			ReserveThresholdRatio:  oldAgent.ReserveThresholdRatio,
+			ToolResultMaxBytes:     oldAgent.ToolResultMaxBytes,
+			ToolResultExemptTools:  oldAgent.ToolResultExemptTools,
+			ToolResultExemptExts:   oldAgent.ToolResultExemptExts,
+			SupportsImage:          oldAgent.SupportsImage,
+			SupportsVideo:          oldAgent.SupportsVideo,
+			Channels:               oldCfg.Channels, // 全局 channels 迁移到每个 agent
+		}
+
+		// 第一个 agent 使用原 channels，其他 agent 使用空配置
+		if len(agentConfigs) > 0 {
+			agentCfg.Channels = ChannelsConfig{
+				Console: ConsoleConfig{Enabled: true}, // 其他 agent 默认只开 console
+			}
+		}
+
+		agentConfigs = append(agentConfigs, agentCfg)
+		newConfig.Agents.Order = append(newConfig.Agents.Order, oldAgent.Name)
+		newConfig.Agents.Profiles[oldAgent.Name] = AgentProfileRef{Enabled: true}
+	}
+
+	if newConfig.Agents.DefaultAgent == "" && len(newConfig.Agents.Order) > 0 {
+		newConfig.Agents.DefaultAgent = newConfig.Agents.Order[0]
+	}
+
+	return newConfig, agentConfigs, true, nil
+}
+
+// SaveConfig 保存根配置
+func SaveConfig(path string, cfg *Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// GetDefaultChannelsConfig 获取默认渠道配置
+func GetDefaultChannelsConfig() ChannelsConfig {
+	return ChannelsConfig{
+		Console: ConsoleConfig{
+			Enabled:          true,
+			ShowToolMessages: true,
+			ShowThinking:     true,
+			StreamOutput:     true,
+		},
+		Lark: LarkConfig{
+			Enabled: false,
+		},
+		DingTalk: DingTalkConfig{
+			Enabled: false,
+		},
+		WeCom: WeComConfig{
+			Enabled: false,
+		},
+		WeChat: WeChatConfig{
+			Enabled: false,
+		},
+	}
+}
+
+// GetDefaultAgentConfig 获取默认 Agent 配置
+func GetDefaultAgentConfig(name, provider, model string) *AgentConfig {
+	return &AgentConfig{
+		Name:          name,
+		Provider:      provider,
+		Model:         model,
+		SystemPrompt:  "你是一个有用的AI助手。你可以使用工具来帮助用户。",
+		Tools:         []string{"weather", "exec", "write_file", "read_file", "edit_file", "append_file", "send_file", "get_current_time", "set_user_timezone", "cron_status"},
+		MaxIterations: 20,
+		MaxTokens:     32000,
+		Channels:      GetDefaultChannelsConfig(),
+	}
+}
+
+// ChannelEnabled 检查渠道是否启用
+func (c *ChannelsConfig) ChannelEnabled(channelName string) bool {
+	switch strings.ToLower(channelName) {
+	case "console":
+		return c.Console.Enabled
+	case "lark":
+		return c.Lark.Enabled
+	case "dingtalk":
+		return c.DingTalk.Enabled
+	case "wecom":
+		return c.WeCom.Enabled
+	case "wechat":
+		return c.WeChat.Enabled
+	}
+	return false
 }

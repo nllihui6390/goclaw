@@ -135,7 +135,8 @@ func (s *QRCodeService) PollQRCodeStatus(channel, token string) (*PollResult, er
 
 // getWechatBaseURL 获取微信 API base URL（从配置或默认）
 func (s *QRCodeService) getWechatBaseURL() string {
-	channels := s.config.GetChannels()
+	defaultAgent := "default"
+	channels := s.config.GetChannels(defaultAgent)
 	if channels != nil {
 		if wechatCfg, ok := channels["wechat"].(map[string]interface{}); ok {
 			if baseURL, ok := wechatCfg["base_url"].(string); ok && baseURL != "" {

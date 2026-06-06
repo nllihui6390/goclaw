@@ -1,8 +1,10 @@
 <script setup>
-import { ref, inject, onMounted, onBeforeUnmount } from 'vue'
+import { ref, inject, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useAgentStore } from '@/stores/agent'
 
 const api = inject('api')
+const agentStore = useAgentStore()
 const channels = ref([])
 const loading = ref(false)
 const saving = ref(false)
@@ -14,6 +16,8 @@ const qrcodeLoading = ref(false)
 const qrcodePollToken = ref('')
 const qrcodePollTimer = ref(null)
 const qrcodeStatus = ref('')
+
+const currentAgent = computed(() => agentStore.selectedAgent || 'default')
 
 const channelDefs = {
   console: { icon: 'Monitor', fields: [] },
@@ -55,10 +59,13 @@ const channelDefs = {
 onMounted(loadData)
 onBeforeUnmount(stopQrcodePoll)
 
+// 监听 agent 切换时重新加载
+watch(() => agentStore.selectedAgent, loadData)
+
 async function loadData() {
   loading.value = true
   try {
-    const list = await api.getChannels()
+    const list = await api.getChannels(currentAgent.value)
     channels.value = (list || []).map(ch => ({
       ...ch,
       icon: channelDefs[ch.key]?.icon || 'Setting',
@@ -74,7 +81,7 @@ async function loadData() {
 async function toggleChannel(channel, val) {
   const newConfig = { ...channel.config, enabled: val }
   try {
-    await api.updateChannel(channel.key, newConfig)
+    await api.updateChannel(currentAgent.value, channel.key, newConfig)
     channel.config = newConfig
     channel.enabled = val
     ElMessage.success(`${channel.name} 已${val ? '启用' : '禁用'}`)
@@ -93,7 +100,7 @@ function openEdit(channel) {
 async function saveChannel() {
   saving.value = true
   try {
-    await api.updateChannel(editChannel.value.key, editConfig.value)
+    await api.updateChannel(currentAgent.value, editChannel.value.key, editConfig.value)
     editChannel.value.config = editConfig.value
     editChannel.value.enabled = editConfig.value.enabled || false
     ElMessage.success('保存成功')
@@ -191,8 +198,9 @@ function closeDialog() {
   <div class="page" v-loading="loading">
     <!-- Page header -->
     <div class="page-header">
-      <div class="header-title">
+      <div class="header-left">
         <h2>频道管理</h2>
+        <el-tag size="small">{{ currentAgent }}</el-tag>
       </div>
       <div class="header-actions">
         <el-button @click="loadData" :loading="loading">
@@ -291,14 +299,13 @@ function closeDialog() {
   margin-bottom: 28px;
 }
 
-.header-title {
+.header-left {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-
-.header-title h2 {
+.header-left h2 {
   margin: 0;
   font-size: $font-size-xl;
   font-weight: 600;

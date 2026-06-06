@@ -162,6 +162,7 @@ async function onFileSelected(e) {
     <!-- Skills grid -->
     <div class="skills-grid" v-if="enabledSkills.length">
       <div v-for="skill in enabledSkills" :key="skill.name" class="skill-card">
+        <div class="skill-status-badge"><span class="status-dot"></span>已启用</div>
         <div class="skill-header">
           <div class="skill-emoji">{{ skill.emoji || '🔧' }}</div>
           <div class="skill-title">
@@ -298,11 +299,41 @@ async function onFileSelected(e) {
   padding: 20px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+  border-color: rgba(76, 175, 80, 0.25);
 
   &:hover {
-    border-color: $accent-cyan-dim;
-    box-shadow: $shadow-glow-cyan;
+    border-color: rgba(76, 175, 80, 0.4);
+    box-shadow: 0 0 12px rgba(76, 175, 80, 0.15);
   }
+}
+
+.skill-status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: $font-size-xs;
+  font-weight: 600;
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.1);
+  padding: 3px 10px;
+  border-radius: $radius-sm;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4caf50;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .skill-header {
@@ -375,8 +406,8 @@ async function onFileSelected(e) {
 
 .skill-footer {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  bottom: 16px;
+  right: 16px;
   opacity: 0;
   transition: opacity 0.2s;
 }

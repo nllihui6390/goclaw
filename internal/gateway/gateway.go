@@ -3,13 +3,14 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+
 	"go-claw/internal/agent"
 	"go-claw/internal/channel"
 	"go-claw/internal/store"
-	"go-claw/pkg/utils"
-	"sync"
-
 	"go-claw/pkg/log"
+	"go-claw/pkg/utils"
 )
 
 // Gateway 网关核心
@@ -43,19 +44,21 @@ func (g *Gateway) GetAgents() map[string]*agent.Agent {
 }
 
 // SendProactiveMessage 发送主动消息（实现 ProactiveBus 接口）
+// sessionID 格式：
+//   - `channel:user` (全局渠道如 console)
+//   - `agent:channel:user` (per-agent 渠道)
+//   - `channel:user` 且渠道为 per-agent 类型时，尝试用 default agent 查找
 func (g *Gateway) SendProactiveMessage(ctx context.Context, sessionID, message string) error {
 	logger := log.Logger()
-	// 解析 sessionID (格式: "channel:user")
-	parts := splitSessionID(sessionID)
-	if len(parts) != 2 {
+	// 解析 sessionID
+	channelName, user := g.parseSessionID(sessionID)
+	if channelName == "" {
 		return fmt.Errorf("invalid session ID format: %s", sessionID)
 	}
-	channelName, user := parts[0], parts[1]
 
-	g.mu.RLock()
-	ch, exists := g.channels[channelName]
-	g.mu.RUnlock()
-	if !exists {
+	// 查找渠道
+	ch := g.findChannel(channelName)
+	if ch == nil {
 		return fmt.Errorf("channel not found: %s", channelName)
 	}
 
@@ -74,19 +77,85 @@ func (g *Gateway) SendProactiveMessage(ctx context.Context, sessionID, message s
 	})
 }
 
-// splitSessionID 解析 sessionID
-func splitSessionID(sessionID string) []string {
-	idx := 0
+// parseSessionID 解析 sessionID，返回渠道名和用户
+// 支持三种格式：
+//   - `agent:channel:user` → 返回 `agent:channel`, `user`
+//   - `channel:user` → 返回 `channel`, `user`
+func (g *Gateway) parseSessionID(sessionID string) (channelName, user string) {
+	// 找到所有冒号位置
+	colons := []int{}
 	for i, c := range sessionID {
 		if c == ':' {
-			idx = i
-			break
+			colons = append(colons, i)
 		}
 	}
-	if idx == 0 {
-		return nil
+
+	if len(colons) < 1 {
+		return "", ""
 	}
-	return []string{sessionID[:idx], sessionID[idx+1:]}
+
+	// 如果有两个冒号，可能是 agent:channel:user 格式
+	if len(colons) >= 2 {
+		// 检查第一部分是否是 agent 名
+		potentialAgent := sessionID[:colons[0]]
+		g.mu.RLock()
+		_, isAgent := g.agents[potentialAgent]
+		g.mu.RUnlock()
+		if isAgent {
+			// agent:channel:user 格式
+			channelName = sessionID[:colons[1]] // agent:channel
+			user = sessionID[colons[1]+1:]
+			return channelName, user
+		}
+	}
+
+	// channel:user 格式
+	channelName = sessionID[:colons[0]]
+	user = sessionID[colons[0]+1:]
+	return channelName, user
+}
+
+// findChannel 查找渠道实例
+// 优先精确匹配，然后尝试 default:channel，最后搜索所有 agent:channel 组合
+func (g *Gateway) findChannel(channelName string) channel.Channel {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	// 1. 精确匹配
+	if ch, exists := g.channels[channelName]; exists {
+		return ch
+	}
+
+	// 2. 如果是简单渠道名，尝试 default:channel
+	if !containsColon(channelName) {
+		defaultAgent := g.router.defaultAgent
+		if defaultAgent != "" {
+			key := defaultAgent + ":" + channelName
+			if ch, exists := g.channels[key]; exists {
+				return ch
+			}
+		}
+
+		// 3. 搜索所有 agent:channel 组合
+		for key, ch := range g.channels {
+			// 检查 key 是否以 :channelName 结尾
+			if strings.HasSuffix(key, ":"+channelName) {
+				return ch
+			}
+		}
+	}
+
+	return nil
+}
+
+// containsColon 检查字符串是否包含冒号
+func containsColon(s string) bool {
+	for _, c := range s {
+		if c == ':' {
+			return true
+		}
+	}
+	return false
 }
 
 // NewGateway 创建网关
@@ -117,7 +186,7 @@ func (g *Gateway) UnregisterAgent(name string) {
 	log.Logger().Info("Agent已注销", "name", name)
 }
 
-// RegisterChannel 注册渠道并启动消息处理
+// RegisterChannel 注册渠道并启动消息处理（全局渠道，如 console）
 func (g *Gateway) RegisterChannel(ch channel.Channel) error {
 	if err := ch.Start(g.ctx); err != nil {
 		return err
@@ -126,8 +195,24 @@ func (g *Gateway) RegisterChannel(ch channel.Channel) error {
 	g.channels[ch.GetName()] = ch
 	g.mu.Unlock()
 	g.wg.Add(1)
-	go g.handleChannel(ch.GetName(), ch)
+	go g.handleChannel(ch.GetName(), ch, "")
 	log.Logger().Info("渠道已注册", "name", ch.GetName())
+	return nil
+}
+
+// RegisterChannelForAgent 注册 per-agent 渠道（如 default:lark, weather:wecom）
+// agentName 用于路由：该渠道收到的消息自动路由到所属 Agent
+func (g *Gateway) RegisterChannelForAgent(agentName string, ch channel.Channel) error {
+	if err := ch.Start(g.ctx); err != nil {
+		return err
+	}
+	key := agentName + ":" + ch.GetName()
+	g.mu.Lock()
+	g.channels[key] = ch
+	g.mu.Unlock()
+	g.wg.Add(1)
+	go g.handleChannel(key, ch, agentName)
+	log.Logger().Info("渠道已注册(per-agent)", "key", key, "agent", agentName)
 	return nil
 }
 
@@ -137,11 +222,11 @@ func (g *Gateway) RegisterChannelWithoutServer(ch channel.Channel) {
 	g.channels[ch.GetName()] = ch
 	g.mu.Unlock()
 	g.wg.Add(1)
-	go g.handleChannel(ch.GetName(), ch)
+	go g.handleChannel(ch.GetName(), ch, "")
 	log.Logger().Info("渠道已注册(无自带服务)", "name", ch.GetName())
 }
 
-// UnregisterChannel 注销渠道
+// UnregisterChannel 注销渠道（支持全局渠道名和 agent:channel 格式）
 func (g *Gateway) UnregisterChannel(name string) {
 	g.mu.Lock()
 	ch, exists := g.channels[name]
@@ -155,12 +240,23 @@ func (g *Gateway) UnregisterChannel(name string) {
 	log.Logger().Info("渠道已注销", "name", name)
 }
 
-// HasChannel 检查渠道是否已注册
+// UnregisterChannelForAgent 注销 per-agent 渠道
+func (g *Gateway) UnregisterChannelForAgent(agentName, channelName string) {
+	key := agentName + ":" + channelName
+	g.UnregisterChannel(key)
+}
+
+// HasChannel 检查渠道是否已注册（支持全局渠道名和 agent:channel 格式）
 func (g *Gateway) HasChannel(name string) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	_, exists := g.channels[name]
 	return exists
+}
+
+// HasChannelForAgent 检查 per-agent 渠道是否已注册
+func (g *Gateway) HasChannelForAgent(agentName, channelName string) bool {
+	return g.HasChannel(agentName + ":" + channelName)
 }
 
 // GetRegisteredChannels 获取已注册的渠道名称列表
@@ -225,12 +321,13 @@ func (g *Gateway) GetAgent(name string) *agent.Agent {
 }
 
 // handleChannel 处理单个渠道的消息
-func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
+// agentName 参数：per-agent 渠道自动路由到该 Agent；空字符串表示全局渠道（console），走正常路由
+func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName string) {
 	defer g.wg.Done()
 
 	msgChan, err := ch.Receive(g.ctx)
 	if err != nil {
-		log.Logger().Error("获取消息通道失败", "channel", channelName, "err", err)
+		log.Logger().Error("获取消息通道失败", "channel", channelKey, "err", err)
 		return
 	}
 
@@ -243,20 +340,31 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 				return
 			}
 
-			// 路由到合适的Agent（使用读锁保护）
-			agentName := g.router.Route(msg)
+			// 路由到合适的Agent
+			// per-agent 渠道：直接使用绑定的 agentName
+			// 全局渠道（console）：使用 msg.Agent 或默认
+			targetAgent := agentName
+			if targetAgent == "" {
+				targetAgent = g.router.Route(msg)
+			} else {
+				// per-agent 渠道：确保 msg.Agent 被设置
+				if msg.Agent == "" {
+					msg.Agent = agentName
+				}
+			}
+
 			g.mu.RLock()
-			ag, exists := g.agents[agentName]
+			ag, exists := g.agents[targetAgent]
 			if !exists {
 				log.Logger().Warn("目标Agent不存在，回退到默认Agent",
-					"requested", agentName,
+					"requested", targetAgent,
 					"default", g.router.defaultAgent)
-				agentName = g.router.defaultAgent
-				ag, exists = g.agents[agentName]
+				targetAgent = g.router.defaultAgent
+				ag, exists = g.agents[targetAgent]
 			}
 			g.mu.RUnlock()
 			if !exists {
-				log.Logger().Error("默认Agent也不存在", "agentName", agentName)
+				log.Logger().Error("默认Agent也不存在", "agentName", targetAgent)
 				continue
 			}
 
@@ -265,12 +373,12 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 			// 如果 msg.From 不是 UUID 格式（如 wecom:userid），通过索引转为 UUID
 			if !utils.IsUUID(msg.From) {
 				var isNew bool
-				sessionID, isNew = g.sessionIndex.LookupOrCreate(msg.Channel, msg.From, agentName)
+				sessionID, isNew = g.sessionIndex.LookupOrCreate(msg.Channel, msg.From, targetAgent)
 				if isNew {
 					log.Logger().Info("[Gateway] 新会话", "uuid", sessionID, "channel", msg.Channel, "user", msg.From)
 				}
 			} else if g.sessionIndex != nil {
-				g.sessionIndex.EnsureEntry(sessionID, msg.Channel, msg.From, agentName)
+				g.sessionIndex.EnsureEntry(sessionID, msg.Channel, msg.From, targetAgent)
 			}
 
 			// 注入 Channel 和目标用户到 context
@@ -300,7 +408,7 @@ func (g *Gateway) handleChannel(channelName string, ch channel.Channel) {
 
 			// 统一记录会话活动
 			if g.sessionIndex != nil {
-				g.sessionIndex.RecordSession(sessionID, msg.Channel, msg.From, agentName, msg.Content)
+				g.sessionIndex.RecordSession(sessionID, msg.Channel, msg.From, targetAgent, msg.Content)
 			}
 
 			// 发送响应

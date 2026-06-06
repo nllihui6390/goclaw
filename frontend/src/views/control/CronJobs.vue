@@ -19,7 +19,13 @@ const formData = ref({
 })
 
 const agentNames = computed(() => {
-  return config.value?.agents?.map(a => a.name) || []
+  // 新格式：agents.profiles 是对象，agents.order 是名称排序
+  const agents = config.value?.agents
+  if (agents?.order) return agents.order
+  if (agents?.profiles) return Object.keys(agents.profiles)
+  // 旧格式兼容：agents 是数组
+  if (Array.isArray(agents)) return agents.map(a => a.name)
+  return []
 })
 
 onMounted(loadData)

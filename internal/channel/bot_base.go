@@ -39,6 +39,7 @@ func (b *BotChannelBase) GetDisplay() DisplayConfig {
 }
 
 func (b *BotChannelBase) GetName() string                                       { return b.name }
+func (b *BotChannelBase) SetName(name string)                                   { b.name = name } // 设置渠道名（用于 per-agent 命名）
 func (b *BotChannelBase) Receive(ctx context.Context) (<-chan Message, error)   { return b.msgChan, nil }
 
 // StartHTTPServer 启动HTTP服务器

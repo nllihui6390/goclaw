@@ -6,6 +6,7 @@ import (
 	"embed"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"go-claw/config"
@@ -22,15 +23,26 @@ import (
 var desktopAssets embed.FS
 
 func main() {
+	// 首次运行：生成默认配置
 	if _, err := os.Stat("config.json"); os.IsNotExist(err) {
-		os.WriteFile("config.json", []byte(`{
-  "gateway": {"default_agent":"default","session_ttl":0,"data_dir":"clawdata"},
-  "providers":{},
-  "agents":[{"name":"default","provider":"","model":"","system_prompt":"你是一个有用的AI助手。","tools":[],"max_iterations":20,"max_tokens":32000}],
-  "channels":{"console":{"enabled":false}},
+		workspaceDir := "clawdata/workspaces"
+		os.MkdirAll(filepath.Join(workspaceDir, "default"), 0755)
+
+		// 写入根配置
+		rootConfig := `{
+  "gateway": {"default_agent":"default","session_ttl":0,"data_dir":"clawdata","workspace":"workspaces"},
+  "providers":{
+    "deepseek":{"type":"openai","base_url":"https://api.deepseek.com/v1","api_key":"","default_model":"deepseek-chat"}
+  },
+  "agents":{"default_agent":"default","order":["default"],"profiles":{"default":{"enabled":true}}},
   "cron":{"enabled":false},
   "logging":{"level":"info","file_path":"logs/app.log","console":false}
-}`), 0644)
+}`
+		os.WriteFile("config.json", []byte(rootConfig), 0644)
+
+		// 写入 default agent 配置
+		agentConfig := config.GetDefaultAgentConfig("default", "deepseek", "deepseek-chat")
+		config.SaveAgentConfig(workspaceDir, "default", agentConfig)
 	}
 
 	app, err := bootstrap.NewApp()
@@ -50,6 +62,17 @@ func main() {
 	// 注入技能变化回调（动态重载 agent 技能）
 	appSvc.SetSkillChangedCallback(func(agentName string, enabledSkills []string) {
 		app.ReloadAgentSkills(agentName, enabledSkills)
+	})
+	// 注入渠道变化回调（动态注册渠道——精准同步）
+	appSvc.SetChannelChangedCallback(func(agentName, channelName string) {
+		newCfg, err := config.LoadConfig("config.json")
+		if err != nil {
+			glog.Logger().Error("渠道变更回调：加载配置失败", "err", err)
+			return
+		}
+		app.SyncSingleChannel(newCfg, agentName, channelName)
+		global.SetConfig(newCfg)
+		glog.Logger().Info("渠道已精准同步", "agent", agentName, "channel", channelName)
 	})
 
 	go app.Run()
@@ -149,12 +172,15 @@ func startDesktopConfigWatcher(app *bootstrap.App) {
 		app.SyncAgents(newCfg)
 		// 更新全局配置
 		global.SetConfig(newCfg)
-		glog.Logger().Info("配置已热加载",
-			"lark", newCfg.Channels.Lark.Enabled,
-			"dingtalk", newCfg.Channels.DingTalk.Enabled,
-			"wecom", newCfg.Channels.WeCom.Enabled,
-			"wechat", newCfg.Channels.WeChat.Enabled,
-		)
+
+		// 统计启用的 agent 数量
+		enabledCount := 0
+		for _, profile := range newCfg.Agents.Profiles {
+			if profile.Enabled {
+				enabledCount++
+			}
+		}
+		glog.Logger().Info("配置已热加载", "agents", enabledCount)
 	})
 	if err := watcher.Start(); err != nil {
 		glog.Logger().Warn("启动配置监听失败", "err", err)

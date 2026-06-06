@@ -119,6 +119,14 @@ func (app *App) Restart() error {
 	app.SyncChannels(newCfg)
 	app.SyncAgents(newCfg)
 	app.Config = newCfg
-	app.logger.Info("系统已重启", "agents", len(newCfg.Agents))
+
+	// 统计启用的 agent 数量
+	enabledCount := 0
+	for _, profile := range newCfg.Agents.Profiles {
+		if profile.Enabled {
+			enabledCount++
+		}
+	}
+	app.logger.Info("系统已重启", "agents", enabledCount)
 	return nil
 }

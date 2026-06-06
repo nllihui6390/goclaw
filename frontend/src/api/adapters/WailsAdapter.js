@@ -86,24 +86,19 @@ export class WailsAdapter {
     return JSON.parse(json)
   }
 
-  // 频道管理
-  async getChannels() {
+  // 频道管理 (per-agent)
+  async getChannels(agent) {
     try {
-      const json = await Call.ByName('main.AppService.GetChannels')
+      const json = await Call.ByName('main.AppService.GetChannels', agent || 'default')
       return JSON.parse(json)
     } catch (e) {
       console.error('[WailsAdapter] getChannels error:', e)
       return []
     }
   }
-  async updateChannel(name, config) {
-    try {
-      await Call.ByName('main.AppService.UpdateChannel', name, JSON.stringify(config))
-      return { status: 'updated' }
-    } catch (e) {
-      console.error('[WailsAdapter] updateChannel error:', e)
-      return { status: 'updated' }
-    }
+  async updateChannel(agent, name, config) {
+    const json = await Call.ByName('main.AppService.UpdateChannel', agent || 'default', name, JSON.stringify(config))
+    return JSON.parse(json)
   }
   async getChannelQRCode(channel) {
     try {

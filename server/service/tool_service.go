@@ -2,6 +2,9 @@ package service
 
 import (
 	"encoding/json"
+	"sort"
+
+	"go-claw/config"
 )
 
 // ToolInfo 工具信息
@@ -48,15 +51,19 @@ func NewToolService(config *ConfigService) *ToolService {
 	return &ToolService{config: config}
 }
 
-// List 获取工具列表
+// List 获取所有工具列表（从所有 agent.json 中收集）
 func (s *ToolService) List() []ToolInfo {
-	agents := s.config.GetAgents()
 	toolsMap := map[string]bool{}
 
-	for _, ag := range agents {
-		ts, _ := ag["tools"].([]interface{})
-		for _, t := range ts {
-			toolName, _ := t.(string)
+	// 从所有 agent.json 中收集工具名
+	workspaceDir := s.config.WorkspaceBase()
+	agentNames, _ := config.ListAgentConfigs(workspaceDir)
+	for _, name := range agentNames {
+		agentCfg, err := config.LoadAgentConfig(workspaceDir, name)
+		if err != nil {
+			continue
+		}
+		for _, toolName := range agentCfg.Tools {
 			toolsMap[toolName] = true
 		}
 	}
@@ -73,6 +80,11 @@ func (s *ToolService) List() []ToolInfo {
 			SkillGroup:  "builtin",
 		})
 	}
+
+	// 按名称排序
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].Name < tools[j].Name
+	})
 
 	return tools
 }
@@ -99,4 +111,27 @@ func (s *ToolService) ListSimpleJSON() string {
 	result := s.ListSimple()
 	data, _ := json.Marshal(result)
 	return string(data)
+}
+
+// ListForAgent 获取指定 agent 的工具列表
+func (s *ToolService) ListForAgent(agentName string) []ToolInfo {
+	workspaceDir := s.config.WorkspaceBase()
+	agentCfg, err := config.LoadAgentConfig(workspaceDir, agentName)
+	if err != nil {
+		return s.List() // fallback 到全部工具
+	}
+
+	tools := []ToolInfo{}
+	for _, name := range agentCfg.Tools {
+		desc := toolDescriptions[name]
+		if desc == "" {
+			desc = "自定义工具"
+		}
+		tools = append(tools, ToolInfo{
+			Name:        name,
+			Description: desc,
+			SkillGroup:  "builtin",
+		})
+	}
+	return tools
 }

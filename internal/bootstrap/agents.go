@@ -20,6 +20,9 @@ import (
 func (app *App) SyncAgents(newCfg *config.Config) {
 	app.logger.Info("开始同步 Agent 配置")
 
+	// workspace 目录
+	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
+
 	// 获取当前已注册的 agent 名称
 	currentAgents := app.Gateway.GetAgents()
 	currentNames := make(map[string]bool)
@@ -27,13 +30,15 @@ func (app *App) SyncAgents(newCfg *config.Config) {
 		currentNames[name] = true
 	}
 
-	// 新配置中的 agent 名称
+	// 新配置中的 agent 名称（从 profiles）
 	newNames := make(map[string]bool)
-	for _, agentCfg := range newCfg.Agents {
-		newNames[agentCfg.Name] = true
+	for name, profile := range newCfg.Agents.Profiles {
+		if profile.Enabled {
+			newNames[name] = true
+		}
 	}
 
-	// 1. 删除不再存在的 Agent
+	// 1. 删除不再存在或禁用的 Agent
 	for name := range currentNames {
 		if !newNames[name] {
 			app.Gateway.UnregisterAgent(name)
@@ -42,55 +47,60 @@ func (app *App) SyncAgents(newCfg *config.Config) {
 	}
 
 	// 2. 新增或更新 Agent
-	for _, agentCfg := range newCfg.Agents {
-		app.createOrUpdateAgent(agentCfg, newCfg)
+	for name := range newNames {
+		app.createOrUpdateAgentFromJSON(name, workspaceDir, newCfg)
 	}
 
 	// 3. 更新默认 Agent
-	if newCfg.Gateway.DefaultAgent != "" {
-		app.Gateway.SetDefaultAgent(newCfg.Gateway.DefaultAgent)
+	if newCfg.Agents.DefaultAgent != "" {
+		app.Gateway.SetDefaultAgent(newCfg.Agents.DefaultAgent)
 	}
 
 	// 4. 更新 App.Config
 	app.Config = newCfg
 
-	app.logger.Info("Agent 配置同步完成", "total", len(newCfg.Agents))
+	app.logger.Info("Agent 配置同步完成", "total", len(newNames))
 }
 
-// createOrUpdateAgent 创建或更新单个 Agent
-func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Config) {
-	tools := loadTools(agentCfg.Tools)
+// createOrUpdateAgentFromJSON 从 agent.json 创建或更新单个 Agent
+func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, rootCfg *config.Config) {
+	// 加载 agent.json
+	agentCfg, err := config.LoadAgentConfig(workspaceDir, agentName)
+	if err != nil {
+		app.logger.Warn("加载 Agent 配置失败，使用默认配置", "agent", agentName, "err", err)
+		agentCfg = config.GetDefaultAgentConfig(agentName, rootCfg.Gateway.DefaultProvider, rootCfg.Gateway.DefaultModel)
+	}
 
-	// 解析配置：从provider获取
-	model, baseURL, apiKey, providerType := cfg.ResolveAgentConfig(&agentCfg)
-	supportsImage, supportsVideo := cfg.ResolveAgentModelConfig(&agentCfg)
-
-	// 每个 agent 有独立的工作空间目录: clawdata/workspaces/<agent-name>/
-	agentWorkspaceDir := app.DataDir + "/" + app.Workspace + "/" + agentCfg.Name
-	agentSessionsDir := agentWorkspaceDir + "/sessions"
-
-	// 确保目录存在
+	// 确保 agent 工作空间目录存在
+	agentWorkspaceDir := filepath.Join(workspaceDir, agentName)
+	agentSessionsDir := filepath.Join(agentWorkspaceDir, "sessions")
 	initDataDirs(agentWorkspaceDir, agentSessionsDir, app.logger)
 
+	tools := loadTools(agentCfg.Tools)
+
+	// 解析配置：从 provider 获取
+	model, baseURL, apiKey, providerType := rootCfg.ResolveAgentConfig(agentCfg)
+	supportsImage, supportsVideo := rootCfg.ResolveAgentModelConfig(agentCfg)
+
 	// 创建该 agent 专属的工作空间加载器
-	wsLoader := workspace.NewLoaderWithAgent(agentWorkspaceDir, agentCfg.Name)
+	wsLoader := workspace.NewLoaderWithAgent(agentWorkspaceDir, agentName)
 
 	// 创建该 agent 专属的存储
 	agentStore, err := store.NewFileStore(agentSessionsDir)
 	if err != nil {
-		app.logger.Error("初始化 Agent 存储失败", "agent", agentCfg.Name, "err", err)
+		app.logger.Error("初始化 Agent 存储失败", "agent", agentName, "err", err)
 		return
 	}
 
 	// 加载该 agent 启用的技能
-	agentSkillReg := skill.NewRegistry(app.DataDir + "/skills")
+	agentSkillReg := skill.NewRegistry(filepath.Join(app.DataDir, "skills"))
 	enabledSkills := loadEnabledSkills(agentWorkspaceDir)
 	if len(enabledSkills) > 0 {
-		agentSkillReg.LoadEnabled(app.DataDir+"/skills", enabledSkills)
+		agentSkillReg.LoadEnabled(filepath.Join(app.DataDir, "skills"), enabledSkills)
 	}
 
 	ag := agent.NewAgent(&agent.Config{
-		Name:                  agentCfg.Name,
+		Name:                  agentName,
 		SystemPrompt:          agentCfg.SystemPrompt,
 		Model:                 model,
 		APIKey:                apiKey,
@@ -112,8 +122,8 @@ func (app *App) createOrUpdateAgent(agentCfg config.AgentConfig, cfg *config.Con
 		SupportsImage:         supportsImage,
 		SupportsVideo:         supportsVideo,
 	})
-	app.Gateway.RegisterAgent(agentCfg.Name, ag)
-	app.logger.Info("Agent 已注册/更新", "name", agentCfg.Name, "provider", agentCfg.Provider, "model", model, "skills", len(enabledSkills))
+	app.Gateway.RegisterAgent(agentName, ag)
+	app.logger.Info("Agent 已注册/更新", "name", agentName, "provider", agentCfg.Provider, "model", model, "skills", len(enabledSkills))
 }
 
 // loadEnabledSkills 从 agent 工作空间读取 enabled_skills.json
@@ -132,13 +142,48 @@ func loadEnabledSkills(agentWorkspaceDir string) []string {
 
 // initAgents 注册所有 Agent
 func (app *App) initAgents() {
+	workspaceDir := filepath.Join(app.DataDir, app.Workspace)
+
 	// 确保全局技能目录存在
-	globalSkillsDir := app.DataDir + "/skills"
+	globalSkillsDir := filepath.Join(app.DataDir, "skills")
 	os.MkdirAll(globalSkillsDir, 0755)
 
-	// 每个 agent 拥有独立的 Skill Registry，按各自的 enabled_skills.json 加载
-	for _, agentCfg := range app.Config.Agents {
-		app.createOrUpdateAgent(agentCfg, app.Config)
+	// 扫描 workspace 目录发现所有 agent
+	agentNames, err := config.ListAgentConfigs(workspaceDir)
+	if err != nil {
+		app.logger.Warn("扫描 Agent 目录失败", "err", err)
+		agentNames = []string{}
+	}
+
+	// 如果没有发现任何 agent，创建默认 agent
+	if len(agentNames) == 0 {
+		defaultAgent := app.Config.GetDefaultAgent()
+		if defaultAgent == "" {
+			defaultAgent = "default"
+		}
+		os.MkdirAll(filepath.Join(workspaceDir, defaultAgent), 0755)
+		agentCfg := config.GetDefaultAgentConfig(defaultAgent, app.Config.Gateway.DefaultProvider, app.Config.Gateway.DefaultModel)
+		if err := config.SaveAgentConfig(workspaceDir, defaultAgent, agentCfg); err != nil {
+			app.logger.Error("创建默认 Agent 配置失败", "err", err)
+		} else {
+			agentNames = []string{defaultAgent}
+			// 更新根配置的 profiles
+			app.Config.Agents.Profiles = map[string]config.AgentProfileRef{defaultAgent: {Enabled: true}}
+			app.Config.Agents.Order = []string{defaultAgent}
+			app.Config.Agents.DefaultAgent = defaultAgent
+		}
+	}
+
+	// 每个 agent 拥有独立的配置，按各自的 agent.json 加载
+	for _, agentName := range agentNames {
+		// 检查是否在 profiles 中且启用
+		if profile, ok := app.Config.Agents.Profiles[agentName]; ok {
+			if !profile.Enabled {
+				app.logger.Info("Agent 已禁用，跳过初始化", "name", agentName)
+				continue
+			}
+		}
+		app.createOrUpdateAgentFromJSON(agentName, workspaceDir, app.Config)
 	}
 }
 
@@ -151,9 +196,9 @@ func (app *App) ReloadAgentSkills(agentName string, enabledSkills []string) {
 		return
 	}
 
-	newReg := skill.NewRegistry(app.DataDir + "/skills")
+	newReg := skill.NewRegistry(filepath.Join(app.DataDir, "skills"))
 	if len(enabledSkills) > 0 {
-		newReg.LoadEnabled(app.DataDir+"/skills", enabledSkills)
+		newReg.LoadEnabled(filepath.Join(app.DataDir, "skills"), enabledSkills)
 	}
 	ag.SetSkillRegistry(newReg)
 	app.logger.Info("Agent Skill 已动态重载", "agent", agentName, "skills", len(enabledSkills))
@@ -306,4 +351,24 @@ func loadTools(toolNames []string) []tool.Tool {
 		tools = append(tools, t)
 	}
 	return tools
+}
+
+// GetAgentConfig 获取指定 agent 的配置（从 agent.json 加载）
+func (app *App) GetAgentConfig(agentName string) (*config.AgentConfig, error) {
+	workspaceDir := filepath.Join(app.DataDir, app.Workspace)
+	return config.LoadAgentConfig(workspaceDir, agentName)
+}
+
+// SaveAgentConfig 保存指定 agent 的配置
+func (app *App) SaveAgentConfig(agentName string, agentCfg *config.AgentConfig) error {
+	workspaceDir := filepath.Join(app.DataDir, app.Workspace)
+	// 确保 agent 目录存在
+	os.MkdirAll(filepath.Join(workspaceDir, agentName), 0755)
+	return config.SaveAgentConfig(workspaceDir, agentName, agentCfg)
+}
+
+// ListAgentConfigs 返回所有 agent 配置名称
+func (app *App) ListAgentConfigs() ([]string, error) {
+	workspaceDir := filepath.Join(app.DataDir, app.Workspace)
+	return config.ListAgentConfigs(workspaceDir)
 }

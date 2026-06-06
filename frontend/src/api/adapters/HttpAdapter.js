@@ -85,9 +85,9 @@ export class HttpAdapter {
   updateAgent(name, config) { return http.put(`/agents/${name}`, config).then(r => r.data) }
   deleteAgent(name) { return http.delete(`/agents/${name}`).then(r => r.data) }
 
-  // 渠道
-  getChannels() { return http.get('/channels').then(r => r.data) }
-  updateChannel(name, config) { return http.put(`/channels/${name}`, config).then(r => r.data) }
+  // 渠道 (per-agent)
+  getChannels(agent) { return http.get('/channels', { params: { agent } }).then(r => r.data) }
+  updateChannel(agent, name, config) { return http.put(`/channels/${name}`, config, { params: { agent } }).then(r => r.data) }
   getChannelQRCode(channel) { return http.get('/channels/qrcode', { params: { channel } }).then(r => r.data) }
   getChannelQRCodeStatus(channel, token) { return http.get('/channels/qrcode/status', { params: { channel, token } }).then(r => r.data) }
 

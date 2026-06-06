@@ -9,7 +9,8 @@ const agentStore = useAgentStore()
 const toolsStore = useToolsStore()
 
 const loading = ref(false)
-const config = ref({})
+const agents = ref([])
+const agentConfig = ref(null)
 
 const agentName = computed(() => agentStore.selectedAgent || 'default')
 const allTools = computed(() => toolsStore.allToolNames)
@@ -19,7 +20,7 @@ function toolMeta(name) {
 }
 
 const currentAgent = computed(() => {
-  return config.value.agents?.find(a => a.name === agentName.value)
+  return agents.value.find(a => a.name === agentName.value) || null
 })
 
 function isToolEnabled(toolName) {
@@ -36,7 +37,7 @@ async function toggleTool(toolName, enabled) {
     agent.tools = agent.tools.filter(t => t !== toolName)
   }
   try {
-    await api.saveConfig(config.value)
+    await api.updateAgent(agentName.value, agent)
   } catch (e) {
     ElMessage.error('保存失败: ' + e.message)
   }
@@ -45,7 +46,8 @@ async function toggleTool(toolName, enabled) {
 async function loadConfig() {
   loading.value = true
   try {
-    config.value = await api.getConfig() || {}
+    const list = await api.getAgents() || []
+    agents.value = list
   } catch (e) {
     ElMessage.error('加载配置失败: ' + e.message)
   }
