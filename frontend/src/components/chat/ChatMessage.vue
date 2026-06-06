@@ -343,7 +343,24 @@ async function saveImageAs() {
           <FileCard v-else-if="block.type === 'file'" :path="block.source?.url || ''" :filename="block.filename || ''" />
         </template>
       </template>
-      <div v-else class="chat-text">{{ typeof content === 'string' ? content : (Array.isArray(content) ? content.map(b => b.text || '').join('') : content) }}</div>
+      <!-- 用户消息：同样支持 ContentBlocks（图片、文件） -->
+      <template v-else>
+        <template v-if="Array.isArray(content)">
+          <template v-for="(block, i) in content" :key="'user-block-' + i">
+            <img
+              v-if="block.type === 'image'"
+              :src="getDisplayUrl(block.source?.url || '')"
+              :alt="block.filename || '图片'"
+              class="chat-image"
+              @click="openPreview(getDisplayUrl(block.source?.url || ''), getImageIndex(block.source?.url || ''))"
+              @contextmenu="onImageContextMenu($event, block.source?.url || '', getDisplayUrl(block.source?.url || ''), block.filename || extractFilename(block.source?.url || ''))"
+            />
+            <FileCard v-else-if="block.type === 'file'" :path="block.source?.url || ''" :filename="block.filename || ''" />
+            <div v-else-if="block.type === 'text' && block.text" class="chat-text">{{ block.text }}</div>
+          </template>
+        </template>
+        <div v-else class="chat-text">{{ content }}</div>
+      </template>
     </div>
   </div>
 

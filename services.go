@@ -130,3 +130,6 @@ func (a *AppService) DownloadFile(path, filename string) string {
 }
 func (a *AppService) GetMedia(path string) string    { return a.inner.GetMedia(path) }
 func (a *AppService) PreviewFile(path string) string { return a.inner.PreviewFile(path) }
+func (a *AppService) UploadChatFile(sessionID, filename, base64Data string) string {
+	return a.inner.UploadChatFile(sessionID, filename, base64Data)
+}

@@ -17,6 +17,7 @@ export const useToolsStore = defineStore('tools', () => {
     network_check:     { icon: '📶', desc: '网络连通性检查' },
     // 网络/信息类
     http_request:      { icon: '🌐', desc: '发送 HTTP 请求' },
+    url_summary:       { icon: '📄', desc: '网页正文摘要' },
     web_search:        { icon: '🔍', desc: '网页搜索' },
     weather:           { icon: '🌤️', desc: '天气查询（和风/OpenWeather/Seniverse）' },
     // 计算/代码类
@@ -28,7 +29,6 @@ export const useToolsStore = defineStore('tools', () => {
     generate_image:    { icon: '🖼️', desc: '生成图片' },
     // 数据库类
     database_query:    { icon: '🗄️', desc: '数据库查询' },
-
   }
 
   /** 所有工具名列表 */

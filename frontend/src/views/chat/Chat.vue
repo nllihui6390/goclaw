@@ -27,6 +27,14 @@ const viewingSession = computed(() => !!route.query.session)
 
 function onFileChange(e) {
   const selected = Array.from(e.target.files || [])
+  // 为图片生成缩略图
+  selected.forEach(file => {
+    if (file.type && file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = () => { file.thumb = reader.result }
+      reader.readAsDataURL(file)
+    }
+  })
   files.value = [...files.value, ...selected]
   // 清空 input 以便重复选择同一文件
   e.target.value = ''
@@ -95,13 +103,52 @@ watch(() => route.query, (q, oldQ) => {
 
 async function send() {
   const text = input.value.trim()
-  if (!text || sending.value) return
+  if ((!text && !files.value.length) || sending.value) return
   input.value = ''
+  sending.value = true
 
-  messages.value.push({ role: 'user', content: text })
+  // 1. 上传所有文件
+  const uploadedFiles = []
+  for (const file of files.value) {
+    try {
+      const result = await api.uploadChatFile(sessionId.value, file)
+      if (result.error) {
+        ElMessage.error(`上传失败: ${file.name} - ${result.error}`)
+      } else {
+        uploadedFiles.push(result)
+      }
+    } catch (e) {
+      ElMessage.error(`上传失败: ${file.name} - ${e.message}`)
+    }
+  }
+  files.value = []
+
+  // 2. 构建用户消息内容（ContentBlocks 格式）
+  const contentBlocks = []
+  for (const f of uploadedFiles) {
+    if (f.is_image) {
+      contentBlocks.push({ type: 'image', source: { type: 'url', url: f.path }, filename: f.filename })
+    } else {
+      contentBlocks.push({ type: 'file', source: { type: 'url', url: f.path }, filename: f.filename })
+    }
+  }
+  if (text) {
+    contentBlocks.push({ type: 'text', text })
+  }
+
+  // 3. 显示用户消息
+  messages.value.push({ role: 'user', content: contentBlocks.length > 1 || uploadedFiles.length > 0 ? contentBlocks : text })
   await nextTick()
   setTimeout(scrollBottom, 50)
-  sending.value = true
+
+  // 4. 构建发送内容（将文件路径信息附在文本中，让 AI 能感知到文件）
+  let sendContent = text
+  if (uploadedFiles.length > 0) {
+    const fileDescs = uploadedFiles.map(f =>
+      f.is_image ? `[图片: ${f.filename} (${f.path})]` : `[文件: ${f.filename} (${f.path})]`
+    ).join('\n')
+    sendContent = fileDescs + (text ? '\n' + text : '')
+  }
 
   try {
     if (api.isStreaming) {
@@ -109,7 +156,7 @@ async function send() {
       let fullContent = ''
       let files = [] // 收集文件事件（旧格式兼容）
       let contentBlocks = [] // 收集结构化内容块（新格式）
-      for await (const event of api.sendMessage(sessionId.value, text, agentStore.selectedAgent)) {
+      for await (const event of api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent)) {
         if (event.type === 'file') {
           // 文件事件：立即添加到消息列表（旧格式兼容）
           files.push(event.info)
@@ -154,7 +201,7 @@ async function send() {
       }
     } else {
       // 非流式模式（WailsAdapter）：一次性返回完整响应（ContentBlocks JSON 格式）
-      const rawContent = await api.sendMessage(sessionId.value, text, agentStore.selectedAgent)
+      const rawContent = await api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent)
       // 解析 ContentBlocks JSON（后端返回 JSON 数组）
       let content
       try {
@@ -276,7 +323,8 @@ async function confirmNewChat() {
       <!-- 已选文件列表 -->
       <div v-if="files.length" class="files-bar">
         <div v-for="(f, i) in files" :key="i" class="file-tag">
-          <el-icon><Document /></el-icon>
+          <img v-if="f.type && f.type.startsWith('image/') && f.thumb" :src="f.thumb" class="file-thumb" />
+          <el-icon v-else><Document /></el-icon>
           <span class="file-name">{{ f.name }}</span>
           <span class="file-size">{{ formatSize(f.size) }}</span>
           <button class="file-remove" @click="removeFile(i)" :disabled="sending">&times;</button>
@@ -414,6 +462,7 @@ async function confirmNewChat() {
   padding: 4px 8px;
   font-size: 12px;
   color: #606266;
+  .file-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; }
   .file-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-size { color: #bbb; }
 }

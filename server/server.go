@@ -77,6 +77,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/agent-files/", api.HandleAgentFiles)
 	mux.HandleFunc("/api/v1/files/download", api.HandleFileDownload)
 	mux.HandleFunc("/api/v1/files/preview", api.HandleFilePreview)
+	mux.HandleFunc("/api/v1/chat/files/upload", api.HandleChatFileUpload)
 
 	// 前端 SPA
 	mux.HandleFunc("/", serveFrontend)

@@ -8,6 +8,7 @@ import (
 	"go-claw/global"
 	"go-claw/internal/channel"
 	"go-claw/internal/media"
+	glog "go-claw/pkg/log"
 	"go-claw/server/service"
 	"os"
 	"os/exec"
@@ -409,6 +410,59 @@ func (a *AppService) DownloadFile(path, filename string) string {
 	}
 	cmd.Start()
 	return fmt.Sprintf(`{"status":"opened","path":"%s","filename":"%s"}`, localPath, filename)
+}
+
+// UploadChatFile 上传聊天文件（Wails 桌面端，接收 base64 编码）
+func (a *AppService) UploadChatFile(sessionID, filename, base64Data string) string {
+	logger := glog.Logger()
+	logger.Info("UploadChatFile", "session", sessionID, "filename", filename)
+
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	// 解码 base64
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return `{"error":"base64解码失败"}`
+	}
+
+	// 创建上传目录
+	uploadDir := filepath.Join("clawdata", "uploads", sessionID)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		return `{"error":"创建目录失败"}`
+	}
+
+	// 生成安全文件名
+	safeFilename := filepath.Base(filepath.Clean(filename))
+	if strings.Contains(safeFilename, "..") {
+		return `{"error":"非法文件名"}`
+	}
+
+	// 保存文件
+	destPath := filepath.Join(uploadDir, safeFilename)
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return `{"error":"保存文件失败"}`
+	}
+
+	// 生成 file:// URL
+	fileURL := channel.PathToFileURL(destPath)
+	mime := media.GetMediaType(safeFilename)
+	isImage := strings.HasPrefix(mime, "image/")
+
+	logger.Info("UploadChatFile", "path", fileURL, "size", len(data), "is_image", isImage)
+
+	result := map[string]any{
+		"status":    "ok",
+		"path":      fileURL,
+		"localPath": destPath,
+		"filename":  safeFilename,
+		"size":      len(data),
+		"mime":      mime,
+		"is_image":  isImage,
+	}
+	jsonData, _ := json.Marshal(result)
+	return string(jsonData)
 }
 
 // ─────────── QR Code 扫码登录 ───────────

@@ -117,6 +117,16 @@ export class HttpAdapter {
       body: formData
     }).then(r => r.json())
   }
+  // 上传聊天文件
+  uploadChatFile(sessionId, file) {
+    const formData = new FormData()
+    formData.append('session', sessionId)
+    formData.append('file', file)
+    return fetch('/api/v1/chat/files/upload', {
+      method: 'POST',
+      body: formData
+    }).then(r => r.json())
+  }
   getEnabledSkills(agent) { return http.get('/skills/enabled', { params: { agent } }).then(r => r.data) }
   setEnabledSkills(agent, skills) { return http.put('/skills/enabled', skills, { params: { agent } }).then(r => r.data) }
 

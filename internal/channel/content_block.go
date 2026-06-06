@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"regexp"
 )
 
 // ContentType 内容块类型
@@ -216,4 +217,68 @@ func ContentBlocksFromText(text string) ContentBlocks {
 		return ContentBlocks{}
 	}
 	return ContentBlocks{NewTextBlock(text)}
+}
+
+// ParseFileMarkers 解析文本中的 [图片: filename (path)] 和 [文件: filename (path)] 标记，
+// 将它们转换为 ImageBlock/FileBlock，其余文本保留为 TextBlock。
+// 例如 "[图片: photo.png (file:///path/photo.png)]\n看看这个图片" 会变为：
+//   [ImageBlock{source:{url:"file:///path/photo.png"}}, TextBlock{text:"看看这个图片"}]
+func ParseFileMarkers(text string) ContentBlocks {
+	var blocks ContentBlocks
+	remaining := text
+
+	// 匹配 [图片: filename (path)] 或 [文件: filename (path)]
+	// filename 可以包含空格等字符，所以用 .+? 非贪婪匹配
+	// 正则: \[(图片|文件):\s+(.+?)\s+\(([^\)]+)\)\]
+	imgPattern := regexp.MustCompile(`\[图片:\s+(.+?)\s+\(([^\)]+)\)\]`)
+	filePattern := regexp.MustCompile(`\[文件:\s+(.+?)\s+\(([^\)]+)\)\]`)
+
+	for {
+		// 找到最早出现的标记
+		imgLoc := imgPattern.FindStringIndex(remaining)
+		fileLoc := filePattern.FindStringIndex(remaining)
+
+		var markerStart, markerEnd int
+		var markerType string
+		var filename, path string
+
+		// 选择最先出现的标记
+		if imgLoc != nil && (fileLoc == nil || imgLoc[0] < fileLoc[0]) {
+			matches := imgPattern.FindStringSubmatch(remaining[imgLoc[0]:imgLoc[1]])
+			markerStart = imgLoc[0]
+			markerEnd = imgLoc[1]
+			markerType = "image"
+			filename = matches[1]
+			path = matches[2]
+		} else if fileLoc != nil {
+			matches := filePattern.FindStringSubmatch(remaining[fileLoc[0]:fileLoc[1]])
+			markerStart = fileLoc[0]
+			markerEnd = fileLoc[1]
+			markerType = "file"
+			filename = matches[1]
+			path = matches[2]
+		} else {
+			// 没有更多标记，将剩余文本作为 TextBlock
+			if remaining != "" {
+				blocks = append(blocks, NewTextBlock(remaining))
+			}
+			break
+		}
+
+		// 标记之前的文本
+		if markerStart > 0 {
+			blocks = append(blocks, NewTextBlock(remaining[:markerStart]))
+		}
+
+		// 根据类型创建对应 Block
+		if markerType == "image" {
+			blocks = append(blocks, NewImageBlockURL(path))
+		} else {
+			blocks = append(blocks, NewFileBlockURL(path, filename))
+		}
+
+		remaining = remaining[markerEnd:]
+	}
+
+	return blocks
 }

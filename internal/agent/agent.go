@@ -142,7 +142,7 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 	}
 
 	// 会话历史只保存原始用户消息，不保存增强后的记忆上下文
-	session.AddTextMessage("user", userMessage)
+	session.AddMessage("user", channel.ParseFileMarkers(userMessage))
 	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages))
 
 	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）

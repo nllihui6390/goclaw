@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -289,4 +290,125 @@ func isSafePreviewPath(path string) bool {
 	}
 
 	return true
+}
+
+// HandleChatFileUpload POST /api/v1/chat/files/upload
+// 上传聊天文件，保存到 clawdata/uploads/{sessionID}/ 目录
+func HandleChatFileUpload(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// 解析 multipart form（最大 50MB）
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		writeError(rw, http.StatusBadRequest, "解析表单失败: "+err.Error())
+		return
+	}
+
+	sessionID := r.FormValue("session")
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(rw, http.StatusBadRequest, "缺少文件")
+		return
+	}
+	defer file.Close()
+
+	// 创建上传目录
+	uploadDir := filepath.Join("clawdata", "uploads", sessionID)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		writeError(rw, http.StatusInternalServerError, "创建目录失败")
+		return
+	}
+
+	// 生成安全文件名（防止路径穿越）
+	safeFilename := filepath.Base(filepath.Clean(header.Filename))
+	if strings.Contains(safeFilename, "..") {
+		writeError(rw, http.StatusBadRequest, "非法文件名")
+		return
+	}
+
+	// 保存文件
+	destPath := filepath.Join(uploadDir, safeFilename)
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		writeError(rw, http.StatusInternalServerError, "创建文件失败")
+		return
+	}
+	defer destFile.Close()
+
+	written, err := io.Copy(destFile, file)
+	if err != nil {
+		writeError(rw, http.StatusInternalServerError, "保存文件失败")
+		return
+	}
+
+	// 生成 file:// URL
+	fileURL := channel.PathToFileURL(destPath)
+	mime := media.GetMediaType(safeFilename)
+	isImage := strings.HasPrefix(mime, "image/")
+
+	// 返回文件信息
+	result := map[string]any{
+		"status":    "ok",
+		"path":      fileURL,
+		"localPath": destPath,
+		"filename":  safeFilename,
+		"size":      written,
+		"mime":      mime,
+		"is_image":  isImage,
+	}
+	writeJSON(rw, http.StatusOK, result)
+}
+
+// HandleChatFileUploadBase64 处理 Wails 桌面端文件上传（base64 编码）
+func HandleChatFileUploadBase64(sessionID, filename, base64Data string) string {
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	// 解码 base64
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return `{"error":"base64解码失败"}`
+	}
+
+	// 创建上传目录
+	uploadDir := filepath.Join("clawdata", "uploads", sessionID)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		return `{"error":"创建目录失败"}`
+	}
+
+	// 生成安全文件名
+	safeFilename := filepath.Base(filepath.Clean(filename))
+	if strings.Contains(safeFilename, "..") {
+		return `{"error":"非法文件名"}`
+	}
+
+	// 保存文件
+	destPath := filepath.Join(uploadDir, safeFilename)
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return `{"error":"保存文件失败"}`
+	}
+
+	// 生成 file:// URL
+	fileURL := channel.PathToFileURL(destPath)
+	mime := media.GetMediaType(safeFilename)
+	isImage := strings.HasPrefix(mime, "image/")
+
+	result := map[string]any{
+		"status":    "ok",
+		"path":      fileURL,
+		"localPath": destPath,
+		"filename":  safeFilename,
+		"size":      len(data),
+		"mime":      mime,
+		"is_image":  isImage,
+	}
+	jsonData, _ := json.Marshal(result)
+	return string(jsonData)
 }

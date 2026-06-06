@@ -166,6 +166,14 @@ export class WailsAdapter {
       return JSON.parse(json)
     } catch (e) { return { error: e.message } }
   }
+  // 上传聊天文件
+  async uploadChatFile(sessionId, file) {
+    try {
+      const base64 = await readFileAsBase64(file)
+      const json = await Call.ByName('main.AppService.UploadChatFile', sessionId, file.name, base64)
+      return JSON.parse(json)
+    } catch (e) { return { error: e.message } }
+  }
   async getEnabledSkills(agent) {
     try {
       const json = await Call.ByName('main.AppService.GetEnabledSkills', agent)
