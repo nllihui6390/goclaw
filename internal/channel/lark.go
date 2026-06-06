@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/internal/media"
 	"go-claw/pkg/log"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -282,18 +283,37 @@ func (l *LarkChannel) SendFile(ctx context.Context, to string, info *FileBlockIn
 		return false, nil
 	}
 
-	// 上传文件
-	fileKey, err := l.uploadFile(ctx, info.Path)
-	if err != nil {
-		return true, fmt.Errorf("文件上传失败: %w", err)
+	// 判断文件类型（图片用 image 类型发送）
+	mime := media.GetMediaType(info.Filename)
+	isImage := strings.HasPrefix(mime, "image/")
+
+	var key string
+	var err error
+
+	if isImage {
+		// 上传图片（使用 Image API，返回 image_key）
+		key, err = l.uploadImage(ctx, info.Path)
+		if err != nil {
+			return true, fmt.Errorf("图片上传失败: %w", err)
+		}
+		// 发送图片消息
+		if err := l.sendImageMessage(ctx, sendTo, key); err != nil {
+			return true, err
+		}
+		log.Logger().Info("[Lark] 图片消息已发送", "to", sendTo, "filename", info.Filename, "image_key", key)
+	} else {
+		// 上传文件（使用 File API，返回 file_key）
+		key, err = l.uploadFile(ctx, info.Path)
+		if err != nil {
+			return true, fmt.Errorf("文件上传失败: %w", err)
+		}
+		// 发送文件消息
+		if err := l.sendFileMessage(ctx, sendTo, key); err != nil {
+			return true, err
+		}
+		log.Logger().Info("[Lark] 文件消息已发送", "to", sendTo, "filename", info.Filename, "file_key", key)
 	}
 
-	// 发送文件消息
-	if err := l.sendFileMessage(ctx, sendTo, fileKey); err != nil {
-		return true, err
-	}
-
-	log.Logger().Info("[Lark] 文件消息已发送", "to", sendTo, "filename", info.Filename)
 	return true, nil
 }
 
@@ -354,6 +374,61 @@ func (l *LarkChannel) sendFileMessage(ctx context.Context, receiveID, fileKey st
 		Body(larkim.NewCreateMessageReqBodyBuilder().
 			ReceiveId(receiveID).
 			MsgType(larkim.MsgTypeFile).
+			Content(string(content)).
+			Build()).
+		Build())
+
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success() {
+		return fmt.Errorf("飞书API返回错误: %s (code: %d)", resp.Msg, resp.Code)
+	}
+
+	return nil
+}
+
+// uploadImage 上传图片到飞书，返回 image_key（使用官方 SDK）
+func (l *LarkChannel) uploadImage(ctx context.Context, filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("读取文件失败: %v", err)
+	}
+
+	// 使用官方 SDK 上传图片
+	resp, err := l.larkClient.Im.V1.Image.Create(ctx, larkim.NewCreateImageReqBuilder().
+		Body(larkim.NewCreateImageReqBodyBuilder().
+			ImageType("message").
+			Image(bytes.NewReader(data)).
+			Build()).
+		Build())
+
+	if err != nil {
+		return "", fmt.Errorf("飞书SDK上传图片失败: %v", err)
+	}
+
+	if !resp.Success() {
+		return "", fmt.Errorf("飞书上传图片失败: %s (code: %d)", resp.Msg, resp.Code)
+	}
+
+	if resp.Data == nil || resp.Data.ImageKey == nil {
+		return "", fmt.Errorf("飞书上传图片失败: 响应数据为空")
+	}
+
+	return *resp.Data.ImageKey, nil
+}
+
+// sendImageMessage 发送图片消息
+func (l *LarkChannel) sendImageMessage(ctx context.Context, receiveID, imageKey string) error {
+	// 使用官方 SDK 发送图片消息
+	content, _ := json.Marshal(map[string]string{"image_key": imageKey})
+
+	resp, err := l.larkClient.Im.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeOpenId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(receiveID).
+			MsgType(larkim.MsgTypeImage).
 			Content(string(content)).
 			Build()).
 		Build())
