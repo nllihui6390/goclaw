@@ -86,6 +86,15 @@ func main() {
 		MinHeight: 300,
 	})
 
+	// 注入保存文件对话框回调（弹出系统保存框）
+	appSvc.SetSaveFileFunc(func(filename string) (string, error) {
+		dialog := wailsApp.Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
+			Title:    "保存文件",
+			Filename: filename,
+		})
+		return dialog.PromptForSingleSelection()
+	})
+
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if forceQuit {
 			return

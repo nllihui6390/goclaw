@@ -58,7 +58,7 @@ func (c *ChatService) CreateSession(agentName string) string {
 	return string(data)
 }
 
-// SendMessage 发送消息并返回完整响应
+// SendMessage 发送消息并返回完整响应（ContentBlocks JSON 格式）
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	c.mu.RLock()
 	ag := c.agents["default"]
@@ -77,7 +77,7 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	ctx := context.Background()
 	ctx = agent.WithChannel(ctx, "console")
 	ctx = agent.WithUser(ctx, sessionID)
-	result, err := ag.Process(ctx, sessionID, content)
+	_, err := ag.Process(ctx, sessionID, content)
 	if err != nil {
 		return "Error: " + err.Error()
 	}
@@ -85,7 +85,24 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	if c.sessionIndex != nil {
 		c.sessionIndex.RecordSession(sessionID, "console", sessionID, agentName, content)
 	}
-	return result
+
+	// 从 session 获取完整的 ContentBlocks（包含图片、文件等媒体内容）
+	msgs, exists := ag.GetSessionMessages(sessionID)
+	if exists {
+		// 找到最后一条 assistant 消息
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == "assistant" {
+				data, err := json.Marshal(msgs[i].Content)
+				if err == nil {
+					return string(data)
+				}
+				break
+			}
+		}
+	}
+
+	// 降级：返回纯文本（不应该到达这里）
+	return "[]"
 }
 
 // GetChatHistory 获取会话历史

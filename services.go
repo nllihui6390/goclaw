@@ -1,7 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
 	wailsCtrl "go-claw/server/controllers/wails"
+	"go-claw/internal/channel"
 )
 
 // ChatService Wails 对话服务（薄包装层，保持在 main 包以保持绑定名 main.ChatService）
@@ -23,10 +29,15 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 
 // AppService Wails 管理服务（薄包装层，保持在 main 包以保持绑定名 main.AppService）
 type AppService struct {
-	inner *wailsCtrl.AppService
+	inner        *wailsCtrl.AppService
+	saveFileFunc func(filename string) (string, error) // Wails 保存对话框回调
 }
 
 func NewAppService() *AppService { return &AppService{inner: wailsCtrl.NewAppService()} }
+
+func (a *AppService) SetSaveFileFunc(fn func(filename string) (string, error)) {
+	a.saveFileFunc = fn
+}
 
 func (a *AppService) GetConfig() string                   { return a.inner.GetConfig() }
 func (a *AppService) SaveConfig(configJSON string) string { return a.inner.SaveConfig(configJSON) }
@@ -34,17 +45,19 @@ func (a *AppService) GetAgents() string                   { return a.inner.GetAg
 func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	return a.inner.UpdateAgent(name, agentJSON)
 }
-func (a *AppService) DeleteAgent(name string) string        { return a.inner.DeleteAgent(name) }
-func (a *AppService) GetChannels() string                   { return a.inner.GetChannels() }
+func (a *AppService) DeleteAgent(name string) string { return a.inner.DeleteAgent(name) }
+func (a *AppService) GetChannels() string            { return a.inner.GetChannels() }
 func (a *AppService) UpdateChannel(name, configJSON string) string {
 	return a.inner.UpdateChannel(name, configJSON)
 }
-func (a *AppService) GetProviders() string                  { return a.inner.GetProviders() }
-func (a *AppService) GetTools() string                      { return a.inner.GetTools() }
-func (a *AppService) GetSkillPool() string                  { return a.inner.GetSkillPool() }
-func (a *AppService) ScanSkills() string                    { return a.inner.ScanSkills() }
-func (a *AppService) UploadSkill(filename, base64 string) string { return a.inner.UploadSkill(filename, base64) }
-func (a *AppService) GetEnabledSkills(agent string) string  { return a.inner.GetEnabledSkills(agent) }
+func (a *AppService) GetProviders() string { return a.inner.GetProviders() }
+func (a *AppService) GetTools() string     { return a.inner.GetTools() }
+func (a *AppService) GetSkillPool() string { return a.inner.GetSkillPool() }
+func (a *AppService) ScanSkills() string   { return a.inner.ScanSkills() }
+func (a *AppService) UploadSkill(filename, base64 string) string {
+	return a.inner.UploadSkill(filename, base64)
+}
+func (a *AppService) GetEnabledSkills(agent string) string { return a.inner.GetEnabledSkills(agent) }
 func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 	return a.inner.SetEnabledSkills(agent, skillsJSON)
 }
@@ -70,10 +83,50 @@ func (a *AppService) ReadAgentFile(agentName, fileName string) string {
 func (a *AppService) WriteAgentFile(agentName, fileName, content string) string {
 	return a.inner.WriteAgentFile(agentName, fileName, content)
 }
-func (a *AppService) GetChannelQRCode(channel string) string { return a.inner.GetChannelQRCode(channel) }
+func (a *AppService) GetChannelQRCode(channel string) string {
+	return a.inner.GetChannelQRCode(channel)
+}
 func (a *AppService) GetChannelQRCodeStatus(channel, token string) string {
 	return a.inner.GetChannelQRCodeStatus(channel, token)
 }
+
+// 桌面端下载文件（打开本地文件或 URL）
 func (a *AppService) DownloadFile(path, filename string) string {
+	// URL 类型 → 用浏览器打开（保持原逻辑）
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return a.inner.DownloadFile(path, filename)
+	}
+
+	// 本地文件 + 保存对话框可用
+	if a.saveFileFunc != nil {
+		localPath := path
+		if strings.HasPrefix(path, "file://") || strings.HasPrefix(path, "file:") {
+			localPath = channel.FileURLToLocalPath(path)
+		}
+		cleanPath := filepath.Clean(localPath)
+		if _, err := os.Stat(cleanPath); err != nil {
+			return fmt.Sprintf(`{"error":"文件不存在: %s"}`, cleanPath)
+		}
+		defaultFilename := filename
+		if defaultFilename == "" {
+			defaultFilename = filepath.Base(cleanPath)
+		}
+		savePath, err := a.saveFileFunc(defaultFilename)
+		if err != nil || savePath == "" {
+			return `{"status":"cancelled"}`
+		}
+		data, err := os.ReadFile(cleanPath)
+		if err != nil {
+			return fmt.Sprintf(`{"error":"读取源文件失败: %s"}`, err.Error())
+		}
+		if err := os.WriteFile(savePath, data, 0644); err != nil {
+			return fmt.Sprintf(`{"error":"保存文件失败: %s"}`, err.Error())
+		}
+		return fmt.Sprintf(`{"status":"saved","path":"%s","filename":"%s"}`, savePath, filepath.Base(savePath))
+	}
+
+	// 回退：无保存对话框时打开目录
 	return a.inner.DownloadFile(path, filename)
 }
+func (a *AppService) GetMedia(path string) string    { return a.inner.GetMedia(path) }
+func (a *AppService) PreviewFile(path string) string { return a.inner.PreviewFile(path) }

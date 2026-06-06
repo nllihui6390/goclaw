@@ -275,6 +275,49 @@ export class WailsAdapter {
     return await Call.ByName('main.AppService.WriteAgentFile', agent, file, content)
   }
 
+  // 获取媒体文件（图片、视频、PDF 等）返回 Blob URL
+  // 后端返回 JSON: {"base64": "...", "mime": "image/png"}
+  // 前端解码 base64 → Uint8Array → Blob → URL.createObjectURL
+  async getMedia(path) {
+    try {
+      const json = await Call.ByName('main.AppService.GetMedia', path)
+      const result = JSON.parse(json)
+      if (result.error) {
+        console.error('[WailsAdapter] getMedia error:', result.error)
+        return null
+      }
+      // 解码 base64 为二进制数据
+      const binaryStr = atob(result.base64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i)
+      }
+      // 创建 Blob URL
+      const blob = new Blob([bytes], { type: result.mime })
+      const url = URL.createObjectURL(blob)
+      return url
+    } catch (e) {
+      console.error('[WailsAdapter] getMedia error:', e)
+      return null
+    }
+  }
+
+  // 文件预览（读取文件为 base64 数据 URL）
+  async previewFile(path) {
+    try {
+      const json = await Call.ByName('main.AppService.PreviewFile', path)
+      const result = JSON.parse(json)
+      if (result.error) {
+        console.error('[WailsAdapter] previewFile error:', result.error)
+        return null
+      }
+      return result.dataUrl // 返回 data:image/png;base64,... 格式的 URL
+    } catch (e) {
+      console.error('[WailsAdapter] previewFile error:', e)
+      return null
+    }
+  }
+
   // 文件下载（打开本地文件或 URL）
   async downloadFile(path, filename) {
     try {

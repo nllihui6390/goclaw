@@ -153,8 +153,20 @@ async function send() {
         scrollBottom()
       }
     } else {
-      // 非流式模式（WailsAdapter）：一次性返回完整响应
-      const content = await api.sendMessage(sessionId.value, text, agentStore.selectedAgent)
+      // 非流式模式（WailsAdapter）：一次性返回完整响应（ContentBlocks JSON 格式）
+      const rawContent = await api.sendMessage(sessionId.value, text, agentStore.selectedAgent)
+      // 解析 ContentBlocks JSON（后端返回 JSON 数组）
+      let content
+      try {
+        const parsed = JSON.parse(rawContent)
+        if (Array.isArray(parsed)) {
+          content = parsed // ContentBlocks 数组
+        } else {
+          content = rawContent // 降级：纯文本
+        }
+      } catch {
+        content = rawContent // 解析失败，作为纯文本处理
+      }
       messages.value.push({ role: 'assistant', content })
       await nextTick()
       scrollBottom()

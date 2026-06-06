@@ -5,13 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"go-claw/global"
+	"go-claw/internal/channel"
+	"go-claw/internal/media"
+	"go-claw/server/service"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"go-claw/global"
-	"go-claw/server/service"
 )
 
 // AppService Wails 管理服务
@@ -312,6 +313,66 @@ func (a *AppService) WriteAgentFile(agentName, fileName, content string) string 
 	return `{"status":"saved"}`
 }
 
+// ─────────── File Preview ───────────
+
+// GetMedia 读取文件内容返回 base64 编码（用于 Wails 模式下的图片/文件显示）
+// 返回 JSON: {"base64": "...", "mime": "image/png"}
+// 前端解码 base64 后创建 Blob URL 用于显示或下载
+func (a *AppService) GetMedia(path string) string {
+	if path == "" {
+		return `{"error":"path is required"}`
+	}
+	// 将 file:// URL 转换为本地路径
+	localPath := path
+	if strings.HasPrefix(path, "file://") || strings.HasPrefix(path, "file:") {
+		localPath = channel.FileURLToLocalPath(path)
+	}
+	// 安全检查：防止路径穿越
+	cleanPath := filepath.Clean(localPath)
+	if strings.Contains(cleanPath, "..") {
+		return `{"error":"invalid file path"}`
+	}
+	// 读取文件
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"file not found: %s"}`, err.Error())
+	}
+	// 获取 MIME 类型
+	mime := media.GetMediaType(cleanPath)
+	// 返回 base64 编码
+	b64 := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf(`{"base64":"%s","mime":"%s","size":%d}`, b64, mime, len(data))
+}
+
+// PreviewFile 读取文件并返回 base64 数据 URL（用于 Wails 模式下的图片预览）
+func (a *AppService) PreviewFile(path string) string {
+	if path == "" {
+		return `{"error":"path is required"}`
+	}
+
+	// 将 file:// URL 转换为本地路径
+	localPath := path
+	if strings.HasPrefix(path, "file://") || strings.HasPrefix(path, "file:") {
+		localPath = channel.FileURLToLocalPath(path)
+	}
+	// 安全检查：防止路径穿越
+	cleanPath := filepath.Clean(localPath)
+	if strings.Contains(cleanPath, "..") {
+		return `{"error":"invalid file path"}`
+	}
+	// 读取文件
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"file not found: %s"}`, err.Error())
+	}
+	// 获取 MIME 类型
+	mime := media.GetMediaType(filepath.Base(cleanPath))
+	// 转换为 base64 数据 URL
+	base64Data := base64.StdEncoding.EncodeToString(data)
+	dataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64Data)
+	return fmt.Sprintf(`{"dataUrl":"%s","mime":"%s","size":%d}`, dataURL, mime, len(data))
+}
+
 // ─────────── File Download ───────────
 
 // DownloadFile 打开本地文件或 URL（桌面模式用系统默认程序打开）
@@ -325,13 +386,19 @@ func (a *AppService) DownloadFile(path, filename string) string {
 		return `{"status":"opened"}`
 	}
 
+	// 将 file:// URL 转换为本地路径
+	localPath := path
+	if strings.HasPrefix(path, "file://") || strings.HasPrefix(path, "file:") {
+		localPath = channel.FileURLToLocalPath(path)
+	}
+
 	// 本地文件：检查是否存在
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Sprintf(`{"error":"文件不存在: %s"}`, path)
+	if _, err := os.Stat(localPath); err != nil {
+		return fmt.Sprintf(`{"error":"文件不存在: %s"}`, localPath)
 	}
 
 	// 用系统默认程序打开文件所在目录（让用户自己选择操作）
-	dir := filepath.Dir(path)
+	dir := filepath.Dir(localPath)
 	var cmd *exec.Cmd
 	if _, err := exec.LookPath("explorer"); err == nil {
 		cmd = exec.Command("explorer", dir)
@@ -341,7 +408,7 @@ func (a *AppService) DownloadFile(path, filename string) string {
 		cmd = exec.Command("xdg-open", dir)
 	}
 	cmd.Start()
-	return fmt.Sprintf(`{"status":"opened","path":"%s","filename":"%s"}`, path, filename)
+	return fmt.Sprintf(`{"status":"opened","path":"%s","filename":"%s"}`, localPath, filename)
 }
 
 // ─────────── QR Code 扫码登录 ───────────
