@@ -88,7 +88,7 @@ func main() {
 
 	wailsApp := application.New(application.Options{
 		Name:        "go-claw",
-		Description: "AI Agent Framework",
+		Description: "go-claw 智能助手",
 		Icon:        appIcon,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(desktopAssets),
@@ -112,7 +112,7 @@ func main() {
 	})
 
 	win = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:     "go-claw AI Agent",
+		Title:     "go-claw 智能助手",
 		Width:     1200,
 		Height:    800,
 		URL:       "/",
@@ -128,7 +128,7 @@ func main() {
 		})
 		return dialog.PromptForSingleSelection()
 	})
-
+	// 窗口关闭事件
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if forceQuit {
 			return
@@ -137,6 +137,7 @@ func main() {
 		win.Hide()
 	})
 
+	// 系统托盘
 	tray := wailsApp.SystemTray.New()
 	trayMenu := application.NewMenu()
 	trayMenu.Add("显示窗口").OnClick(func(ctx *application.Context) { win.Show() })
@@ -148,10 +149,11 @@ func main() {
 	tray.SetIcon(appIcon)
 	tray.SetMenu(trayMenu)
 	tray.SetLabel("go-claw")
-	tray.SetTooltip("go-claw AI Agent - 双击显示窗口")
+	tray.SetTooltip("go-claw - 双击显示窗口")
 	tray.OnDoubleClick(func() { win.Show() })
 	tray.Show()
 
+	// 运行应用
 	err = wailsApp.Run()
 	if err != nil {
 		log.Fatal(err)
