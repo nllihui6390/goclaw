@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/internal/media"
 	"go-claw/pkg/log"
 
 	"github.com/gorilla/websocket"
@@ -205,19 +206,19 @@ func (w *WeComChannel) sendAuth() {
 
 // sendFrame 发送 WebSocket 帧
 func (w *WeComChannel) sendFrame(frame map[string]any) error {
-	w.connMu.Lock()
-	conn := w.conn
-	w.connMu.Unlock()
-
-	if conn == nil {
-		return fmt.Errorf("WebSocket未连接")
-	}
-
 	data, err := json.Marshal(frame)
 	if err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+
+	w.connMu.Lock()
+	defer w.connMu.Unlock()
+
+	if w.conn == nil {
+		return fmt.Errorf("WebSocket未连接")
+	}
+
+	return w.conn.WriteMessage(websocket.TextMessage, data)
 }
 
 // receiveLoop 消息接收循环
@@ -585,23 +586,44 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 	if strings.Contains(resp.Content, "[FILE_BLOCK]") {
 		fileInfo := ParseFileBlock(resp.Content)
 		if fileInfo != nil && fileInfo.FileType != "url" && fileInfo.Path != "" {
+			// 判断文件类型（图片用 image 类型发送）
+			uploadType := "file"
+			msgType := "file"
+			mime := media.GetMediaType(fileInfo.Filename)
+			if strings.HasPrefix(mime, "image/") {
+				uploadType = "image"
+				msgType = "image"
+			}
+
 			// 尝试上传并发送文件
-			mediaID, err := w.uploadFile(fileInfo.Path)
+			mediaID, err := w.uploadFileWithType(fileInfo.Path, uploadType)
 			if err == nil && mediaID != "" {
-				// 发送文件消息
+				// 构建消息帧
+				var body map[string]any
+				if msgType == "image" {
+					body = map[string]any{
+						"msgtype": "image",
+						"image": map[string]any{
+							"media_id": mediaID,
+						},
+					}
+				} else {
+					body = map[string]any{
+						"msgtype": "file",
+						"file": map[string]any{
+							"media_id": mediaID,
+						},
+					}
+				}
+
 				fileFrame := map[string]any{
 					"cmd": WsCmdResponse,
 					"headers": map[string]string{
 						"req_id": reqID,
 					},
-					"body": map[string]any{
-						"msgtype": "file",
-						"file": map[string]any{
-							"media_id": mediaID,
-						},
-					},
+					"body": body,
 				}
-				log.Logger().Info("[WeCom] 发送文件消息", "user", resp.To, "filename", fileInfo.Filename, "media_id", mediaID)
+				log.Logger().Info("[WeCom] 发送文件消息", "user", resp.To, "filename", fileInfo.Filename, "media_id", mediaID, "type", msgType)
 				if err := w.sendAndWaitAck(reqID, fileFrame); err != nil {
 					log.Logger().Warn("[WeCom] 文件消息发送失败，回退到文本", "err", err)
 				} else {
@@ -642,8 +664,17 @@ func (w *WeComChannel) SendFile(ctx context.Context, to string, info *FileBlockI
 		return false, nil
 	}
 
+	// 判断文件类型（图片用 image 类型，其他用 file 类型）
+	uploadType := "file"
+	msgType := "file"
+	mime := media.GetMediaType(info.Filename)
+	if strings.HasPrefix(mime, "image/") {
+		uploadType = "image"
+		msgType = "image"
+	}
+
 	// 上传文件
-	mediaID, err := w.uploadFile(info.Path)
+	mediaID, err := w.uploadFileWithType(info.Path, uploadType)
 	if err != nil {
 		return true, fmt.Errorf("文件上传失败: %w", err)
 	}
@@ -658,20 +689,34 @@ func (w *WeComChannel) SendFile(ctx context.Context, to string, info *FileBlockI
 	}
 
 	reqID := session.reqID
+
+	// 构建消息帧（根据类型使用不同的消息格式）
+	var body map[string]any
+	if msgType == "image" {
+		body = map[string]any{
+			"msgtype": "image",
+			"image": map[string]any{
+				"media_id": mediaID,
+			},
+		}
+	} else {
+		body = map[string]any{
+			"msgtype": "file",
+			"file": map[string]any{
+				"media_id": mediaID,
+			},
+		}
+	}
+
 	fileFrame := map[string]any{
 		"cmd": WsCmdResponse,
 		"headers": map[string]string{
 			"req_id": reqID,
 		},
-		"body": map[string]any{
-			"msgtype": "file",
-			"file": map[string]any{
-				"media_id": mediaID,
-			},
-		},
+		"body": body,
 	}
 
-	log.Logger().Info("[WeCom] 发送文件消息", "user", to, "filename", info.Filename, "media_id", mediaID)
+	log.Logger().Info("[WeCom] 发送文件消息", "user", to, "filename", info.Filename, "media_id", mediaID, "type", msgType)
 	if err := w.sendAndWaitAck(reqID, fileFrame); err != nil {
 		return true, err
 	}
@@ -679,8 +724,9 @@ func (w *WeComChannel) SendFile(ctx context.Context, to string, info *FileBlockI
 	return true, nil
 }
 
-// uploadFile 上传文件到企业微信（通过 WebSocket 分片上传），返回 media_id
-func (w *WeComChannel) uploadFile(filePath string) (string, error) {
+// uploadFileWithType 上传文件到企业微信（通过 WebSocket 分片上传），返回 media_id
+// uploadType: "file" 或 "image"
+func (w *WeComChannel) uploadFileWithType(filePath string, uploadType string) (string, error) {
 	// 读取文件
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -703,10 +749,10 @@ func (w *WeComChannel) uploadFile(filePath string) (string, error) {
 		return "", fmt.Errorf("文件分片数 %d 超过最大限制 %d", totalChunks, maxChunks)
 	}
 
-	log.Logger().Info("[WeCom] 开始分片上传", "filename", filename, "total_size", totalSize, "total_chunks", totalChunks)
+	log.Logger().Info("[WeCom] 开始分片上传", "filename", filename, "total_size", totalSize, "total_chunks", totalChunks, "type", uploadType)
 
 	// 1. 初始化上传
-	uploadID, err := w.uploadMediaInit(filename, totalSize, totalChunks)
+	uploadID, err := w.uploadMediaInit(filename, totalSize, totalChunks, uploadType)
 	if err != nil {
 		return "", fmt.Errorf("初始化上传失败: %v", err)
 	}
@@ -740,7 +786,7 @@ func (w *WeComChannel) uploadFile(filePath string) (string, error) {
 }
 
 // uploadMediaInit 初始化上传，返回 upload_id
-func (w *WeComChannel) uploadMediaInit(filename string, totalSize, totalChunks int) (string, error) {
+func (w *WeComChannel) uploadMediaInit(filename string, totalSize, totalChunks int, uploadType string) (string, error) {
 	reqID := w.generateReqID(WsCmdUploadInit)
 
 	frame := map[string]any{
@@ -749,7 +795,7 @@ func (w *WeComChannel) uploadMediaInit(filename string, totalSize, totalChunks i
 			"req_id": reqID,
 		},
 		"body": map[string]any{
-			"type":         "file",
+			"type":         uploadType,
 			"filename":     filename,
 			"total_size":   totalSize,
 			"total_chunks": totalChunks,

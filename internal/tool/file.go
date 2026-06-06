@@ -434,6 +434,7 @@ func (t *SendFileTool) ExecuteStructured(ctx context.Context, params map[string]
 	}
 
 	// 1. 尝试通过 FileSender 接口直接发送文件（WeCom/DingTalk/Lark 等渠道）
+	fileSentViaSender := false
 	ch := channel.GetChannelFromCtx(ctx)
 	to := channel.GetToUserFromCtx(ctx)
 	if ch != nil && to != "" {
@@ -443,14 +444,12 @@ func (t *SendFileTool) ExecuteStructured(ctx context.Context, params map[string]
 				if err != nil {
 					return nil, fmt.Errorf("文件发送失败: %v", err)
 				}
-				return channel.ContentBlocks{
-					channel.NewTextBlock(fmt.Sprintf("文件 %s 已成功发送给用户", filename)),
-				}, nil
+				fileSentViaSender = true // 文件已通过渠道原生方式发送
 			}
 		}
 	}
 
-	// 2. 对于 HTTP/WebSocket 等渠道：返回结构化内容块
+	// 2. 返回结构化内容块（无论是否通过 FileSender 发送，都保存到 session）
 	// 根据 MIME 类型自动选择 block 类型
 	displayURL := path
 	if !isURL {
@@ -460,28 +459,35 @@ func (t *SendFileTool) ExecuteStructured(ctx context.Context, params map[string]
 	mime := media.GetMediaType(filename)
 	asType := media.IsMediaType(mime)
 
+	var blocks channel.ContentBlocks
 	switch asType {
 	case "image":
-		return channel.ContentBlocks{
-			channel.NewImageBlockURL(displayURL),
-			channel.NewTextBlock(fmt.Sprintf("图片 %s 已发送给用户", filename)),
-		}, nil
+		blocks = channel.ContentBlocks{channel.NewImageBlockURL(displayURL)}
 	case "video":
-		return channel.ContentBlocks{
-			channel.NewVideoBlockURL(displayURL),
-			channel.NewTextBlock(fmt.Sprintf("视频 %s 已发送给用户", filename)),
-		}, nil
+		blocks = channel.ContentBlocks{channel.NewVideoBlockURL(displayURL)}
 	case "audio":
-		return channel.ContentBlocks{
-			channel.NewAudioBlockURL(displayURL),
-			channel.NewTextBlock(fmt.Sprintf("音频 %s 已发送给用户", filename)),
-		}, nil
+		blocks = channel.ContentBlocks{channel.NewAudioBlockURL(displayURL)}
 	default:
-		return channel.ContentBlocks{
-			channel.NewFileBlockURL(displayURL, filename),
-			channel.NewTextBlock(fmt.Sprintf("文件 %s 已发送给用户", filename)),
-		}, nil
+		blocks = channel.ContentBlocks{channel.NewFileBlockURL(displayURL, filename)}
 	}
+
+	// 添加提示文本
+	if fileSentViaSender {
+		blocks = append(blocks, channel.NewTextBlock(fmt.Sprintf("文件 %s 已成功发送给用户", filename)))
+	} else {
+		switch asType {
+		case "image":
+			blocks = append(blocks, channel.NewTextBlock(fmt.Sprintf("图片 %s 已发送给用户", filename)))
+		case "video":
+			blocks = append(blocks, channel.NewTextBlock(fmt.Sprintf("视频 %s 已发送给用户", filename)))
+		case "audio":
+			blocks = append(blocks, channel.NewTextBlock(fmt.Sprintf("音频 %s 已发送给用户", filename)))
+		default:
+			blocks = append(blocks, channel.NewTextBlock(fmt.Sprintf("文件 %s 已发送给用户", filename)))
+		}
+	}
+
+	return blocks, nil
 }
 
 // ============================================================
