@@ -14,8 +14,8 @@ const editContent = ref('')
 
 const personaFiles = ['AGENTS.md', 'HEARTBEAT.md', 'MEMORY.md', 'PROFILE.md', 'SOUL.md']
 
+
 onMounted(loadFiles)
-// 监控 agent 变化，重置编辑框并重新加载文件列表
 watch(() => agentStore.selectedAgent, () => {
   editFile.value = null
   editContent.value = ''
@@ -28,7 +28,6 @@ async function loadFiles() {
     const data = await api.getAgentFiles(agentStore.selectedAgent)
     files.value = data || []
   } catch (e) {
-    // 降级：使用静态文件名列表
     files.value = personaFiles.map(name => ({ name, exists: false }))
   }
   loading.value = false
@@ -39,7 +38,6 @@ async function openFile(file) {
   editContent.value = '加载中...'
   try {
     let content = await api.readAgentFile(agentStore.selectedAgent, file.name)
-    // 兼容 Wails 返回 JSON 字符串的情况（外层引号包裹）
     if (typeof content === 'string') {
       try {
         const parsed = JSON.parse(content)
@@ -74,6 +72,7 @@ function formatSize(bytes) {
 
 <template>
   <div class="page" v-loading="loading">
+    <!-- Page header -->
     <div class="page-header">
       <div class="header-left">
         <h2>文件管理</h2>
@@ -81,152 +80,258 @@ function formatSize(bytes) {
       </div>
     </div>
 
+    <!-- Split layout -->
     <div class="split-layout">
-      <!-- 左侧文件列表 -->
+      <!-- File list -->
       <div class="file-list">
-        <div v-for="file in files" :key="file.name" class="file-item"
-          :class="{ active: editFile?.name === file.name }" @click="openFile(file)">
-          <el-icon :size="18"><Document /></el-icon>
-          <div class="item-info">
-            <span class="item-name">{{ file.name }}</span>
-            <span class="item-size" v-if="file.size">{{ formatSize(file.size) }}</span>
+        <div class="list-header">
+          <span class="list-title">Persona 文件</span>
+          <span class="list-count">{{ files.length }} 个</span>
+        </div>
+
+        <div class="file-items">
+          <div
+            v-for="file in files"
+            :key="file.name"
+            class="file-item"
+            :class="{ active: editFile?.name === file.name }"
+            @click="openFile(file)"
+          >
+            <div class="item-info">
+              <span class="item-name">{{ file.name }}</span>
+              <span class="item-size" v-if="file.size">{{ formatSize(file.size) }}</span>
+            </div>
           </div>
         </div>
-        <el-empty v-if="!files.length" description="暂无文件" :image-size="40" />
       </div>
 
-      <!-- 右侧编辑区 -->
+      <!-- Editor area -->
       <div class="editor-area">
         <template v-if="editFile">
           <div class="editor-header">
-            <span class="editor-title">{{ editFile.name }}</span>
-            <el-button type="primary" size="small" @click="saveFile" :loading="saving">保存</el-button>
+            <div class="editor-title">
+              <span class="title-text">{{ editFile.name }}</span>
+            </div>
+            <el-button type="primary" size="small" @click="saveFile" :loading="saving">
+              <el-icon><Folder /></el-icon>保存
+            </el-button>
           </div>
-          <el-input v-model="editContent" type="textarea" class="editor-content" placeholder="选择左侧文件开始编辑..."/>
+
+          <div class="editor-content">
+            <el-input
+              v-model="editContent"
+              type="textarea"
+              class="code-editor"
+              placeholder="文件内容..."
+            />
+          </div>
         </template>
+
         <div v-else class="editor-empty">
-          <span>← 选择左侧文件开始编辑</span>
+          <span class="empty-text">选择左侧文件开始编辑</span>
         </div>
       </div>
     </div>
   </div>
 </template>
 
-<style scoped>
-.page { padding: 24px; display: flex; flex-direction: column; height: calc(100vh - 48px); box-sizing: border-box; }
-.page-header { margin-bottom: 16px; flex-shrink: 0; }
-.header-left { display: flex; align-items: center; gap: 12px; }
-.header-left h2 { margin: 0; font-weight: 500; }
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
+
+.page {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - $header-height);
+  box-sizing: border-box;
+}
+
+.page-header {
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+
+.header-left h2 {
+  margin: 0;
+  font-size: $font-size-xl;
+  font-weight: 600;
+  color: $text-primary;
+}
 
 .split-layout {
   flex: 1;
   display: flex;
-  gap: 16px;
+  gap: 20px;
   min-height: 0;
 }
 
-/* 左侧文件列表 */
+// File list
 .file-list {
-  width: 220px;
+  width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid #ebeef5;
-  overflow-y: auto;
-  padding-right: 8px;
+  @include glass-panel;
+  border-radius: $radius-lg;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 手机端：上下布局 */
-@media (max-width: 768px) {
-  .page { padding: 12px; }
-  .split-layout { flex-direction: column; }
-  .file-list {
-    width: 100%;
-    flex-shrink: 0;
-    border-right: none;
-    border-bottom: 1px solid #ebeef5;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-right: 0;
-    padding-bottom: 8px;
-    display: flex;
-    gap: 8px;
-  }
-  .file-item {
-    flex-shrink: 0;
-    white-space: nowrap;
-    padding: 8px 14px;
-  }
-  .item-info { flex-direction: row; gap: 6px; align-items: baseline; }
-  .editor-area { min-height: 300px; }
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid $border-subtle;
 }
+
+.list-title {
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.list-count {
+  font-size: $font-size-xs;
+  color: $text-muted;
+  font-family: $font-display;
+}
+
+.file-items {
+  flex: 1;
+  overflow-y: auto;
+}
+
 .file-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  border-radius: $radius-md;
   cursor: pointer;
-  transition: all .15s;
-  color: #606266;
-  background: #fff;
-  border: 1px solid #ececec;
-  border-radius: 10px;
-  margin-bottom: 8px;
-}
-.file-item:hover { background: #f5f7fa; }
-.file-item.active { background: #ecf5ff; color: #409eff; }
-.item-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.item-name { font-size: 13px; font-weight: 500; }
-.item-size { font-size: 11px; color: #bbb; }
+  transition: all 0.2s;
+  background: $bg-elevated;
+  border: 1px solid $border-default;
 
-/* 右侧编辑区 */
+  &:hover {
+    border-color: $border-default;
+  }
+
+  &.active {
+    background: $accent-cyan-dim;
+    border-color: rgba(0, 212, 255, 0.3);
+  }
+}
+
+.item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.item-name {
+  font-size: $font-size-sm;
+  font-weight: 500;
+  color: $text-primary;
+  font-family: $font-display;
+}
+
+.item-size {
+  font-size: $font-size-xs;
+  color: $text-muted;
+}
+
+// Editor area
 .editor-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  @include glass-panel;
+  border-radius: $radius-lg;
+  padding: 16px;
 }
+
 .editor-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 16px;
   flex-shrink: 0;
 }
-.editor-title { font-weight: 600; font-size: 15px; }
+
+.editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-text {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $text-primary;
+  font-family: $font-display;
+}
+
 .editor-content {
   flex: 1;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-  line-height: 1.6;
+  min-height: 0;
 }
-.editor-content :deep(textarea) {
-  height: 100% !important;
-  min-height: 300px;
+
+.code-editor {
+  height: 100%;
+
+  :deep(textarea) {
+    height: 100% !important;
+    min-height: 300px;
+    font-family: $font-display;
+    font-size: $font-size-sm;
+    line-height: 1.7;
+    background: $bg-deep;
+    border: 1px solid $border-subtle;
+    border-radius: $radius-md;
+    padding: 16px;
+    color: $text-primary;
+    resize: none;
+
+    &::placeholder {
+      color: $text-muted;
+    }
+  }
 }
+
 .editor-empty {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #bbb;
-  font-size: 14px;
-  border: 1px solid #ececec;
-
+  gap: 12px;
 }
 
-/* 滚动条优化 */
-.file-list::-webkit-scrollbar,
-.editor-content :deep(textarea)::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+.empty-text {
+  font-size: $font-size-sm;
+  color: $text-muted;
 }
-.file-list::-webkit-scrollbar-thumb,
-.editor-content :deep(textarea)::-webkit-scrollbar-thumb {
-  background: #d0d5dd;
-  border-radius: 2px;
-}
-.file-list::-webkit-scrollbar-track,
-.editor-content :deep(textarea)::-webkit-scrollbar-track {
-  background: transparent;
+
+// Mobile layout
+@media (max-width: 768px) {
+  .page { padding: 16px; }
+  .split-layout { flex-direction: column; }
+  .file-list {
+    width: 100%;
+    flex-shrink: 0;
+    max-height: 200px;
+  }
+  .editor-area { min-height: 300px; }
 }
 </style>

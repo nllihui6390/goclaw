@@ -74,6 +74,17 @@ func main() {
 			application.NewService(chatSvc),
 			application.NewService(appSvc),
 		},
+		// 单实例：第二个实例启动时显示第一个实例的窗口
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.go-claw.app",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				// 显示并聚焦已有窗口
+				if win != nil {
+					win.Show()
+					win.Focus()
+				}
+			},
+		},
 		OnShutdown: func() { app.Gateway.Stop() },
 	})
 

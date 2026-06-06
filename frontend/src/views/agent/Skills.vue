@@ -11,23 +11,16 @@ const saving = ref(false)
 const scanning = ref(false)
 const uploading = ref(false)
 const fileInput = ref(null)
-
-// 当前 agent 已启用的技能
 const enabledSkills = ref([])
 const enabledNames = ref([])
-
-// 技能池对话框
 const poolDialogVisible = ref(false)
 const poolSkills = ref([])
 const selectedFromPool = ref([])
-
-// 技能目录
 const skillDir = ref('')
 
 onMounted(loadEnabledSkills)
 watch(() => agentStore.selectedAgent, loadEnabledSkills)
 
-// 加载当前 agent 已启用的技能
 async function loadEnabledSkills() {
   loading.value = true
   try {
@@ -41,12 +34,10 @@ async function loadEnabledSkills() {
   loading.value = false
 }
 
-// 打开技能池对话框
 async function openPoolDialog() {
   try {
     const res = await api.getSkillPool()
     poolSkills.value = res.skills || []
-    // 默认勾选已启用的
     selectedFromPool.value = [...enabledNames.value]
     poolDialogVisible.value = true
   } catch (e) {
@@ -54,7 +45,6 @@ async function openPoolDialog() {
   }
 }
 
-// 确认从技能池载入
 async function confirmFromPool() {
   saving.value = true
   try {
@@ -68,7 +58,6 @@ async function confirmFromPool() {
   saving.value = false
 }
 
-// 扫描技能目录
 async function scanSkills() {
   scanning.value = true
   try {
@@ -84,7 +73,6 @@ async function scanSkills() {
   scanning.value = false
 }
 
-// 移除单个技能
 async function removeSkill(skillName) {
   const newList = enabledNames.value.filter(n => n !== skillName)
   saving.value = true
@@ -98,7 +86,6 @@ async function removeSkill(skillName) {
   saving.value = false
 }
 
-// 切换技能选中状态
 function toggleSkill(skill) {
   const skillName = skill.name
   const idx = selectedFromPool.value.indexOf(skillName)
@@ -109,17 +96,14 @@ function toggleSkill(skill) {
   }
 }
 
-// 判断技能池中的技能是否已选中
 function isSkillSelected(skill) {
   return selectedFromPool.value.includes(skill.name)
 }
 
-// 上传技能 zip
 async function uploadSkill() {
   fileInput.value?.click()
 }
 
-// 处理文件选择
 async function onFileSelected(e) {
   const file = e.target.files?.[0]
   if (!file) return
@@ -149,12 +133,14 @@ async function onFileSelected(e) {
 
 <template>
   <div class="page" v-loading="loading">
+    <!-- Page header -->
     <div class="page-header">
       <div class="header-left">
         <h2>技能管理</h2>
-        <span class="skill-info">
-          当前 Agent: <el-tag size="small">{{ agentStore.selectedAgent }}</el-tag>· 已启用 {{ enabledSkills.length }} 个技能
-        </span>
+        <div class="header-info">
+          <el-tag size="small">{{ agentStore.selectedAgent }}</el-tag>
+          <span class="skill-count">{{ enabledSkills.length }} 个技能</span>
+        </div>
       </div>
       <div class="header-actions">
         <input ref="fileInput" type="file" accept=".zip" hidden @change="onFileSelected" />
@@ -173,45 +159,45 @@ async function onFileSelected(e) {
       </div>
     </div>
 
-    <!-- 已启用技能列表 -->
+    <!-- Skills grid -->
     <div class="skills-grid" v-if="enabledSkills.length">
-      <el-card v-for="skill in enabledSkills" :key="skill.name" class="skill-card">
-        <template #header>
-          <div class="card-header">
-            <div class="skill-title">
-              <span class="skill-emoji">{{ skill.emoji || '🔧' }}</span>
-              <span class="skill-name">{{ skill.name }}</span>
+      <div v-for="skill in enabledSkills" :key="skill.name" class="skill-card">
+        <div class="skill-header">
+          <div class="skill-emoji">{{ skill.emoji || '🔧' }}</div>
+          <div class="skill-title">
+            <span class="skill-name">{{ skill.name }}</span>
+            <div class="skill-tags">
+              <el-tag v-if="skill.version" size="small" type="info">v{{ skill.version }}</el-tag>
+              <el-tag v-if="skill.has_scripts" size="small" type="warning">脚本</el-tag>
             </div>
           </div>
-        </template>
+        </div>
 
         <div class="skill-body">
           <p class="skill-desc">{{ skill.description || '无描述' }}</p>
           <div class="skill-meta">
             <el-icon><Folder /></el-icon>
             <code>{{ skill.folder }}</code>
-            <el-tag v-if="skill.version" size="small" type="info" style="margin-left: auto">v{{ skill.version }}</el-tag>
-            <el-tag v-if="skill.has_scripts" size="small" type="warning" style="margin-left: 4px">脚本</el-tag>
           </div>
         </div>
 
         <div class="skill-footer">
           <el-button type="danger" size="small" @click="removeSkill(skill.name)">移除</el-button>
         </div>
-      </el-card>
+      </div>
     </div>
 
     <el-empty v-else-if="!loading" description="暂无已启用的技能">
       <template #extra>
-        <p class="empty-hint">点击右上角"从技能池载入"添加技能</p>
+        <p class="empty-hint">点击"从技能池载入"添加技能</p>
       </template>
     </el-empty>
 
-    <!-- 技能池对话框 -->
+    <!-- Pool dialog -->
     <el-dialog v-model="poolDialogVisible" title="从技能池载入技能" width="720px">
       <div class="pool-header">
-        <span>全量技能池（共 {{ poolSkills.length }} 个）</span>
-        <span class="pool-hint">点击卡片选中/取消，确认后生效</span>
+        <span class="pool-title">全量技能池（共 {{ poolSkills.length }} 个）</span>
+        <span class="pool-hint">点击卡片选中/取消</span>
       </div>
 
       <div class="pool-grid" v-if="poolSkills.length">
@@ -227,8 +213,8 @@ async function onFileSelected(e) {
             <span class="pool-card-name">{{ skill.name }}</span>
             <el-tag v-if="skill.has_scripts" size="small" type="warning">脚本</el-tag>
             <div class="pool-card-check">
-              <el-icon v-if="isSkillSelected(skill)" :size="18" color="#409eff"><CircleCheckFilled /></el-icon>
-              <el-icon v-else :size="18" color="#dcdfe6"><CircleCheck /></el-icon>
+              <el-icon v-if="isSkillSelected(skill)" :size="18" color="#00d4ff"><CircleCheckFilled /></el-icon>
+              <el-icon v-else :size="18" color="#6b7280"><CircleCheck /></el-icon>
             </div>
           </div>
           <p class="pool-card-desc">{{ skill.description || '无描述' }}</p>
@@ -251,53 +237,252 @@ async function onFileSelected(e) {
   </div>
 </template>
 
-<style scoped>
-.page { padding: 24px; }
-.page-header {
-  display: flex;justify-content: space-between;align-items: center;
-  margin-bottom: 24px;flex-wrap: wrap;gap: 12px;
-}
-.header-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.header-left h2 { margin: 0; font-weight: 500; }
-.skill-info { color: #909399; font-size: 13px; display: flex; align-items: center; gap: 6px; }
-.header-actions { display: flex; gap: 8px; }
-.skills-grid { display: grid;grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));gap: 16px;}
-.skill-card { position: relative; transition: all .2s; }
-.skill-card :deep(.el-card__body) { display: flex; flex-direction: column; }
-.skill-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.1); }
-.card-header { display: flex;justify-content: space-between;align-items: center;}
-.skill-title { display: flex; align-items: center; gap: 8px; }
-.skill-emoji { font-size: 20px; }
-.skill-name { font-weight: 600; font-size: 15px; }
-.skill-body { display: flex; flex-direction: column; gap: 8px; flex: 1;padding-bottom: 8px;}
-.skill-desc { margin: 0; color: #606266; font-size: 14px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.skill-meta { display: flex; align-items: center; gap: 4px; color: #909399; font-size: 13px; }
-.skill-meta code { background: #f5f7fa; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
-.skill-footer {
-  position: absolute; top: 21px; right: 18px;
-  opacity: 0; transition: opacity .2s;
-}
-.skill-card:hover .skill-footer { opacity: 1; }
-.empty-hint { color: #909399; font-size: 13px; text-align: center; }
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
 
-/* 技能池对话框 */
-.pool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.pool-hint { font-size: 12px; color: #909399; }
+.page {
+  padding: 32px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+
+.header-left h2 {
+  margin: 0;
+  font-size: $font-size-xl;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-count {
+  font-size: $font-size-sm;
+  color: $text-muted;
+  font-family: $font-display;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 16px;
+}
+
+.skill-card {
+  @include glass-panel;
+  border-radius: $radius-lg;
+  padding: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+
+  &:hover {
+    border-color: $accent-cyan-dim;
+    box-shadow: $shadow-glow-cyan;
+  }
+}
+
+.skill-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.skill-emoji {
+  font-size: 28px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $bg-elevated;
+  border-radius: $radius-md;
+  border: 1px solid $border-default;
+}
+
+.skill-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-name {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $text-primary;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.skill-tags {
+  display: flex;
+  gap: 6px;
+}
+
+.skill-body {
+  margin-bottom: 16px;
+}
+
+.skill-desc {
+  margin: 0 0 10px 0;
+  color: $text-secondary;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.skill-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: $text-muted;
+  font-size: $font-size-xs;
+
+  code {
+    background: $bg-elevated;
+    padding: 2px 8px;
+    border-radius: $radius-sm;
+    font-family: $font-display;
+    border: 1px solid $border-default;
+  }
+}
+
+.skill-footer {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.skill-card:hover .skill-footer {
+  opacity: 1;
+}
+
+.empty-hint {
+  color: $text-muted;
+  font-size: $font-size-sm;
+  text-align: center;
+}
+
+// Pool dialog
+.pool-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.pool-title {
+  font-weight: 500;
+  color: $text-primary;
+}
+
+.pool-hint {
+  font-size: $font-size-xs;
+  color: $text-muted;
+}
+
 .pool-grid {
-  display: grid;grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;max-height: 400px;overflow-y: auto;padding: 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
 }
+
 .pool-card {
-  padding: 14px;border-radius: 10px;border: 2px solid #e4e7ed;
-  background: #fff;cursor: pointer;transition: all .2s;height: 130px;
+  padding: 16px;
+  border-radius: $radius-md;
+  border: 2px solid $border-default;
+  background: $bg-elevated;
+  cursor: pointer;
+  transition: all 0.2s;
+  height: 130px;
+
+  &:hover {
+    border-color: $border-default;
+    box-shadow: $shadow-soft;
+  }
+
+  &.selected {
+    border-color: $accent-cyan;
+    background: $accent-cyan-dim;
+  }
 }
-.pool-card:hover { border-color: #c0c4cc; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-.pool-card.selected { border-color: #409eff; background: #ecf5ff; }
-.pool-card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.pool-emoji { font-size: 20px; }
-.pool-card-name { font-weight: 600; font-size: 14px; flex: 1; }
-.pool-card-check { margin-left: auto; }
-.pool-card-desc { margin: 0 0 8px 0; font-size: 12px; color: #606266; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.pool-card-meta { font-size: 11px; color: #909399; }
-.pool-card-meta code { background: #f5f7fa; padding: 1px 4px; border-radius: 3px; }
+
+.pool-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pool-emoji {
+  font-size: 18px;
+}
+
+.pool-card-name {
+  font-weight: 600;
+  font-size: $font-size-sm;
+  color: $text-primary;
+  flex: 1;
+}
+
+.pool-card-check {
+  margin-left: auto;
+}
+
+.pool-card-desc {
+  margin: 0 0 8px 0;
+  font-size: $font-size-xs;
+  color: $text-secondary;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pool-card-meta {
+  font-size: $font-size-xs;
+  color: $text-muted;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  code {
+    background: $bg-surface;
+    padding: 2px 6px;
+    border-radius: $radius-sm;
+    font-family: $font-display;
+  }
+}
 </style>

@@ -12,27 +12,17 @@ const modelDialogVisible = ref(false)
 const addProviderDialogVisible = ref(false)
 const editingProvider = ref(null)
 const editingModels = ref([])
-const editingModel = ref(null)
 const currentProviderName = ref('')
-const currentModelIdx = ref(-1)
-
-// 搜索关键字
 const searchKeyword = ref('')
-
-// 默认模型选择
 const defaultProvider = ref('')
 const defaultModel = ref('')
-
-// 新增供应商表单
 const newProvider = ref({ name: '', type: 'openai', base_url: '', api_key: '', models: [] })
 
-// 供应商可选模型列表
 const providerModelOptions = computed(() => {
   const p = config.value?.providers?.[defaultProvider.value]
   return p?.models?.map(m => ({ label: m.description || m.name, value: m.name })) || []
 })
 
-// 过滤后的供应商列表
 const filteredProviders = computed(() => {
   if (!config.value?.providers) return []
   const list = Object.entries(config.value.providers).map(([name, cfg]) => ({
@@ -52,7 +42,6 @@ const filteredProviders = computed(() => {
   )
 })
 
-// 供应商下拉选项
 const providerOptions = computed(() => {
   if (!config.value?.providers) return []
   return Object.entries(config.value.providers).map(([name, cfg]) => ({
@@ -61,7 +50,6 @@ const providerOptions = computed(() => {
   }))
 })
 
-// 供应商切换时重置模型选择
 function onProviderChange() {
   defaultModel.value = ''
 }
@@ -70,7 +58,6 @@ onMounted(async () => {
   await loadConfig()
 })
 
-// 加载配置
 async function loadConfig() {
   loading.value = true
   try {
@@ -83,7 +70,6 @@ async function loadConfig() {
   loading.value = false
 }
 
-// 保存默认模型
 async function saveDefaultModel() {
   saving.value = true
   try {
@@ -97,7 +83,6 @@ async function saveDefaultModel() {
   saving.value = false
 }
 
-// 打开供应商设置对话框
 function openProviderSettings(name, provider) {
   currentProviderName.value = name
   editingProvider.value = {
@@ -109,14 +94,12 @@ function openProviderSettings(name, provider) {
   dialogVisible.value = true
 }
 
-// 打开模型设置对话框
 function openModelSettings(name, provider) {
   currentProviderName.value = name
   editingModels.value = provider.models ? [...provider.models.map(m => ({...m}))] : []
   modelDialogVisible.value = true
 }
 
-// 保存供应商设置
 async function saveProviderSettings() {
   saving.value = true
   try {
@@ -135,7 +118,6 @@ async function saveProviderSettings() {
   saving.value = false
 }
 
-// 保存模型设置
 async function saveModelSettings() {
   saving.value = true
   try {
@@ -152,23 +134,19 @@ async function saveModelSettings() {
   saving.value = false
 }
 
-// 添加模型
 function addModel() {
   editingModels.value.push({ name: '', description: '' })
 }
 
-// 删除模型
 function removeModel(idx) {
   editingModels.value.splice(idx, 1)
 }
 
-// 打开新增供应商对话框
 function openAddProvider() {
   newProvider.value = { name: '', type: 'openai', base_url: '', api_key: '', models: [] }
   addProviderDialogVisible.value = true
 }
 
-// 保存新增供应商
 async function saveNewProvider() {
   if (!newProvider.value.name) {
     ElMessage.warning('请输入供应商名称')
@@ -193,7 +171,6 @@ async function saveNewProvider() {
   saving.value = false
 }
 
-// 删除供应商
 async function deleteProvider(name) {
   try {
     await ElMessageBox.confirm(`确定删除供应商 "${name}"？`, '确认删除', { type: 'warning' })
@@ -217,10 +194,10 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
 
 <template>
   <div class="page" v-loading="loading">
-    <!-- 上部分：默认模型配置 -->
-    <el-card class="default-card">
-      <div class="page-header">
-        <div class="header-left"><h3>默认模型</h3></div>
+    <!-- Default model section -->
+    <div class="default-section">
+      <div class="section-header">
+        <h3>默认模型</h3>
       </div>
       <div class="default-row">
         <el-select v-model="defaultProvider" placeholder="选择供应商" style="width: 160px" @change="onProviderChange">
@@ -231,51 +208,72 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
         </el-select>
         <el-button type="primary" @click="saveDefaultModel" :loading="saving">保存</el-button>
       </div>
-      <p class="default-tip">在这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。</p>
-    </el-card>
+      <p class="default-tip">设置全局默认的 LLM 模型，也可以在聊天页面为具体 Agent 单独选择。</p>
+    </div>
 
-    <!-- 下半部分：提供商 -->
+    <!-- Providers section -->
     <div class="page-header">
-      <div class="header-left"><h2>提供商配置</h2></div>
+      <div class="header-left">
+        <h2>提供商配置</h2>
+      </div>
       <div class="header-actions">
         <el-input v-model="searchKeyword" placeholder="搜索供应商" clearable style="width: 180px">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button @click="loadConfig" :loading="loading" title="刷新">
-          <el-icon><Refresh /></el-icon>
+        <el-button @click="loadConfig" :loading="loading">
+          <el-icon><Refresh /></el-icon>刷新
         </el-button>
         <el-button type="primary" @click="openAddProvider">
           <el-icon><Plus /></el-icon>添加
         </el-button>
       </div>
     </div>
+
     <div class="providers-grid">
-      <el-card v-for="p in filteredProviders" :key="p.name" class="provider-card">
-        <div class="provider-top">
+      <div v-for="p in filteredProviders" :key="p.name" class="provider-card">
+        <div class="provider-header">
+          <div class="provider-icon">
+            <el-icon :size="20"><Cpu /></el-icon>
+          </div>
           <div class="provider-info">
             <span class="provider-name">{{ p.name }}</span>
-            <el-tag :type="p.type === 'ollama' ? 'success' : 'primary'" size="small">{{ providerTypeMap[p.type] || p.type }}</el-tag>
-          </div>
-          <div class="provider-detail">
-            <div class="detail-item"><span class="detail-label">API 地址</span><span class="detail-value mono">{{ p.base_url }}</span></div>
-            <div class="detail-item"><span class="detail-label">API Key</span><span class="detail-value mono">{{ maskKey(p.api_key) }}</span></div>
-            <div class="detail-item"><span class="detail-label">模型数</span><span class="detail-value">{{ p.modelsCount }}</span></div>
+            <el-tag :type="p.type === 'ollama' ? 'success' : 'primary'" size="small">
+              {{ providerTypeMap[p.type] || p.type }}
+            </el-tag>
           </div>
         </div>
+
+        <div class="provider-details">
+          <div class="detail-row">
+            <span class="detail-label">API 地址</span>
+            <span class="detail-value mono">{{ p.base_url || '—' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">API Key</span>
+            <span class="detail-value mono">{{ maskKey(p.api_key) }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">模型数</span>
+            <span class="detail-value">{{ p.modelsCount }}</span>
+          </div>
+        </div>
+
         <div class="provider-models">
           <el-tag v-for="m in p.models?.slice(0, 3)" :key="m.name" size="small" class="model-tag">{{ m.name }}</el-tag>
           <span v-if="p.models?.length > 3" class="more-models">+{{ p.models.length - 3 }}</span>
         </div>
+
         <div class="provider-actions">
           <el-button size="small" @click="openModelSettings(p.name, p)">模型设置</el-button>
           <el-button size="small" type="primary" @click="openProviderSettings(p.name, p)">设置</el-button>
           <el-button size="small" type="danger" link @click="deleteProvider(p.name)">删除</el-button>
         </div>
-      </el-card>
+      </div>
+
       <el-empty v-if="!filteredProviders.length && !loading" description="暂无供应商" />
     </div>
 
-    <!-- 新增供应商对话框 -->
+    <!-- Dialogs -->
     <el-dialog v-model="addProviderDialogVisible" title="新增供应商" width="450px">
       <el-form :model="newProvider" label-width="100px">
         <el-form-item label="名称" required>
@@ -300,7 +298,6 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
       </template>
     </el-dialog>
 
-    <!-- 供应商设置对话框 -->
     <el-dialog v-model="dialogVisible" title="供应商设置" width="450px">
       <el-form :model="editingProvider" label-width="100px" v-if="editingProvider">
         <el-form-item label="名称">
@@ -325,7 +322,6 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
       </template>
     </el-dialog>
 
-    <!-- 模型设置对话框 -->
     <el-dialog v-model="modelDialogVisible" title="模型设置" width="550px">
       <div class="model-edit-header">
         <span>{{ currentProviderName }} 的模型列表</span>
@@ -347,51 +343,199 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
   </div>
 </template>
 
-<style scoped>
-.page { padding: 24px; }
-.page-header {
-  display: flex;justify-content: space-between;align-items: center;
-  margin-bottom: 24px;flex-wrap: wrap;gap: 12px;
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
+
+.page {
+  padding: 32px;
 }
-.header-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.header-left h2 { margin: 0; font-weight: 500; }
-.skill-info { color: #909399; font-size: 13px; display: flex; align-items: center; gap: 6px; }
-.header-actions { display: flex; gap: 8px; }
 
-.card-header { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 500; }
-.toolbar { display: flex; gap: 8px; align-items: center; }
+// Default section
+.default-section {
+  @include glass-panel;
+  border-radius: $radius-lg;
+  padding: 20px;
+  margin-bottom: 28px;
+}
 
-/* 上部分：默认模型 */
-.default-card { margin-bottom: 20px; }
-.default-row { display: flex; align-items: center; gap: 12px; }
-.default-tip { margin-top: 10px; font-size: 13px; color: #909399; line-height: 1.5; }
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
 
-/* 下半部分：提供商卡片 */
-.providers-card { margin-bottom: 0; }
-.providers-card :deep(.el-card__body) { padding: 16px; }
-.providers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.section-symbol {
+  font-size: 16px;
+  color: $accent-cyan;
+}
 
-.provider-card { transition: all .2s; }
-.provider-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+.section-header h3 {
+  margin: 0;
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $text-primary;
+}
 
-.provider-top { margin-bottom: 12px; }
-.provider-info { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.provider-name { font-size: 16px; font-weight: 600; }
+.default-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-.provider-detail { font-size: 12px; color: #909399; }
-.detail-item { display: flex; gap: 4px; margin-bottom: 4px; }
-.detail-label { color: #606266; width: 60px; }
-.detail-value { color: #303133; }
-.mono { font-family: 'Consolas', 'Monaco', monospace; }
+.default-tip {
+  margin-top: 12px;
+  font-size: $font-size-sm;
+  color: $text-muted;
+  line-height: 1.5;
+}
 
-.provider-models { margin-bottom: 12px; }
-.model-tag { margin-right: 4px; }
-.more-models { font-size: 12px; color: #909399; }
+// Page header
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 
-.provider-actions { display: flex; gap: 8px; align-items: center; }
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-/* 模型编辑 */
-.model-edit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.model-edit-list { max-height: 400px; overflow-y: auto; }
-.model-edit-item { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+.header-left h2 {
+  margin: 0;
+  font-size: $font-size-xl;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+// Providers grid
+.providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(370px, 1fr));
+  gap: 16px;
+}
+
+.provider-card {
+  @include glass-panel;
+  border-radius: $radius-lg;
+  padding: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    border-color: $accent-cyan-dim;
+    box-shadow: $shadow-glow-cyan;
+  }
+}
+
+.provider-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.provider-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: $radius-md;
+  background: $accent-cyan-dim;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid $border-default;
+
+  .el-icon { color: $accent-cyan; }
+}
+
+.provider-symbol {
+  font-size: 16px;
+  color: $accent-cyan;
+}
+
+.provider-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-name {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.provider-details {
+  margin-bottom: 16px;
+}
+
+.detail-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: $font-size-xs;
+}
+
+.detail-label {
+  color: $text-muted;
+  width: 60px;
+}
+
+.detail-value {
+  color: $text-secondary;
+}
+
+.mono {
+  font-family: $font-display;
+}
+
+.provider-models {
+  margin-bottom: 16px;
+}
+
+.model-tag {
+  margin-right: 4px;
+}
+
+.more-models {
+  font-size: $font-size-xs;
+  color: $text-muted;
+  font-family: $font-display;
+}
+
+.provider-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+// Model edit
+.model-edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.model-edit-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.model-edit-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
 </style>

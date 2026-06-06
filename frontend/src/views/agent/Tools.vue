@@ -11,28 +11,21 @@ const toolsStore = useToolsStore()
 const loading = ref(false)
 const config = ref({})
 
-// 当前选中的 Agent 名称
 const agentName = computed(() => agentStore.selectedAgent || 'default')
-
-// 所有工具名
 const allTools = computed(() => toolsStore.allToolNames)
 
-// 获取工具元信息
 function toolMeta(name) {
   return toolsStore.getTool(name)
 }
 
-// 当前选中的 agent 配置
 const currentAgent = computed(() => {
   return config.value.agents?.find(a => a.name === agentName.value)
 })
 
-// 工具是否对当前 agent 启用
 function isToolEnabled(toolName) {
   return currentAgent.value?.tools?.includes(toolName) || false
 }
 
-// 切换工具开关（自动保存）
 async function toggleTool(toolName, enabled) {
   const agent = currentAgent.value
   if (!agent) return
@@ -49,7 +42,6 @@ async function toggleTool(toolName, enabled) {
   }
 }
 
-// 加载配置
 async function loadConfig() {
   loading.value = true
   try {
@@ -61,57 +53,84 @@ async function loadConfig() {
 }
 
 onMounted(loadConfig)
-// agent 切换时重新加载
 watch(agentName, loadConfig)
 </script>
 
 <template>
   <div class="page" v-loading="loading">
-    <div class="toolbar">
-      <span class="toolbar-title">
-        工具管理 — <span class="current-agent">{{ agentName }}</span>
-      </span>
+    <div class="page-header">
+      <div class="header-left">
+        <h2>工具管理</h2>
+        <div class="header-info">
+          <el-tag size="small">{{ agentName }}</el-tag>
+          <span class="tool-count">{{ allTools.length }} 个工具</span>
+        </div>
+      </div>
     </div>
 
     <div class="tools-grid">
-      <el-card v-for="toolName in allTools" :key="toolName" class="tool-card">
+      <div
+        v-for="toolName in allTools"
+        :key="toolName"
+        class="tool-card"
+        :class="{ enabled: isToolEnabled(toolName) }"
+      >
         <div class="tool-header">
           <div class="tool-icon">{{ toolMeta(toolName).icon || '🔧' }}</div>
           <div class="tool-info">
             <span class="tool-name">{{ toolName }}</span>
-            <span class="tool-desc">{{ toolMeta(toolName).desc || '' }}</span>
+            <span class="tool-desc">{{ toolMeta(toolName).desc || '—' }}</span>
           </div>
+        </div>
+        <div class="tool-footer">
           <el-switch
             :model-value="isToolEnabled(toolName)"
             @change="val => toggleTool(toolName, val)"
             size="small"
           />
         </div>
-      </el-card>
-
-      <el-empty v-if="!allTools.length && !loading" description="暂无工具" />
+      </div>
     </div>
   </div>
 </template>
 
-<style scoped>
-.page { padding: 24px; }
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.toolbar-title { font-size: 18px; font-weight: 500; }
-.current-agent { color: #409eff; font-weight: 600; }
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
 
-.tools-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+.page { padding: 32px; }
+
+.page-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 28px;
 }
 
-.tool-card { transition: all .2s; }
-.tool-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+.header-left { display: flex; align-items: center; gap: 12px; }
 
-.tool-header { display: flex; align-items: center; gap: 12px; }
-.tool-icon { font-size: 24px; }
+.header-left h2 { margin: 0; font-size: $font-size-xl; font-weight: 600; color: $text-primary; }
+.header-info { display: flex; align-items: center; gap: 8px; }
+.tool-count { font-size: $font-size-sm; color: $text-muted; font-family: $font-display; }
+
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+
+.tool-card {
+  @include glass-panel; border-radius: $radius-md; padding: 16px;
+  transition: all 0.2s;
+
+  &:hover { border-color: $border-default; }
+  &.enabled { border-color: $accent-cyan; background: $accent-cyan-dim; }
+}
+
+.tool-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.tool-icon {
+  font-size: 24px; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: $bg-elevated; border-radius: $radius-md;
+  border: 1px solid $border-default; flex-shrink: 0;
+  .enabled & { background: $accent-cyan-dim; }
+}
+
 .tool-info { flex: 1; min-width: 0; }
-.tool-name { font-size: 15px; font-weight: 600; }
-.tool-desc { font-size: 12px; color: #909399; display: block; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-name { font-size: $font-size-sm; font-weight: 600; color: $text-primary; font-family: $font-display; display: block; margin-bottom: 4px; }
+.tool-desc { font-size: $font-size-xs; color: $text-muted; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-footer { display: flex; justify-content: flex-end; }
 </style>

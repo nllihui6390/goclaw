@@ -9,15 +9,12 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editChannel = ref(null)
 const editConfig = ref({})
-
-// QR code 扫码相关状态
 const qrcodeImg = ref('')
 const qrcodeLoading = ref(false)
 const qrcodePollToken = ref('')
 const qrcodePollTimer = ref(null)
-const qrcodeStatus = ref('') // waiting/scanned/confirmed/expired
+const qrcodeStatus = ref('')
 
-// Channel type definitions with their config fields
 const channelDefs = {
   console: { icon: 'Monitor', fields: [] },
   lark: {
@@ -43,7 +40,7 @@ const channelDefs = {
   },
   wechat: {
     icon: 'ChatDotRound',
-    qrcode: true, // 支持扫码登录
+    qrcode: true,
     fields: [
       { key: 'base_url', label: 'Base URL', type: 'text', placeholder: '微信回调地址' },
       { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀' },
@@ -54,6 +51,7 @@ const channelDefs = {
   }
 }
 
+
 onMounted(loadData)
 onBeforeUnmount(stopQrcodePoll)
 
@@ -61,7 +59,6 @@ async function loadData() {
   loading.value = true
   try {
     const list = await api.getChannels()
-    // 合并前端定义的图标和字段
     channels.value = (list || []).map(ch => ({
       ...ch,
       icon: channelDefs[ch.key]?.icon || 'Setting',
@@ -74,7 +71,6 @@ async function loadData() {
   loading.value = false
 }
 
-// 开关切换自动保存
 async function toggleChannel(channel, val) {
   const newConfig = { ...channel.config, enabled: val }
   try {
@@ -87,7 +83,6 @@ async function toggleChannel(channel, val) {
   }
 }
 
-// 点击卡片打开编辑对话框
 function openEdit(channel) {
   stopQrcodePoll()
   editChannel.value = channel
@@ -95,12 +90,10 @@ function openEdit(channel) {
   dialogVisible.value = true
 }
 
-// 对话框内保存
 async function saveChannel() {
   saving.value = true
   try {
     await api.updateChannel(editChannel.value.key, editConfig.value)
-    // 同步到内存
     editChannel.value.config = editConfig.value
     editChannel.value.enabled = editConfig.value.enabled || false
     ElMessage.success('保存成功')
@@ -121,8 +114,6 @@ function getStatusText(channel) {
   return channel.status === 'connected' ? '已连接' : '未连接'
 }
 
-// ─────────── QR Code 扫码登录 ───────────
-
 async function fetchQRCode() {
   stopQrcodePoll()
   qrcodeImg.value = ''
@@ -130,19 +121,11 @@ async function fetchQRCode() {
   qrcodeLoading.value = true
   try {
     const data = await api.getChannelQRCode('wechat')
-    if (data.error) {
-      ElMessage.error('获取二维码失败: ' + data.error)
-      return
-    }
-    if (!data.qrcode_img) {
-      ElMessage.error('获取二维码失败: 未返回二维码图片')
-      return
-    }
+    if (data.error) { ElMessage.error('获取二维码失败: ' + data.error); return }
+    if (!data.qrcode_img) { ElMessage.error('获取二维码失败: 未返回二维码图片'); return }
     qrcodeImg.value = data.qrcode_img
     qrcodePollToken.value = data.poll_token
     qrcodeStatus.value = 'waiting'
-
-    // 开始轮询
     scheduleQrcodePoll()
   } catch (e) {
     ElMessage.error('获取二维码失败: ' + e.message)
@@ -156,24 +139,13 @@ function scheduleQrcodePoll() {
   qrcodePollTimer.value = setTimeout(async () => {
     try {
       const result = await api.getChannelQRCodeStatus('wechat', qrcodePollToken.value)
-      if (result.error) {
-        // 忽略单次轮询错误
-        scheduleQrcodePoll()
-        return
-      }
-
+      if (result.error) { scheduleQrcodePoll(); return }
       qrcodeStatus.value = result.status
-
       if (result.status === 'confirmed' && result.credentials?.bot_token) {
-        // 扫码成功，自动填入凭据
         qrcodeImg.value = ''
         qrcodeStatus.value = ''
-        if (result.credentials.bot_token) {
-          editConfig.value.bot_token = result.credentials.bot_token
-        }
-        if (result.credentials.base_url) {
-          editConfig.value.base_url = result.credentials.base_url
-        }
+        if (result.credentials.bot_token) editConfig.value.bot_token = result.credentials.bot_token
+        if (result.credentials.base_url) editConfig.value.base_url = result.credentials.base_url
         ElMessage.success('扫码登录成功，凭据已自动填入')
         stopQrcodePoll()
         return
@@ -184,10 +156,7 @@ function scheduleQrcodePoll() {
         stopQrcodePoll()
         return
       }
-    } catch {
-      // 忽略单次轮询错误
-    }
-    // 继续轮询
+    } catch {}
     scheduleQrcodePoll()
   }, 2000)
 }
@@ -209,7 +178,6 @@ function getQrcodeStatusText() {
   }
 }
 
-// 关闭对话框时清理
 function closeDialog() {
   stopQrcodePoll()
   qrcodeImg.value = ''
@@ -221,21 +189,30 @@ function closeDialog() {
 
 <template>
   <div class="page" v-loading="loading">
+    <!-- Page header -->
     <div class="page-header">
-      <h2>渠道管理</h2>
+      <div class="header-title">
+        <h2>频道管理</h2>
+      </div>
+      <div class="header-actions">
+        <el-button @click="loadData" :loading="loading">
+          <el-icon><Refresh /></el-icon>刷新
+        </el-button>
+      </div>
     </div>
 
+    <!-- Channel cards grid -->
     <div class="channels-grid">
-      <el-card
+      <div
         v-for="channel in channels"
         :key="channel.key"
         class="channel-card"
-        shadow="hover"
+        @click="openEdit(channel)"
       >
-        <div class="card-inner" @click="openEdit(channel)">
+        <div class="card-inner">
           <div class="card-top">
-            <div class="channel-icon">
-              <el-icon :size="28"><component :is="channel.icon" /></el-icon>
+            <div class="channel-icon-wrap">
+              <el-icon :size="24"><component :is="channel.icon" /></el-icon>
             </div>
             <div class="channel-info">
               <span class="channel-name">{{ channel.name }}</span>
@@ -252,10 +229,10 @@ function closeDialog() {
             />
           </div>
         </div>
-      </el-card>
+      </div>
     </div>
 
-    <!-- 编辑对话框 -->
+    <!-- Edit dialog -->
     <el-dialog
       v-model="dialogVisible"
       :title="editChannel?.name + ' 配置'"
@@ -265,28 +242,15 @@ function closeDialog() {
     >
       <el-form :model="editConfig" label-width="100px" v-if="editChannel">
         <el-form-item label="状态">
-          <el-switch
-            v-model="editConfig.enabled"
-            active-text="启用"
-            inactive-text="禁用"
-          />
+          <el-switch v-model="editConfig.enabled" active-text="启用" inactive-text="禁用" />
         </el-form-item>
 
-        <!-- QR Code 扫码登录区块（仅 wechat 渠道显示） -->
         <el-form-item v-if="editChannel.qrcode" label="扫码登录">
-          <el-button
-            type="primary"
-            :loading="qrcodeLoading"
-            @click="fetchQRCode"
-          >
+          <el-button type="primary" :loading="qrcodeLoading" @click="fetchQRCode">
             获取二维码
           </el-button>
           <div v-if="qrcodeImg" class="qrcode-block">
-            <img
-              :src="'data:image/png;base64,' + qrcodeImg"
-              alt="微信扫码登录"
-              class="qrcode-img"
-            />
+            <img :src="'data:image/png;base64,' + qrcodeImg" alt="微信扫码登录" class="qrcode-img" />
             <div class="qrcode-hint">{{ getQrcodeStatusText() }}</div>
           </div>
         </el-form-item>
@@ -313,28 +277,128 @@ function closeDialog() {
   </div>
 </template>
 
-<style scoped>
-.page { padding: 24px; }
-.page-header { margin-bottom: 24px; }
-.page-header h2 { margin: 0; font-weight: 500; }
-.channels-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; }
-.channel-card { cursor: pointer; transition: all .2s; }
-.channel-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
-.card-inner { display: flex; flex-direction: column; gap: 16px; }
-.card-top { display: flex; align-items: center; gap: 14px; }
-.channel-icon {
-  width: 48px; height: 48px; border-radius: 10px; background: #f0f2f5;
-  display: flex; align-items: center; justify-content: center; color: #409eff; flex-shrink: 0;
-}
-.channel-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.channel-name { font-weight: 600; font-size: 15px; }
-.channel-key { font-size: 12px; color: #bbb; font-family: monospace; }
-.card-bottom { display: flex; justify-content: space-between; align-items: center; }
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
 
-/* QR Code 扫码样式 */
-.qrcode-block { text-align: center; margin-top: 12px; }
-.qrcode-img { width: 200px; height: 200px; }
+.page {
+  padding: 32px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+
+.header-title h2 {
+  margin: 0;
+  font-size: $font-size-xl;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.channel-card {
+  @include glass-panel;
+  border-radius: $radius-lg;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 20px;
+
+  &:hover {
+    border-color: $accent-cyan-dim;
+    box-shadow: $shadow-glow-cyan;
+    transform: translateY(-2px);
+  }
+}
+
+.card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.channel-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: $radius-md;
+  background: $accent-cyan-dim;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(0, 212, 255, 0.2);
+
+  .el-icon {
+    color: $accent-cyan;
+  }
+}
+
+.channel-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.channel-name {
+  font-weight: 600;
+  font-size: $font-size-lg;
+  color: $text-primary;
+}
+
+.channel-key {
+  font-size: $font-size-xs;
+  color: $text-muted;
+  font-family: $font-display;
+}
+
+.card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.qrcode-block {
+  text-align: center;
+  margin-top: 12px;
+}
+
+.qrcode-img {
+  width: 200px;
+  height: 200px;
+  border-radius: $radius-md;
+  border: 1px solid $border-default;
+}
+
 .qrcode-hint {
-  margin-top: 8px; font-size: 12px; color: rgba(0,0,0,0.45);
+  margin-top: 8px;
+  font-size: $font-size-sm;
+  color: $text-secondary;
+  font-family: $font-display;
 }
 </style>

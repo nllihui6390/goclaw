@@ -86,7 +86,7 @@ export class WailsAdapter {
     return JSON.parse(json)
   }
 
-  // 渠道管理
+  // 频道管理
   async getChannels() {
     try {
       const json = await Call.ByName('main.AppService.GetChannels')
