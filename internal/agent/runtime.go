@@ -97,41 +97,24 @@ func extractThinkContent(content string) string {
 	return content[start : start+end]
 }
 
-// containsActionIntent 检测思考内容中是否有待执行的具体行动计划
-func containsActionIntent(thinking string) bool {
-	if thinking == "" {
-		return false
-	}
-	// 检测具体的行动计划关键词
-	actionHints := []string{
+// suggestsPendingToolAction 检测响应是否暗示要使用工具但未实际调用（可见内容与内部推理）
+func suggestsPendingToolAction(content string) bool {
+	visible := stripThinkTags(content)
+	thinking := extractThinkContent(content)
+	hints := []string{
 		"创建PPT", "生成PPT", "整理PPT", "创建脚本", "写一个", "创建一个",
 		"python", "pip install", "脚本", "文件",
 		"我来创建", "我来生成", "我来使用", "我来执行",
 		"我来调用", "我来运行", "让我检查",
 		"让我来", "让我创建", "让我生成",
 		"先写", "接下来", "然后使用", "然后调用",
+		"我可以使用", "我会调用", "我将使用", "我来查询",
 	}
-	for _, h := range actionHints {
-		if strings.Contains(thinking, h) {
+	for _, h := range hints {
+		if visible != "" && strings.Contains(visible, h) {
 			return true
 		}
-	}
-	return false
-}
-
-// suggestsToolUse 检测响应内容是否暗示要使用工具但没实际调用
-// 注意：先剥离内部推理标签，只检测用户可见的实际响应内容
-func suggestsToolUse(content string) bool {
-	// 先剥离 DeepSeek 的内部推理标签
-	visibleContent := stripThinkTags(content)
-	if visibleContent == "" {
-		// 剥离后内容为空，说明模型只做了内部推理，没有实际响应
-		// 这种情况不应触发 auto-continue，而是让模型自然返回
-		return false
-	}
-	hints := []string{"我来", "我将", "让我", "我可以使用", "我会调用", "我将使用", "我来查询", "我来执行"}
-	for _, h := range hints {
-		if strings.Contains(visibleContent, h) {
+		if thinking != "" && strings.Contains(thinking, h) {
 			return true
 		}
 	}
@@ -270,7 +253,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 
 		if len(resp.ToolCalls) == 0 {
 			// Auto-continue: 检测是否暗示要使用工具但没实际调用
-			if suggestsToolUse(resp.Content) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
+			if suggestsPendingToolAction(resp.Content) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
 				autoContinueCount++
 				logger.Info("[Runtime] 检测到暗示工具使用，注入提示继续",
 					"auto_continue_count", autoContinueCount,
@@ -299,27 +282,6 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				messages = append(messages, ChatMessage{
 					Role:    "user",
 					Content: "请直接给出你的回答。",
-				})
-				continue
-			}
-
-			// 检测思考内容中是否有未执行的行动计划
-			thinkContent := extractThinkContent(resp.Content)
-			hasPendingAction := containsActionIntent(thinkContent)
-
-			// 如果思考中有行动计划但未调用工具，强制继续执行
-			if hasPendingAction && i+1 < maxIterations {
-				logger.Info("[Runtime] 检测到未执行的行动计划，继续迭代",
-					"iteration", i+1, "thinking_len", len(thinkContent))
-
-				// 注入提示让模型继续执行
-				messages = append(messages, ChatMessage{
-					Role:    "assistant",
-					Content: resp.Content,
-				})
-				messages = append(messages, ChatMessage{
-					Role:    "user",
-					Content: "请立即使用工具执行你的计划，不要再空想。",
 				})
 				continue
 			}
@@ -449,10 +411,8 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 			if len(resp.ToolCalls) > 0 {
 				// 输出思考内容
 				if handler != nil && resp.Content != "" {
-					handler(ToolEvent{
-						Type:     "thinking",
-						Thinking: resp.Content,
-					})
+					// 思考内容回调
+					handler(ToolEvent{Type: "thinking", Thinking: resp.Content})
 				}
 				// 需要工具调用，走阻塞路径
 				assistantMsg := ChatMessage{
@@ -812,16 +772,19 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 	startTime := time.Now()
 
 	// 文件类工具（write_file, read_file, edit_file, append_file）自动拼接工作区目录
-	if r.workspaceDir != "" {
-		switch tc.Function.Name {
-		case "write_file", "read_file", "edit_file", "append_file":
-			if path, ok := params["path"].(string); ok && path != "" {
-				if !filepath.IsAbs(path) {
-					params["path"] = filepath.Join(r.workspaceDir, path)
-				}
-			}
-		}
-	}
+	// 只对简单相对路径生效，不拼接已包含完整路径的路径
+	// if r.workspaceDir != "" {
+	// 	switch tc.Function.Name {
+	// 	case "write_file", "read_file", "edit_file", "append_file":
+	// 		if path, ok := params["path"].(string); ok && path != "" {
+	// 			// 只对简单相对路径拼接工作区目录
+	// 			// 以下情况不拼接：绝对路径、已包含 clawdata/ 的路径
+	// 			if !filepath.IsAbs(path) && !strings.Contains(path, "clawdata/") && !strings.Contains(path, "clawdata\\") {
+	// 				params["path"] = filepath.Join(r.workspaceDir, path)
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	// 优先使用 StructuredTool 接口
 	var result string
