@@ -46,11 +46,12 @@ func (r *Runtime) SetSkillRegistry(reg *skill.Registry) {
 
 // ChatMessage 对话消息
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Name       string     `json:"name,omitempty"` // tool 角色消息的工具名称
+	Role         string     `json:"role"`
+	Content      string     `json:"content"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID   string     `json:"tool_call_id,omitempty"`
+	Name         string     `json:"name,omitempty"` // tool 角色消息的工具名称
+	FinishReason string     `json:"-"`              // LLM 返回的 finish_reason
 }
 
 // ToolCall 工具调用
@@ -83,7 +84,7 @@ func stripThinkTags(content string) string {
 	return strings.TrimSpace(result)
 }
 
-// extractThinkContent 提取 <think> 标签内的思考内容
+// extractThinkContent 提取 <think> 标签内的思考内容（保留用于流式显示）
 func extractThinkContent(content string) string {
 	start := strings.Index(content, "<think>")
 	if start == -1 {
@@ -97,28 +98,35 @@ func extractThinkContent(content string) string {
 	return content[start : start+end]
 }
 
-// suggestsPendingToolAction 检测响应是否暗示要使用工具但未实际调用（可见内容与内部推理）
-func suggestsPendingToolAction(content string) bool {
+// looksIncomplete 检测可见内容是否未完成（暗示需要继续迭代）
+func looksIncomplete(content string) bool {
 	visible := stripThinkTags(content)
-	thinking := extractThinkContent(content)
-	hints := []string{
-		"创建PPT", "生成PPT", "整理PPT", "创建脚本", "写一个", "创建一个",
-		"python", "pip install", "脚本", "文件",
-		"我来创建", "我来生成", "我来使用", "我来执行",
-		"我来调用", "我来运行", "让我检查",
-		"让我来", "让我创建", "让我生成",
-		"先写", "接下来", "然后使用", "然后调用",
-		"我可以使用", "我会调用", "我将使用", "我来查询",
+	if visible == "" {
+		return true
 	}
-	for _, h := range hints {
-		if visible != "" && strings.Contains(visible, h) {
-			return true
-		}
-		if thinking != "" && strings.Contains(thinking, h) {
-			return true
+	futureWords := []string{"我会", "我将", "让我", "准备"}
+	transitionWords := []string{"接下来", "下一步"}
+
+	hasFuture := false
+	for _, p := range futureWords {
+		if strings.Contains(visible, p) {
+			hasFuture = true
+			break
 		}
 	}
-	return false
+	if !hasFuture {
+		return false
+	}
+
+	hasTransition := false
+	for _, p := range transitionWords {
+		if strings.Contains(visible, p) {
+			hasTransition = true
+			break
+		}
+	}
+
+	return hasFuture && hasTransition
 }
 
 // isRetryableError 检查错误是否可重试
@@ -219,7 +227,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				logger.Error("[Runtime] 总结调用失败", "err", err)
 				return "已完成处理，但总结时出错。", nil
 			}
-			return summaryResp.Content, nil
+			return stripThinkTags(summaryResp.Content), nil
 		}
 
 		logger.Info("[Runtime] 迭代开始", "iteration", i+1, "messages_count", len(messages))
@@ -252,28 +260,28 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		}
 
 		if len(resp.ToolCalls) == 0 {
-			// Auto-continue: 检测是否暗示要使用工具但没实际调用
-			if suggestsPendingToolAction(resp.Content) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
+			visibleContent := stripThinkTags(resp.Content)
+
+			// length finish → 自动继续
+			if resp.FinishReason == "length" && autoContinueCount < maxAutoContinue {
 				autoContinueCount++
-				logger.Info("[Runtime] 检测到暗示工具使用，注入提示继续",
-					"auto_continue_count", autoContinueCount,
-					"content_preview", truncate(resp.Content, 100))
+				logger.Info("[Runtime] length finish continue",
+					"auto_continue_count", autoContinueCount)
 				messages = append(messages, ChatMessage{
 					Role:    "assistant",
 					Content: resp.Content,
 				})
 				messages = append(messages, ChatMessage{
-					Role:    "user",
-					Content: "请直接调用工具来完成任务，不要只是描述你打算做什么。",
+					Role:    "system",
+					Content: "Continue.",
 				})
 				continue
 			}
 
-			// 剥离内部推理标签后：如果可见内容为空，注入提示让模型输出实际回答
-			visibleContent := stripThinkTags(resp.Content)
-			if visibleContent == "" && autoContinueCount < maxAutoContinue {
+			// 可见内容为空 → 自动继续
+			if visibleContent == "" && autoContinueCount < 2 {
 				autoContinueCount++
-				logger.Info("[Runtime] 模型只返回内部推理（无可见内容），注入提示",
+				logger.Info("[Runtime] empty visible continue",
 					"auto_continue_count", autoContinueCount)
 				messages = append(messages, ChatMessage{
 					Role:    "assistant",
@@ -281,18 +289,32 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				})
 				messages = append(messages, ChatMessage{
 					Role:    "user",
-					Content: "请直接给出你的回答。",
+					Content: "请给出你的回答。",
 				})
 				continue
 			}
 
-			// 返回前剥离内部推理标签，用户不需要思考内容
-			finalContent := stripThinkTags(resp.Content)
-			if finalContent == "" {
-				finalContent = resp.Content
+			// 未完成 → 自动继续
+			if looksIncomplete(visibleContent) && autoContinueCount < 1 && len(tools) > 0 {
+				autoContinueCount++
+				logger.Info("[Runtime] unfinished continue",
+					"auto_continue_count", autoContinueCount)
+				messages = append(messages, ChatMessage{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+				messages = append(messages, ChatMessage{
+					Role:    "system",
+					Content: "Continue executing instead of planning. Use tools if needed.",
+				})
+				continue
 			}
-			logger.Info("[Runtime] 无工具调用，返回最终响应", "iteration", i+1, "visible_len", len(finalContent))
-			return finalContent, nil
+
+			if visibleContent == "" {
+				visibleContent = resp.Content
+			}
+			logger.Info("[Runtime] 无工具调用，返回最终响应", "iteration", i+1, "visible_len", len(visibleContent))
+			return visibleContent, nil
 		}
 
 		logger.Info("[Runtime] 检测到工具调用", "count", len(resp.ToolCalls))
@@ -390,8 +412,8 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		}
 	}
 
-	// unreachable: loop has internal returns
 }
+	// unreachable: loop has internal returns
 
 // ExecuteStream 执行Agent循环（流式版）
 func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int, cb StreamCallback, handler ToolEventHandler) (string, error) {
@@ -581,6 +603,7 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 
 	var llmResp struct {
 		Choices []struct {
+			FinishReason string     `json:"finish_reason"`
 			Message struct {
 				Role      string     `json:"role"`
 				Content   string     `json:"content"`
@@ -600,9 +623,10 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	}
 
 	msg := &ChatMessage{
-		Role:      llmResp.Choices[0].Message.Role,
-		Content:   llmResp.Choices[0].Message.Content,
-		ToolCalls: llmResp.Choices[0].Message.ToolCalls,
+		Role:         llmResp.Choices[0].Message.Role,
+		Content:      llmResp.Choices[0].Message.Content,
+		ToolCalls:    llmResp.Choices[0].Message.ToolCalls,
+		FinishReason: llmResp.Choices[0].FinishReason,
 	}
 
 	logger.Info("[Runtime] OpenAI响应解析",
