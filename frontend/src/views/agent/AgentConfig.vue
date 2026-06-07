@@ -78,7 +78,7 @@ function openEdit(agent) {
     model: '',
     system_prompt: '',
     tools: [],
-    max_iterations: 20,
+    max_iterations: 50,
     ...agent
   }
   dialogVisible.value = true

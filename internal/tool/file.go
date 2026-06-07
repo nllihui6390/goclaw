@@ -21,8 +21,10 @@ func (t *WriteFileTool) Name() string {
 
 func (t *WriteFileTool) Description() string {
 	return "将内容写入指定文件。如果文件已存在则覆盖，不存在则自动创建（含中间目录）。" +
+		"\n⚠️ 重要：所有文件路径都相对于 Agent 工作区根目录。例如写 MEMORY.md 会自动保存到工作区根目录。" +
 		"\n调用格式: write_file(path=\"文件路径\", content=\"要写入的内容\")" +
-		"\n示例: write_file(path=\"output/result.txt\", content=\"Hello World\")"
+		"\n示例: write_file(path=\"output/result.txt\", content=\"Hello World\")" +
+		"\n示例: write_file(path=\"MEMORY.md\", content=\"长期记忆内容\")"
 }
 
 func (t *WriteFileTool) Parameters() map[string]interface{} {

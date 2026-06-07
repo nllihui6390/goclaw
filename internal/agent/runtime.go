@@ -83,6 +83,42 @@ func stripThinkTags(content string) string {
 	return strings.TrimSpace(result)
 }
 
+// extractThinkContent 提取 <think> 标签内的思考内容
+func extractThinkContent(content string) string {
+	start := strings.Index(content, "<think>")
+	if start == -1 {
+		return ""
+	}
+	start += 7 // len("<think>")
+	end := strings.Index(content[start:], "</think>")
+	if end == -1 {
+		return content[start:]
+	}
+	return content[start : start+end]
+}
+
+// containsActionIntent 检测思考内容中是否有待执行的具体行动计划
+func containsActionIntent(thinking string) bool {
+	if thinking == "" {
+		return false
+	}
+	// 检测具体的行动计划关键词
+	actionHints := []string{
+		"创建PPT", "生成PPT", "整理PPT", "创建脚本", "写一个", "创建一个",
+		"python", "pip install", "脚本", "文件",
+		"我来创建", "我来生成", "我来使用", "我来执行",
+		"我来调用", "我来运行", "让我检查",
+		"让我来", "让我创建", "让我生成",
+		"先写", "接下来", "然后使用", "然后调用",
+	}
+	for _, h := range actionHints {
+		if strings.Contains(thinking, h) {
+			return true
+		}
+	}
+	return false
+}
+
 // suggestsToolUse 检测响应内容是否暗示要使用工具但没实际调用
 // 注意：先剥离内部推理标签，只检测用户可见的实际响应内容
 func suggestsToolUse(content string) bool {
@@ -263,6 +299,27 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				messages = append(messages, ChatMessage{
 					Role:    "user",
 					Content: "请直接给出你的回答。",
+				})
+				continue
+			}
+
+			// 检测思考内容中是否有未执行的行动计划
+			thinkContent := extractThinkContent(resp.Content)
+			hasPendingAction := containsActionIntent(thinkContent)
+
+			// 如果思考中有行动计划但未调用工具，强制继续执行
+			if hasPendingAction && i+1 < maxIterations {
+				logger.Info("[Runtime] 检测到未执行的行动计划，继续迭代",
+					"iteration", i+1, "thinking_len", len(thinkContent))
+
+				// 注入提示让模型继续执行
+				messages = append(messages, ChatMessage{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+				messages = append(messages, ChatMessage{
+					Role:    "user",
+					Content: "请立即使用工具执行你的计划，不要再空想。",
 				})
 				continue
 			}
@@ -607,7 +664,6 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	return msg, nil
 }
 
-
 // buildOpenAIRequest 构建 OpenAI 请求体
 func (r *Runtime) buildOpenAIRequest(messages []ChatMessage, tools []tool.Tool) map[string]interface{} {
 	reqBody := map[string]interface{}{
@@ -675,7 +731,7 @@ func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb 
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content  string `json:"content"`
+					Content string `json:"content"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -754,6 +810,18 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 	}
 
 	startTime := time.Now()
+
+	// 文件类工具（write_file, read_file, edit_file, append_file）自动拼接工作区目录
+	if r.workspaceDir != "" {
+		switch tc.Function.Name {
+		case "write_file", "read_file", "edit_file", "append_file":
+			if path, ok := params["path"].(string); ok && path != "" {
+				if !filepath.IsAbs(path) {
+					params["path"] = filepath.Join(r.workspaceDir, path)
+				}
+			}
+		}
+	}
 
 	// 优先使用 StructuredTool 接口
 	var result string
@@ -891,6 +959,8 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	if !r.config.SupportsVideo {
 		systemContent += "\n\n注意：当前模型不支持视频输入，请勿尝试解析视频内容。"
 	}
+	// 提示大模型工作区目录
+	systemContent += "\n\n## 当前Agent工作区目录\n\n你的工作区目录是: " + r.workspaceDir + "，请使用这个目录进行文件读写操作。"
 
 	// 首次引导：检测 BOOTSTRAP.md
 	if r.config.WorkspaceLoader != nil && r.config.WorkspaceLoader.IsBootstrapNeeded() {
@@ -921,6 +991,20 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		}
 		systemContent += "\n重要：当用户提出需要查询天气、执行命令、读写文件等具体请求时，你必须实际调用对应的工具（通过tool_calls），而不是仅在文本中说明你打算使用工具。"
 	}
+
+	systemContent += `
+	## Agent 执行约束（最高优先级）
+	
+	- 未完成任务时，不允许停留在计划阶段。
+	- 不允许仅输出“我将…”“接下来…”“准备…”等描述而不执行。
+	- 当前步骤存在可执行工具时，应直接执行，而不是继续分析。
+	- 优先选择最小可行行动（Smallest Next Action），持续推进状态。
+	- 只有以下情况允许停止执行：
+	  1. 已输出最终结果
+	  2. 缺少必要信息且无法推断
+	  3. 所有可用工具均无法继续推进
+	
+	`
 
 	// 基础 system message
 	messages := []ChatMessage{
@@ -953,8 +1037,8 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		messages = append(messages, chatMsg)
 	}
 
-	// Token 预算管理
-	maxContextTokens := 32000
+	// Token 预算管理 100k token
+	maxContextTokens := 100000
 	if r.config.MaxTokens > 0 {
 		maxContextTokens = r.config.MaxTokens
 	}

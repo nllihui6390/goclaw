@@ -30,6 +30,12 @@ func (s *FileService) getAgentDir(agentName string) string {
 	return filepath.Join(s.config.WorkspaceBase(), agentName)
 }
 
+// 排除的文件列表（不需要在文件管理中显示和编辑）
+var excludedFiles = map[string]bool{
+	"BOOTSTRAP.md":    true,
+	".bootstrap_completed": true,
+}
+
 // List 列出 Agent 工作空间的 .md 文件
 func (s *FileService) List(agentName string) []FileInfo {
 	agentDir := s.getAgentDir(agentName)
@@ -42,6 +48,11 @@ func (s *FileService) List(agentName string) []FileInfo {
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+
+		// 排除不需要显示的文件
+		if excludedFiles[e.Name()] {
 			continue
 		}
 

@@ -739,7 +739,7 @@ func GetDefaultAgentConfig(name, provider, model string) *AgentConfig {
 		Model:         model,
 		SystemPrompt:  "你是一个有用的AI助手。你可以使用工具来帮助用户。",
 		Tools:         []string{"weather", "exec", "write_file", "read_file", "edit_file", "append_file", "send_file", "get_current_time", "set_user_timezone", "cron_status"},
-		MaxIterations: 20,
+		MaxIterations: 50,
 		MaxTokens:     32000,
 		Channels:      GetDefaultChannelsConfig(),
 	}
