@@ -155,11 +155,11 @@ async function onFileSelected(e) {
         <el-button type="primary" @click="openPoolDialog">
           <el-icon><Plus /></el-icon>从技能池载入
         </el-button>
-        <el-button @click="uploadSkill" :loading="uploading">
-          <el-icon><Upload /></el-icon>上传技能
-        </el-button>
         <el-button @click="scanSkills" :loading="scanning">
           <el-icon><Search /></el-icon>扫描
+        </el-button>
+        <el-button @click="uploadSkill" :loading="uploading">
+          <el-icon><Upload /></el-icon>上传技能
         </el-button>
         <el-button @click="loadEnabledSkills">
           <el-icon><Refresh /></el-icon>刷新

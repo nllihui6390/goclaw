@@ -526,6 +526,22 @@ func (s *SkillService) ImportFromZip(data []byte) (map[string]interface{}, error
 
 	// 扫描临时目录寻找 SKILL.md
 	var imported []SkillRegistryEntry
+
+	// 情况1: SKILL.md 直接位于 zip 根目录（无子目录）
+	rootSkillFile := filepath.Join(tmpDir, "SKILL.md")
+	if _, err := os.Stat(rootSkillFile); err == nil {
+		skillData, _ := os.ReadFile(rootSkillFile)
+		parsed := s.parseSkillMD(skillData)
+		if parsed != nil && parsed.Name != "" {
+			if e := s.importParsedSkill(parsed, tmpDir); e != nil {
+				imported = append(imported, *e)
+			} else {
+				return nil, fmt.Errorf("技能 '%s' 已存在", parsed.Name)
+			}
+		}
+	}
+
+	// 情况2: SKILL.md 位于子目录中（标准结构）
 	entries, _ := os.ReadDir(tmpDir)
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -537,38 +553,17 @@ func (s *SkillService) ImportFromZip(data []byte) (map[string]interface{}, error
 			continue
 		}
 
-		// 解析 SKILL.md
 		skillData, _ := os.ReadFile(skillFile)
 		parsed := s.parseSkillMD(skillData)
 		if parsed == nil || parsed.Name == "" {
 			continue
 		}
 
-		// 检查技能是否已存在
-		targetSkillDir := filepath.Join(s.skillDir(), parsed.Name)
-		if _, err := os.Stat(targetSkillDir); err == nil {
+		if e := s.importParsedSkill(parsed, skillDir); e != nil {
+			imported = append(imported, *e)
+		} else if len(imported) == 0 {
 			return nil, fmt.Errorf("技能 '%s' 已存在", parsed.Name)
 		}
-
-		// 复制到技能目录（使用 parsed.Name 作为目录名）
-		os.MkdirAll(targetSkillDir, 0755)
-		copyDir(skillDir, targetSkillDir)
-
-		// 记录导入信息
-		imported = append(imported, SkillRegistryEntry{
-			Name:         parsed.Name,
-			Folder:       parsed.Name,
-			Description:  parsed.Description,
-			Author:       parsed.Author,
-			Version:      parsed.Version,
-			Emoji:        parsed.Emoji,
-			Credentials:  parsed.Credentials,
-			Requirements: parsed.Requirements,
-			HasScripts:   parsed.HasScripts,
-			Scripts:      parsed.Scripts,
-			Sections:     parsed.Sections,
-			DiscoveredAt: time.Now().Format(time.RFC3339),
-		})
 	}
 
 	if len(imported) == 0 {
@@ -585,6 +580,64 @@ func (s *SkillService) ImportFromZip(data []byte) (map[string]interface{}, error
 		"skills":  imported,
 		"total":   len(imported),
 	}, nil
+}
+
+// importParsedSkill 将解析后的 SKILL.md 写入技能目录，返回导入条目；如果技能已存在则返回 nil
+func (s *SkillService) importParsedSkill(parsed *parsedSkill, sourceDir string) *SkillRegistryEntry {
+	targetSkillDir := filepath.Join(s.skillDir(), parsed.Name)
+	if _, err := os.Stat(targetSkillDir); err == nil {
+		return nil // 已存在
+	}
+
+	os.MkdirAll(targetSkillDir, 0755)
+	copyDirContents(sourceDir, targetSkillDir)
+
+	return &SkillRegistryEntry{
+		Name:         parsed.Name,
+		Folder:       parsed.Name,
+		Description:  parsed.Description,
+		Author:       parsed.Author,
+		Version:      parsed.Version,
+		Emoji:        parsed.Emoji,
+		Credentials:  parsed.Credentials,
+		Requirements: parsed.Requirements,
+		HasScripts:   parsed.HasScripts,
+		Scripts:      parsed.Scripts,
+		Sections:     parsed.Sections,
+		DiscoveredAt: time.Now().Format(time.RFC3339),
+	}
+}
+
+// copyFile 复制单个文件
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+// copyDirContents 复制目录内容（不包括目录本身，只复制子项）
+func copyDirContents(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			os.MkdirAll(dstPath, 0755)
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // copyDir 复制目录内容
