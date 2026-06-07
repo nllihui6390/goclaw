@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"go-claw/config"
+	"go-claw/internal/workspace"
 )
 
 // AgentService Agent 管理服务
@@ -94,9 +95,15 @@ func (s *AgentService) Delete(name string) error {
 // Create 创建新 Agent
 func (s *AgentService) Create(name string, agentConfig map[string]interface{}) error {
 	workspaceDir := s.config.WorkspaceBase()
+	agentDir := filepath.Join(workspaceDir, name)
+	sessionsDir := filepath.Join(agentDir, "sessions")
 
-	// 确保 agent 目录存在
-	os.MkdirAll(filepath.Join(workspaceDir, name), 0755)
+	// 确保 agent 目录和 sessions 目录存在
+	os.MkdirAll(agentDir, 0755)
+	os.MkdirAll(sessionsDir, 0755)
+
+	// 初始化人设文件（首次引导、AGENTS.md 等）
+	workspace.InitPersonaFiles(agentDir)
 
 	// 设置默认值
 	if agentConfig == nil {
