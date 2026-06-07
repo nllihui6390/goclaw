@@ -91,6 +91,17 @@ html, body, #app {
   .el-select-dropdown__item { color: $text-secondary; &:hover { background: $bg-elevated; color: $text-primary; } &.is-selected { color: $accent-cyan; font-weight: 500; } }
 }
 
+// Agent selector options
+.agent-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+
+  .option-icon { color: $accent-cyan; flex-shrink: 0; }
+  .option-name { flex: 1; font-weight: 500; }
+}
+
 // Tags
 .el-tag {
   border-radius: $radius-sm; font-weight: 500;

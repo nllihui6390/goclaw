@@ -145,6 +145,18 @@ async function runJob(index) {
   }
 }
 
+async function toggleJobEnabled(index, val) {
+  const job = jobs.value[index]
+  job.enabled = val
+  try {
+    await api.updateCronJob(job.id, job)
+    ElMessage.success(`任务已${val ? '启用' : '禁用'}`)
+  } catch (e) {
+    job.enabled = !val // 回滚
+    ElMessage.error('保存失败: ' + e.message)
+  }
+}
+
 function formatTime(ts) {
   if (!ts || ts.startsWith('0001')) return '-'
   try {
@@ -205,6 +217,7 @@ function getTypeIcon(type) {
           </div>
           <el-switch
             :model-value="job.enabled ?? true"
+            @change="val => toggleJobEnabled(index, val)"
             size="small"
           />
         </div>

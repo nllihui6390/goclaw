@@ -21,16 +21,12 @@ async function loadAgentList() {
 
 onMounted(loadAgentList)
 
-const agentNameMap = computed(() => {
-  const map = {}
-  agentStore.agentList.forEach(a => { map[a.name] = a.display_name || a.name })
-  return map
-})
-
 const agentOptions = computed(() => {
-  const names = Object.keys(agentNameMap.value)
-  if (names.length === 0) return [{ label: agentStore.selectedAgent, value: agentStore.selectedAgent }]
-  return names.map(name => ({ label: agentNameMap.value[name], value: name }))
+  if (agentStore.agentList.length === 0) return [{ label: agentStore.selectedAgent, value: agentStore.selectedAgent }]
+  return agentStore.agentList.map(a => ({
+    label: a.display_name || a.name,
+    value: a.name
+  }))
 })
 
 const pageTitle = computed(() => {
@@ -74,9 +70,14 @@ function setTheme(mode) {
     <div class="header-right">
       <!-- Agent selector -->
       <div class="agent-selector">
-        <span class="selector-label">Agent</span>
+        <el-icon class="selector-icon" :size="16"><Cpu /></el-icon>
         <el-select v-model="agentModel" placeholder="Agent" size="small" class="agent-select">
-          <el-option v-for="a in agentOptions" :key="a.value" :label="a.label" :value="a.value" />
+          <el-option v-for="a in agentOptions" :key="a.value" :label="a.label" :value="a.value">
+            <div class="agent-option">
+              <el-icon :size="14" class="option-icon"><Cpu /></el-icon>
+              <span class="option-name">{{ a.label }}</span>
+            </div>
+          </el-option>
         </el-select>
       </div>
 
@@ -156,14 +157,14 @@ function setTheme(mode) {
 
 .header-right { display: flex; align-items: center; gap: 8px; }
 
-.agent-selector { display: flex; align-items: center; gap: 8px; }
-.selector-label { font-size: $font-size-sm; color: $text-secondary; }
+.agent-selector { display: flex; align-items: center; gap: 6px; }
+.selector-icon { color: $accent-cyan; flex-shrink: 0; }
 .agent-select { width: 130px;
   :deep(.el-select__wrapper) {
     background: $bg-elevated; border: 1px solid $border-default; border-radius: $radius-md;
     box-shadow: none; min-height: 32px;
     &:hover { border-color: $accent-cyan; }
-    &.is-focused { border-color: $accent-cyan; }
+    &.is-focused { border-color: $accent-cyan; box-shadow: 0 0 0 3px $accent-cyan-dim; }
   }
 }
 
