@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"go-claw/config"
@@ -157,6 +158,27 @@ func (s *ConfigService) GetAgents() []map[string]interface{} {
 
 		result = append(result, entry)
 	}
+
+	// 按创建时间排序，新创建的在前面
+	// 优先使用 created_at 字段排序，如果没有则使用目录修改时间
+	sort.Slice(result, func(i, j int) bool {
+		// 尝试从 entry 中获取 created_at
+		iTime, _ := result[i]["created_at"].(string)
+		jTime, _ := result[j]["created_at"].(string)
+
+		if iTime != "" && jTime != "" {
+			return iTime > jTime // 时间大的在前面（新的在前面）
+		}
+
+		// 如果都没有 created_at，则使用 agent.json 的文件修改时间
+		iInfo, err1 := os.Stat(filepath.Join(workspaceDir, result[i]["name"].(string), "agent.json"))
+		jInfo, err2 := os.Stat(filepath.Join(workspaceDir, result[j]["name"].(string), "agent.json"))
+		if err1 == nil && err2 == nil {
+			return iInfo.ModTime().After(jInfo.ModTime())
+		}
+
+		return false
+	})
 
 	return result
 }
