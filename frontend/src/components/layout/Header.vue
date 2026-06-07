@@ -128,11 +128,31 @@ function setTheme(mode) {
 .menu-btn {
   width: 36px; height: 36px; border: none; border-radius: $radius-md;
   background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  color: $text-secondary; transition: all 0.2s;
-  &:hover { background: $bg-glass-light; color: $text-primary; }
+  color: $text-secondary; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  &:hover {
+    background: $accent-cyan-dim;
+    color: $accent-cyan;
+  }
 }
 
-.page-title { font-size: $font-size-lg; font-weight: 600; color: $text-primary; margin: 0; }
+.page-title {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $text-primary;
+  margin: 0;
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    width: 24px;
+    height: 2px;
+    background: linear-gradient(90deg, $accent-cyan, transparent);
+    border-radius: 1px;
+  }
+}
 
 .header-right { display: flex; align-items: center; gap: 8px; }
 
@@ -150,8 +170,12 @@ function setTheme(mode) {
 .icon-btn {
   width: 36px; height: 36px; border: none; border-radius: $radius-md;
   background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  color: $text-secondary; transition: all 0.2s; text-decoration: none;
-  &:hover { background: $bg-glass-light; color: $text-primary; }
+  color: $text-secondary; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); text-decoration: none;
+  &:hover {
+    background: $accent-cyan-dim;
+    color: $accent-cyan;
+    transform: scale(1.05);
+  }
 }
 
 .checked {

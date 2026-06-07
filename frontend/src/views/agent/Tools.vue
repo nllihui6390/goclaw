@@ -77,18 +77,22 @@ watch(agentName, loadConfig)
         class="tool-card"
         :class="{ enabled: isToolEnabled(toolName) }"
       >
+        <div class="tool-status-badge" v-if="isToolEnabled(toolName)">
+          <span class="status-dot"></span>已启用
+        </div>
         <div class="tool-header">
           <div class="tool-icon">{{ toolMeta(toolName).icon || '🔧' }}</div>
           <div class="tool-info">
             <span class="tool-name">{{ toolName }}</span>
             <span class="tool-desc">{{ toolMeta(toolName).desc || '—' }}</span>
           </div>
-          <el-switch
-            :model-value="isToolEnabled(toolName)"
-            @change="val => toggleTool(toolName, val)"
-            size="small"
-          />
         </div>
+        <el-switch
+          class="tool-switch"
+          :model-value="isToolEnabled(toolName)"
+          @change="val => toggleTool(toolName, val)"
+          size="small"
+        />
       </div>
     </div>
   </div>
@@ -114,22 +118,57 @@ watch(agentName, loadConfig)
 
 .tool-card {
   @include glass-panel; border-radius: $radius-md; padding: 16px;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  @include stagger-entrance(12, 0.04s);
 
-  &:hover { border-color: $border-default; }
-  &.enabled { border-color: rgba(0, 212, 255, 0.4); background: $accent-cyan-dim; }
+  &:hover {
+    border-color: $border-default;
+    transform: translateY(-2px);
+    box-shadow: $shadow-soft;
+  }
+
+  &.enabled {
+    border-color: rgba(103, 194, 58, 0.35);
+    background: $accent-emerald-dim;
+
+    &:hover {
+      box-shadow: $shadow-glow-emerald;
+    }
+  }
 }
 
-.tool-header { display: flex; align-items: center; gap: 12px; }
+.tool-status-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  @include status-badge($accent-emerald, $accent-emerald-dim);
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .tool-icon {
   font-size: 24px; width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
   background: $bg-elevated; border-radius: $radius-md;
   border: 1px solid $border-default; flex-shrink: 0;
-  .enabled & { background: $accent-cyan-dim; }
+  .enabled & {
+    background: $accent-emerald-dim;
+    border-color: rgba(103, 194, 58, 0.2);
+  }
 }
 
 .tool-info { flex: 1; min-width: 0; }
 .tool-name { font-size: $font-size-sm; font-weight: 600; color: $text-primary; font-family: $font-display; display: block; margin-bottom: 4px; }
 .tool-desc { font-size: $font-size-xs; color: $text-muted; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.tool-switch {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+}
 </style>

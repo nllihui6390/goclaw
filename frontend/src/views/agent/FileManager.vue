@@ -206,7 +206,6 @@ function formatSize(bytes) {
 
 .file-items {
   flex: 1;
-  overflow-y: auto;
 }
 
 .file-item {
@@ -217,17 +216,59 @@ function formatSize(bytes) {
   margin-bottom: 6px;
   border-radius: $radius-md;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   background: $bg-elevated;
   border: 1px solid $border-default;
+  position: relative;
+  overflow: hidden;
+
+  // 左侧指示条动画
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: $accent-cyan;
+    transform: scaleY(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 0 2px 2px 0;
+  }
 
   &:hover {
-    border-color: $border-default;
+    border-color: rgba(0, 212, 255, 0.3);
+    background: $accent-cyan-dim;
+
+    &::before {
+      transform: scaleY(1);
+    }
+
+    .item-name {
+      color: $accent-cyan;
+    }
+  }
+
+  // 桌面端 hover 右移动画
+  @media (min-width: 769px) {
+    &:hover {
+      transform: translateX(4px);
+    }
   }
 
   &.active {
     background: $accent-cyan-dim;
     border-color: rgba(0, 212, 255, 0.3);
+
+    &::before {
+      transform: scaleY(1);
+      box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+    }
+
+    .item-name {
+      color: $accent-cyan;
+      font-weight: 600;
+    }
   }
 }
 
@@ -330,7 +371,19 @@ function formatSize(bytes) {
   .file-list {
     width: 100%;
     flex-shrink: 0;
-    max-height: 200px;
+    max-height: none;
+  }
+  .file-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    overflow-y: visible;
+  }
+  .file-item {
+    margin-bottom: 0;
+    padding: 8px 12px;
+    flex: 0 0 auto;
+    min-width: 120px;
   }
   .editor-area { min-height: 300px; }
 }

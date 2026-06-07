@@ -299,11 +299,12 @@ async function onFileSelected(e) {
   padding: 20px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
-  border-color: rgba(76, 175, 80, 0.25);
+  @include stagger-entrance(12, 0.06s);
 
   &:hover {
-    border-color: rgba(76, 175, 80, 0.4);
-    box-shadow: 0 0 12px rgba(76, 175, 80, 0.15);
+    border-color: rgba(103, 194, 58, 0.35);
+    box-shadow: $shadow-glow-emerald;
+    transform: translateY(-2px);
   }
 }
 
@@ -311,29 +312,7 @@ async function onFileSelected(e) {
   position: absolute;
   top: 12px;
   right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: $font-size-xs;
-  font-weight: 600;
-  color: #4caf50;
-  background: rgba(76, 175, 80, 0.1);
-  padding: 3px 10px;
-  border-radius: $radius-sm;
-  border: 1px solid rgba(76, 175, 80, 0.3);
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #4caf50;
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  @include status-badge($accent-emerald, $accent-emerald-dim);
 }
 
 .skill-header {

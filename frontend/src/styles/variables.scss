@@ -17,7 +17,9 @@
   --accent-amber: #e6a23c;
   --accent-amber-dim: rgba(230, 162, 60, 0.1);
   --accent-emerald: #67c23a;
+  --accent-emerald-dim: rgba(103, 194, 58, 0.1);
   --accent-rose: #f56c6c;
+  --accent-rose-dim: rgba(245, 108, 108, 0.1);
 
   --text-primary: #1f1f1f;
   --text-secondary: #606266;
@@ -32,6 +34,7 @@
   --shadow-medium: 0 4px 16px rgba(0, 0, 0, 0.12);
   --shadow-glow-cyan: 0 0 20px rgba(0, 132, 255, 0.2);
   --shadow-glow-amber: 0 0 20px rgba(230, 162, 60, 0.2);
+  --shadow-glow-emerald: 0 0 20px rgba(103, 194, 58, 0.2);
 
   // Layout
   --sidebar-width: 260px;
@@ -67,7 +70,9 @@
   --accent-amber: #ff9f43;
   --accent-amber-dim: rgba(255, 159, 67, 0.15);
   --accent-emerald: #10b981;
+  --accent-emerald-dim: rgba(16, 185, 129, 0.1);
   --accent-rose: #f43f5e;
+  --accent-rose-dim: rgba(244, 63, 94, 0.1);
 
   --text-primary: #ffffff;
   --text-secondary: #c9d1d9;
@@ -82,6 +87,7 @@
   --shadow-medium: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-glow-cyan: 0 0 20px rgba(0, 212, 255, 0.3), 0 0 40px rgba(0, 212, 255, 0.15);
   --shadow-glow-amber: 0 0 20px rgba(255, 159, 67, 0.3);
+  --shadow-glow-emerald: 0 0 20px rgba(16, 185, 129, 0.3);
 }
 
 // ─────────── SCSS Variables (mapped from CSS vars) ───────────
@@ -96,7 +102,9 @@ $accent-cyan-dim: var(--accent-cyan-dim);
 $accent-amber: var(--accent-amber);
 $accent-amber-dim: var(--accent-amber-dim);
 $accent-emerald: var(--accent-emerald);
+$accent-emerald-dim: var(--accent-emerald-dim);
 $accent-rose: var(--accent-rose);
+$accent-rose-dim: var(--accent-rose-dim);
 
 $text-primary: var(--text-primary);
 $text-secondary: var(--text-secondary);
@@ -111,6 +119,7 @@ $shadow-soft: var(--shadow-soft);
 $shadow-medium: var(--shadow-medium);
 $shadow-glow-cyan: var(--shadow-glow-cyan);
 $shadow-glow-amber: var(--shadow-glow-amber);
+$shadow-glow-emerald: var(--shadow-glow-emerald);
 
 // Layout
 $sidebar-width: var(--sidebar-width);
@@ -152,6 +161,37 @@ $font-size-2xl: var(--font-size-2xl);
   }
 }
 
+// Status badge mixin - for enabled/connected indicators
+@mixin status-badge($color: $accent-emerald, $bg: $accent-emerald-dim) {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: $font-size-xs;
+  font-weight: 600;
+  color: $color;
+  background: $bg;
+  padding: 3px 10px;
+  border-radius: $radius-sm;
+  border: 1px solid rgba($color, 0.3);
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: $color;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+}
+
+// Staggered entrance animation mixin
+@mixin stagger-entrance($count: 12, $delay: 0.05s) {
+  @for $i from 1 through $count {
+    &:nth-child(#{$i}) {
+      animation: fade-up 0.4s ease-out #{$i * $delay}s both;
+    }
+  }
+}
+
 // ─────────── Animations ───────────
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 15px rgba(0, 212, 255, 0.2); }
@@ -161,4 +201,9 @@ $font-size-2xl: var(--font-size-2xl);
 @keyframes fade-up {
   from { transform: translateY(10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
 }

@@ -122,7 +122,7 @@ html, body, #app {
 .el-overlay { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
 
 // Switch, Checkbox, Radio
-.el-switch .el-switch__core { background: $bg-elevated; border: 1px solid $border-default; }
+.el-switch .el-switch__core { background: transparent; border: 1.5px solid #676e77; }
 .el-switch.is-checked .el-switch__core { background: $accent-cyan; border-color: $accent-cyan; }
 .el-checkbox .el-checkbox__inner { background: $bg-elevated; border-color: $border-default; }
 .el-checkbox.is-checked .el-checkbox__inner { background: $accent-cyan; border-color: $accent-cyan; }

@@ -146,7 +146,7 @@ function navigate(path) {
   gap: 12px;
   justify-content: center;
   &:hover {
-    background: $bg-glass-light;
+    background: $accent-cyan-dim;
   }
 }
 
@@ -199,14 +199,14 @@ function navigate(path) {
     font-size: 18px;
     flex-shrink: 0;
     color: $text-secondary;
-    transition: color 0.2s;
+    transition: color 0.2s, transform 0.2s;
   }
 
   &:hover {
     background: $bg-glass-light;
     color: $text-primary;
 
-    .el-icon { color: $text-primary; }
+    .el-icon { color: $text-primary; transform: scale(1.1); }
   }
 
   &.active {
@@ -215,6 +215,20 @@ function navigate(path) {
 
     .el-icon { color: $accent-cyan; }
     .menu-item-text { font-weight: 500; }
+
+    // 左侧指示条
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 20px;
+      background: $accent-cyan;
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+    }
   }
 }
 

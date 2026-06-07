@@ -329,11 +329,12 @@ function closeDialog() {
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 20px;
+  @include stagger-entrance(8, 0.05s);
 
   &:hover {
     border-color: $accent-cyan-dim;
     box-shadow: $shadow-glow-cyan;
-    transform: translateY(-2px);
+    transform: translateY(-3px);
   }
 }
 
@@ -353,15 +354,21 @@ function closeDialog() {
   width: 56px;
   height: 56px;
   border-radius: $radius-md;
-  background: $accent-cyan-dim;
+  background: linear-gradient(135deg, $accent-cyan-dim, rgba(0, 212, 255, 0.05));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   border: 1px solid rgba(0, 212, 255, 0.2);
+  transition: all 0.3s;
 
   .el-icon {
     color: $accent-cyan;
+  }
+
+  .channel-card:hover & {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(0, 212, 255, 0.08));
+    transform: scale(1.05);
   }
 }
 
