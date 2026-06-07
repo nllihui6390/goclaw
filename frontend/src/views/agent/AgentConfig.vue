@@ -133,6 +133,16 @@ function getProviderTypeColor(provider) {
 function getProviderType(provider) {
   return providers.value[provider]?.type || 'openai'
 }
+
+function selectAllTools() {
+  if (!currentAgent.value) return
+  currentAgent.value.tools = [...toolsOptions.value]
+}
+
+function selectNoneTools() {
+  if (!currentAgent.value) return
+  currentAgent.value.tools = []
+}
 </script>
 
 <template>
@@ -203,11 +213,12 @@ function getProviderType(provider) {
     <el-dialog
       v-model="dialogVisible"
       :title="currentAgent?.name ? '编辑 Agent' : '新增 Agent'"
-      width="650px"
+      width="min(900px, calc(100vw - 32px))"
       :close-on-click-modal="false"
+      class="agent-dialog"
     >
-      <el-form ref="formRef" :model="currentAgent" :rules="formRules" label-width="100px" v-if="currentAgent">
-        <el-form-item label="Agent ID" prop="name">
+      <el-form ref="formRef" :model="currentAgent" :rules="formRules" label-width="80px" v-if="currentAgent">
+        <el-form-item label="Agent_ID" prop="name">
           <el-input v-model="currentAgent.name" placeholder="唯一标识，如 default、local" :disabled="isEditing" />
         </el-form-item>
 
@@ -219,17 +230,19 @@ function getProviderType(provider) {
           <el-input v-model="currentAgent.description" type="textarea" :rows="2" placeholder="描述该 Agent 的用途" />
         </el-form-item>
 
-        <el-form-item label="供应商">
-          <el-select v-model="currentAgent.provider" placeholder="选择供应商" clearable @change="onProviderChange" style="width: 100%">
-            <el-option v-for="p in providerOptions" :key="p.value" :label="p.label" :value="p.value" />
-          </el-select>
-        </el-form-item>
+        <div class="form-row">
+          <el-form-item label="供应商">
+            <el-select v-model="currentAgent.provider" placeholder="选择供应商" clearable @change="onProviderChange" style="width: 100%">
+              <el-option v-for="p in providerOptions" :key="p.value" :label="p.label" :value="p.value" />
+            </el-select>
+          </el-form-item>
 
-        <el-form-item label="模型">
-          <el-select v-model="currentAgent.model" placeholder="选择模型" clearable filterable style="width: 100%">
-            <el-option v-for="m in modelOptions" :key="m.value" :label="m.label" :value="m.value" />
-          </el-select>
-        </el-form-item>
+          <el-form-item label="模型">
+            <el-select v-model="currentAgent.model" placeholder="选择模型" clearable filterable style="width: 100%">
+              <el-option v-for="m in modelOptions" :key="m.value" :label="m.label" :value="m.value" />
+            </el-select>
+          </el-form-item>
+        </div>
 
         <el-form-item label="最大迭代">
           <el-input-number v-model="currentAgent.max_iterations" :min="1" :max="50" />
@@ -240,6 +253,10 @@ function getProviderType(provider) {
         </el-form-item>
 
         <el-form-item label="工具">
+          <div class="tools-header">
+            <el-button size="small" link type="primary" @click="selectAllTools">全选</el-button>
+            <el-button size="small" link type="primary" @click="selectNoneTools">全不选</el-button>
+          </div>
           <el-checkbox-group v-model="currentAgent.tools">
             <el-checkbox v-for="t in toolsOptions" :key="t" :value="t">
               <span class="tool-checkbox">{{ toolsStore.getTool(t).icon }} {{ t }}</span>
@@ -416,11 +433,32 @@ function getProviderType(provider) {
   font-size: $font-size-sm;
 }
 
+.tools-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+// 供应商和模型同行显示
+.form-row {
+  display: flex;
+  gap: 16px;
+
+  :deep(.el-form-item) {
+    flex: 1;
+    margin-bottom: 18px;
+  }
+}
+
 // ──── Mobile ────
 @media (max-width: 768px) {
   .page { padding: 16px; }
   .agents-grid {
     grid-template-columns: 1fr;
+  }
+  .form-row {
+    flex-direction: column;
+    gap: 0;
   }
 }
 </style>

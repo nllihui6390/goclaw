@@ -100,6 +100,14 @@ function isSkillSelected(skill) {
   return selectedFromPool.value.includes(skill.name)
 }
 
+function selectAll() {
+  selectedFromPool.value = poolSkills.value.map(s => s.name)
+}
+
+function selectNone() {
+  selectedFromPool.value = []
+}
+
 async function uploadSkill() {
   fileInput.value?.click()
 }
@@ -195,10 +203,13 @@ async function onFileSelected(e) {
     </el-empty>
 
     <!-- Pool dialog -->
-    <el-dialog v-model="poolDialogVisible" title="从技能池载入技能" width="720px">
+    <el-dialog v-model="poolDialogVisible" title="从技能池载入技能" width="min(900px, calc(100vw - 32px))">
       <div class="pool-header">
         <span class="pool-title">全量技能池（共 {{ poolSkills.length }} 个）</span>
-        <span class="pool-hint">点击卡片选中/取消</span>
+        <div class="pool-header-actions">
+          <el-button size="small" @click="selectAll">全选</el-button>
+          <el-button size="small" @click="selectNone">全不选</el-button>
+        </div>
       </div>
 
       <div class="pool-grid" v-if="poolSkills.length">
@@ -414,9 +425,9 @@ async function onFileSelected(e) {
   color: $text-primary;
 }
 
-.pool-hint {
-  font-size: $font-size-xs;
-  color: $text-muted;
+.pool-header-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .pool-grid {
@@ -493,6 +504,32 @@ async function onFileSelected(e) {
     padding: 2px 6px;
     border-radius: $radius-sm;
     font-family: $font-display;
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 16px;
+  }
+
+  .skills-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pool-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .pool-grid {
+    grid-template-columns: 1fr;
+    max-height: 55vh;
+  }
+
+  .pool-card {
+    height: auto;
+    min-height: 100px;
   }
 }
 </style>

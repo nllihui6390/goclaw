@@ -275,7 +275,7 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
 
     <!-- Dialogs -->
     <el-dialog v-model="addProviderDialogVisible" title="新增供应商" width="450px">
-      <el-form :model="newProvider" label-width="100px">
+      <el-form :model="newProvider" label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="newProvider.name" placeholder="如: deepseek, openai" />
         </el-form-item>

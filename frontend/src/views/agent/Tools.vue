@@ -43,6 +43,30 @@ async function toggleTool(toolName, enabled) {
   }
 }
 
+async function selectAll() {
+  const agent = currentAgent.value
+  if (!agent) return
+  agent.tools = [...allTools.value]
+  try {
+    await api.updateAgent(agentName.value, agent)
+    ElMessage.success('已启用全部工具')
+  } catch (e) {
+    ElMessage.error('保存失败: ' + e.message)
+  }
+}
+
+async function selectNone() {
+  const agent = currentAgent.value
+  if (!agent) return
+  agent.tools = []
+  try {
+    await api.updateAgent(agentName.value, agent)
+    ElMessage.success('已禁用全部工具')
+  } catch (e) {
+    ElMessage.error('保存失败: ' + e.message)
+  }
+}
+
 async function loadConfig() {
   loading.value = true
   try {
@@ -67,6 +91,10 @@ watch(agentName, loadConfig)
           <el-tag size="small">{{ agentName }}</el-tag>
           <span class="tool-count">{{ allTools.length }} 个工具</span>
         </div>
+      </div>
+      <div class="header-actions">
+        <el-button size="small" @click="selectAll">全选</el-button>
+        <el-button size="small" @click="selectNone">全不选</el-button>
       </div>
     </div>
 
@@ -113,6 +141,8 @@ watch(agentName, loadConfig)
 .header-left h2 { margin: 0; font-size: $font-size-xl; font-weight: 600; color: $text-primary; }
 .header-info { display: flex; align-items: center; gap: 8px; }
 .tool-count { font-size: $font-size-sm; color: $text-muted; font-family: $font-display; }
+
+.header-actions { display: flex; gap: 6px; }
 
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 
