@@ -82,6 +82,8 @@ func (d *DingTalkChannel) Start(ctx context.Context) error {
 }
 
 func (d *DingTalkChannel) Stop() error {
+	// 先停止基类（关闭 msgChan）
+	d.BotChannelBase.Stop()
 	close(d.stopChan)
 	d.connMu.Lock()
 	if d.conn != nil {

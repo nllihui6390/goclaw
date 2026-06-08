@@ -16,24 +16,59 @@ func toDisplayConfig(showToolMessages, showThinking, streamOutput bool) channel.
 	}
 }
 
+// registerConsoleChannel 创建并注册 Console 渠道（HTTP 聊天与 Gateway 共用同一实例）
+func (app *App) registerConsoleChannel(workspaceDir, agentName string) {
+	consoleConfig := app.loadConsoleConfigForAgent(workspaceDir, agentName)
+	display := toDisplayConfig(consoleConfig.ShowToolMessages, consoleConfig.ShowThinking, consoleConfig.StreamOutput)
+	consoleChan := channel.NewConsoleChannel(display)
+	consoleChan.SetEnabled(true)
+	app.Gateway.RegisterChannelWithoutServer(consoleChan)
+}
+
+// consoleConfigSourceAgent 选择 console 显示配置来源（优先 default agent，否则第一个启用的）
+func (app *App) consoleConfigSourceAgent(workspaceDir string, cfg *config.Config) string {
+	defaultAgent := cfg.GetDefaultAgent()
+	if config.IsAgentChannelEnabled(workspaceDir, defaultAgent, "console") {
+		return defaultAgent
+	}
+	agentNames, _ := config.ListAgentConfigs(workspaceDir)
+	for _, name := range agentNames {
+		if profile, ok := cfg.Agents.Profiles[name]; ok && !profile.Enabled {
+			continue
+		}
+		if config.IsAgentChannelEnabled(workspaceDir, name, "console") {
+			return name
+		}
+	}
+	return defaultAgent
+}
+
+// syncGlobalConsoleChannel 同步全局 Console 渠道（任意 agent 启用则保持注册，全部禁用才注销）
+func (app *App) syncGlobalConsoleChannel(workspaceDir string, cfg *config.Config) {
+	if config.AnyAgentChannelEnabled(workspaceDir, cfg, "console") {
+		if !app.Gateway.HasChannel("console") {
+			agentName := app.consoleConfigSourceAgent(workspaceDir, cfg)
+			app.registerConsoleChannel(workspaceDir, agentName)
+			app.logger.Info("Console 渠道已注册", "config_from", agentName)
+		}
+	} else if app.Gateway.HasChannel("console") {
+		app.Gateway.UnregisterChannel("console")
+		app.logger.Info("Console 渠道已注销（无 agent 启用）")
+	}
+}
+
 // initChannels 注册所有渠道
-// Console：共享基础设施，使用 default agent 的配置
+// Console：共享 HTTP 基础设施，按 agent 独立配置 enabled，全局实例任意 agent 启用即注册
 // Bot 渠道：per-agent，每个 agent 可有自己的 lark/dingtalk/wecom/wechat
 func (app *App) initChannels() {
 	workspaceDir := filepath.Join(app.DataDir, app.Workspace)
 	defaultAgent := app.Config.GetDefaultAgent()
 
-	// 1. Console 渠道（共享，使用 default agent 的 console 配置）
-	consoleConfig := app.loadConsoleConfigForAgent(workspaceDir, defaultAgent)
-	if consoleConfig.Enabled {
-		display := toDisplayConfig(consoleConfig.ShowToolMessages, consoleConfig.ShowThinking, consoleConfig.StreamOutput)
-		consoleChan := channel.NewConsoleChannel("desktop", "", display)
-		app.Gateway.RegisterChannelWithoutServer(consoleChan)
-		app.logger.Info("Console 渠道已注册", "agent", defaultAgent)
-	}
+	// 1. Console 渠道（全局共享）
+	app.syncGlobalConsoleChannel(workspaceDir, app.Config)
 
 	// 2. Bot 渠道（per-agent）——扫描 workspace 目录发现所有 agent
-	app.initBotChannels(workspaceDir)
+	app.initBotChannels(workspaceDir, app.Config)
 
 	app.Gateway.SetDefaultAgent(defaultAgent)
 }
@@ -50,7 +85,7 @@ func (app *App) loadConsoleConfigForAgent(workspaceDir, agentName string) config
 
 // initBotChannels 为每个 agent 注册其 bot 渠道
 // 扫描 workspace 目录发现所有 agent.json，同时检查 profiles 中的 enabled 状态
-func (app *App) initBotChannels(workspaceDir string) {
+func (app *App) initBotChannels(workspaceDir string, cfg *config.Config) {
 	agentNames, err := config.ListAgentConfigs(workspaceDir)
 	if err != nil {
 		app.logger.Warn("扫描 agent 目录失败", "err", err)
@@ -59,7 +94,7 @@ func (app *App) initBotChannels(workspaceDir string) {
 
 	for _, agentName := range agentNames {
 		// 检查 profiles 中的 enabled 状态
-		if profile, ok := app.Config.Agents.Profiles[agentName]; ok {
+		if profile, ok := cfg.Agents.Profiles[agentName]; ok {
 			if !profile.Enabled {
 				app.logger.Info("Agent 已禁用，跳过渠道注册", "agent", agentName)
 				continue
@@ -134,26 +169,16 @@ func (app *App) registerBotChannelsForAgent(agentName string, channels config.Ch
 // SyncChannels 根据新配置同步渠道（热加载时调用）
 func (app *App) SyncChannels(newCfg *config.Config) {
 	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
-	defaultAgent := newCfg.GetDefaultAgent()
 
-	// 1. Console 渠道（共享）
-	newConsoleConfig := app.loadConsoleConfigForAgent(workspaceDir, defaultAgent)
-	if newConsoleConfig.Enabled && !app.Gateway.HasChannel("console") {
-		display := toDisplayConfig(newConsoleConfig.ShowToolMessages, newConsoleConfig.ShowThinking, newConsoleConfig.StreamOutput)
-		consoleChan := channel.NewConsoleChannel("desktop", "", display)
-		app.Gateway.RegisterChannelWithoutServer(consoleChan)
-		app.logger.Info("Console 渠道已热加载注册", "agent", defaultAgent)
-	} else if !newConsoleConfig.Enabled && app.Gateway.HasChannel("console") {
-		app.Gateway.UnregisterChannel("console")
-		app.logger.Info("Console 渠道已热加载注销")
-	}
+	// 1. Console 渠道（全局共享，按全量 agent 配置决定注册/注销）
+	app.syncGlobalConsoleChannel(workspaceDir, newCfg)
 
 	// 2. Bot 渠道（per-agent）
 	// 先注销所有旧的 per-agent 渠道
 	app.unregisterAllBotChannels()
 
-	// 再注册所有新的 per-agent 渠道
-	app.initBotChannels(workspaceDir)
+	// 再注册所有新的 per-agent 渠道（使用 newCfg 判断 agent 启用状态）
+	app.initBotChannels(workspaceDir, newCfg)
 
 	// 更新当前配置引用
 	app.Config = newCfg
@@ -187,25 +212,24 @@ func (app *App) SyncSingleChannel(newCfg *config.Config, agentName, channelName 
 	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
 	channelKey := agentName + ":" + channelName
 
-	// Console 渠道特殊处理（全局共享）
+	// Console 渠道：per-agent 配置，全局单实例；仅当所有 agent 均禁用时才注销
 	if channelName == "console" {
-		consoleConfig := app.loadConsoleConfigForAgent(workspaceDir, agentName)
-		if consoleConfig.Enabled && !app.Gateway.HasChannel("console") {
-			// 启用且未注册 → 注册
-			display := toDisplayConfig(consoleConfig.ShowToolMessages, consoleConfig.ShowThinking, consoleConfig.StreamOutput)
-			consoleChan := channel.NewConsoleChannel("desktop", "", display)
-			app.Gateway.RegisterChannelWithoutServer(consoleChan)
-			app.logger.Info("Console 渠道已注册", "agent", agentName)
-		} else if !consoleConfig.Enabled && app.Gateway.HasChannel("console") {
-			// 禁用且已注册 → 注销
-			app.Gateway.UnregisterChannel("console")
-			app.logger.Info("Console 渠道已注销")
-		}
+		app.syncGlobalConsoleChannel(workspaceDir, newCfg)
 		app.Config = newCfg
 		return
 	}
 
 	// Bot 渠道（per-agent）精准同步
+	// Agent 整体禁用时只注销，不重新注册
+	if profile, ok := newCfg.Agents.Profiles[agentName]; ok && !profile.Enabled {
+		if app.Gateway.HasChannelForAgent(agentName, channelName) {
+			app.Gateway.UnregisterChannelForAgent(agentName, channelName)
+			app.logger.Info("Agent 已禁用，Bot 渠道已注销", "key", channelKey)
+		}
+		app.Config = newCfg
+		return
+	}
+
 	// 1. 先注销该渠道（如果已注册）
 	if app.Gateway.HasChannelForAgent(agentName, channelName) {
 		app.Gateway.UnregisterChannelForAgent(agentName, channelName)

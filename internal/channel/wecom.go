@@ -160,6 +160,8 @@ func (w *WeComChannel) cleanupConnection() {
 }
 
 func (w *WeComChannel) Stop() error {
+	// 先停止基类（关闭 msgChan）
+	w.BotChannelBase.Stop()
 	w.isManualClose = true
 	close(w.stopChan)
 	w.cleanupConnection()

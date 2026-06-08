@@ -99,6 +99,8 @@ func (w *WeChatChannel) Start(ctx context.Context) error {
 }
 
 func (w *WeChatChannel) Stop() error {
+	// 先停止基类（关闭 msgChan）
+	w.BotChannelBase.Stop()
 	close(w.stopChan)
 	log.Logger().Info("[WeChat] 已停止")
 	return nil

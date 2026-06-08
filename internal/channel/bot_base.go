@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-claw/pkg/log"
@@ -19,6 +20,8 @@ type BotChannelBase struct {
 	pendingResponses map[string]chan Response
 	client           *http.Client
 	display          DisplayConfig // 显示控制配置
+	stopped          atomic.Bool   // 是否已停止
+	closed           atomic.Bool   // msgChan 是否已关闭（防止重复 close panic）
 }
 
 // NewBotChannelBase 创建机器人渠道基础
@@ -72,8 +75,33 @@ func (b *BotChannelBase) StopHTTPServer() error {
 }
 
 // PushMessage 推送消息到msgChan
-func (b *BotChannelBase) PushMessage(msg Message) {
+// 如果渠道已停止，返回 false 表示消息未被推送
+func (b *BotChannelBase) PushMessage(msg Message) bool {
+	if b.stopped.Load() {
+		return false
+	}
 	b.msgChan <- msg
+	return true
+}
+
+// Stop 停止渠道（关闭 msgChan 让 handleChannel 退出）
+func (b *BotChannelBase) Stop() {
+	// 1. 设置停止标志，阻止新消息进入
+	b.stopped.Store(true)
+
+	// 2. 关闭 msgChan（让 handleChannel goroutine 退出）
+	//    使用 atomic 防止重复 close panic
+	if !b.closed.Swap(true) {
+		close(b.msgChan)
+	}
+
+	// 3. 停止 HTTP 服务器
+	b.StopHTTPServer()
+}
+
+// IsStopped 检查渠道是否已停止
+func (b *BotChannelBase) IsStopped() bool {
+	return b.stopped.Load()
 }
 
 // RegisterPendingResponse 注册同步等待响应通道

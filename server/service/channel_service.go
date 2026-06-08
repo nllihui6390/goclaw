@@ -65,7 +65,7 @@ var channelOrder = map[string]int{"console": 0, "lark": 1, "dingtalk": 2, "wecom
 // defaultChannelConfig 各渠道的默认配置
 var defaultChannelConfig = map[string]map[string]interface{}{
 	"console": {
-		"enabled":           false,
+		"enabled":           true,
 		"show_tool_messages": false,
 		"show_thinking":     false,
 		"stream_output":     true,
@@ -141,11 +141,11 @@ func (s *ChannelService) List(agentName string) []ChannelInfo {
 		status := "disconnected"
 		if gw != nil {
 			if name == "console" {
-				if gw.HasChannel("console") {
+				if enabled && gw.HasChannel("console") {
 					status = "connected"
 				}
 			} else {
-				if gw.HasChannelForAgent(agentName, name) {
+				if enabled && gw.HasChannelForAgent(agentName, name) {
 					status = "connected"
 				}
 			}

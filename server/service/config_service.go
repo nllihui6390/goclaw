@@ -199,10 +199,37 @@ func (s *ConfigService) GetChannels(agentName string) map[string]interface{} {
 		}
 	}
 
-	// 将 ChannelsConfig 转为 map
-	channelsData, _ := json.Marshal(agentCfg.Channels)
+	channels := agentCfg.Channels
+	config.NormalizeChannelsConfig(&channels)
+	return mergeChannelsWithDefaults(channels)
+}
+
+// mergeChannelsWithDefaults 将 agent 渠道配置与默认值合并（用于 API 展示）
+func mergeChannelsWithDefaults(channels config.ChannelsConfig) map[string]interface{} {
+	channelsData, _ := json.Marshal(channels)
 	var channelsMap map[string]interface{}
 	json.Unmarshal(channelsData, &channelsMap)
+
+	defaultsData, _ := json.Marshal(config.GetDefaultChannelsConfig())
+	var defaultsMap map[string]interface{}
+	json.Unmarshal(defaultsData, &defaultsMap)
+
+	for name, defVal := range defaultsMap {
+		defMap, _ := defVal.(map[string]interface{})
+		existing, ok := channelsMap[name].(map[string]interface{})
+		if !ok {
+			channelsMap[name] = defMap
+			continue
+		}
+		merged := make(map[string]interface{}, len(defMap))
+		for k, v := range defMap {
+			merged[k] = v
+		}
+		for k, v := range existing {
+			merged[k] = v
+		}
+		channelsMap[name] = merged
+	}
 	return channelsMap
 }
 
@@ -231,6 +258,15 @@ func (s *ConfigService) UpdateAgent(name string, agentConfig map[string]interfac
 
 	// 确保 name 正确
 	agentCfg.Name = name
+
+	// 请求未带 channels 时：新建 agent 用默认渠道配置，更新已有 agent 则保留原渠道配置
+	if _, hasChannels := agentConfig["channels"]; !hasChannels {
+		if existing, err := config.LoadAgentConfig(workspaceDir, name); err == nil {
+			agentCfg.Channels = existing.Channels
+		} else {
+			agentCfg.Channels = config.GetDefaultChannelsConfig()
+		}
+	}
 
 	// 保存 agent.json
 	if err := config.SaveAgentConfig(workspaceDir, name, &agentCfg); err != nil {

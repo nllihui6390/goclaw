@@ -184,6 +184,18 @@ type ConsoleConfig struct {
 	StreamOutput     bool `json:"stream_output"`      // 流式输出
 }
 
+// IsUnset 判断是否为未配置的零值（新建 agent 未写入 channels 时会出现）
+func (c ConsoleConfig) IsUnset() bool {
+	return !c.Enabled && !c.ShowToolMessages && !c.ShowThinking && !c.StreamOutput
+}
+
+// NormalizeChannelsConfig 将未显式配置的渠道字段补为默认值
+func NormalizeChannelsConfig(ch *ChannelsConfig) {
+	if ch.Console.IsUnset() {
+		ch.Console = GetDefaultChannelsConfig().Console
+	}
+}
+
 type WebhookConfig struct {
 	Enabled          bool   `json:"enabled"`
 	Port             string `json:"port"`
@@ -743,6 +755,34 @@ func GetDefaultAgentConfig(name, provider, model string) *AgentConfig {
 		MaxTokens:     32000,
 		Channels:      GetDefaultChannelsConfig(),
 	}
+}
+
+// IsAgentChannelEnabled 检查指定 agent 的渠道是否启用
+func IsAgentChannelEnabled(workspaceDir, agentName, channelName string) bool {
+	agentCfg, err := LoadAgentConfig(workspaceDir, agentName)
+	if err != nil {
+		return false
+	}
+	channels := agentCfg.Channels
+	NormalizeChannelsConfig(&channels)
+	return channels.ChannelEnabled(channelName)
+}
+
+// AnyAgentChannelEnabled 检查是否有任意已启用 agent 开启了指定渠道
+func AnyAgentChannelEnabled(workspaceDir string, cfg *Config, channelName string) bool {
+	agentNames, err := ListAgentConfigs(workspaceDir)
+	if err != nil {
+		return false
+	}
+	for _, agentName := range agentNames {
+		if profile, ok := cfg.Agents.Profiles[agentName]; ok && !profile.Enabled {
+			continue
+		}
+		if IsAgentChannelEnabled(workspaceDir, agentName, channelName) {
+			return true
+		}
+	}
+	return false
 }
 
 // ChannelEnabled 检查渠道是否启用

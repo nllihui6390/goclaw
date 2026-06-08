@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-claw/pkg/log"
@@ -24,6 +25,8 @@ type WebSocketChannel struct {
 	upgrader websocket.Upgrader
 	conns    map[string]*wsConn
 	display  DisplayConfig // 显示控制配置
+	stopped  atomic.Bool   // 是否已停止
+	closed   atomic.Bool   // msgChan 是否已关闭
 }
 
 type wsConn struct {
@@ -54,6 +57,24 @@ func (w *WebSocketChannel) Receive(ctx context.Context) (<-chan Message, error) 
 	return w.msgChan, nil
 }
 
+// safeSendMessage 安全地发送消息到 msgChan
+func (w *WebSocketChannel) safeSendMessage(msg Message) bool {
+	if w.stopped.Load() {
+		return false
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			// channel 已关闭
+		}
+	}()
+	select {
+	case w.msgChan <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
 func (w *WebSocketChannel) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", w.handleWS)
@@ -72,11 +93,21 @@ func (w *WebSocketChannel) Start(ctx context.Context) error {
 }
 
 func (w *WebSocketChannel) Stop() error {
+	// 1. 设置停止标志
+	w.stopped.Store(true)
+
+	// 2. 关闭 msgChan
+	if !w.closed.Swap(true) {
+		close(w.msgChan)
+	}
+
+	// 3. 关闭 HTTP server
 	if w.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return w.server.Shutdown(ctx)
+		w.server.Shutdown(ctx)
 	}
+
 	return nil
 }
 
@@ -234,9 +265,12 @@ func (w *WebSocketChannel) handleWS(rw http.ResponseWriter, r *http.Request) {
 		if msgID == "" {
 			msgID = fmt.Sprintf("ws-msg-%d", time.Now().UnixNano())
 		}
-		w.msgChan <- Message{
+		if !w.safeSendMessage(Message{
 			ID: msgID, Channel: w.name, From: sessionID,
 			Content: req.Content, Timestamp: time.Now().Unix(),
+		}) {
+			conn.WriteJSON(map[string]string{"type": "error", "content": "channel stopped"})
+			break
 		}
 	}
 }

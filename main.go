@@ -5,13 +5,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"go-claw/config"
 	"go-claw/global"
 	"go-claw/internal/bootstrap"
-	"go-claw/internal/channel"
 	"go-claw/internal/gateway"
 	"go-claw/server"
 	"go-claw/server/controllers/api"
@@ -73,42 +71,17 @@ func runServer() {
 		glog.Logger().Info("渠道已精准同步", "agent", agentName, "channel", channelName)
 	})
 
-	// 从 default agent 的 agent.json 读取 console 配置
-	consoleConfig := loadConsoleConfig(app)
-	consoleChan := channel.NewConsoleChannel("8080", "", channel.DisplayConfig{
-		ShowToolMessages: consoleConfig.ShowToolMessages,
-		ShowThinking:    consoleConfig.ShowThinking,
-		StreamOutput:    consoleConfig.StreamOutput,
-	})
 	webServer := server.New(server.Config{Port: "8080"})
-	webServer.Mux().HandleFunc("/api/v1/chat", consoleChan.HandleChat)
-	webServer.Mux().HandleFunc("/api/v1/chat/session", api.HandleCreateSession)
-	webServer.Mux().HandleFunc("/api/v1/chat/history/", api.HandleChatHistory)
 	webServer.Start()
-	consoleChan.SetEnabled(consoleConfig.Enabled)
-	app.Gateway.RegisterChannelWithoutServer(consoleChan)
 
-	// 配置文件热加载：同步 console 启用状态等
-	startConfigWatcher(app, consoleChan)
+	// 配置文件热加载：同步渠道启用状态等
+	startConfigWatcher(app)
 
 	app.Run()
 }
 
-// loadConsoleConfig 从 default agent 的 agent.json 加载 console 配置
-func loadConsoleConfig(app *bootstrap.App) config.ConsoleConfig {
-	workspaceDir := filepath.Join(app.Config.Gateway.DataDir, app.Config.Gateway.Workspace)
-	defaultAgent := app.Config.GetDefaultAgent()
-
-	agentCfg, err := config.LoadAgentConfig(workspaceDir, defaultAgent)
-	if err != nil {
-		glog.Logger().Warn("加载 default agent 配置失败，使用默认 console 配置", "err", err)
-		return config.ConsoleConfig{Enabled: true, ShowToolMessages: true, ShowThinking: true, StreamOutput: true}
-	}
-	return agentCfg.Channels.Console
-}
-
 // startConfigWatcher 启动 config.json 热加载
-func startConfigWatcher(app *bootstrap.App, consoleChan *channel.ConsoleChannel) {
+func startConfigWatcher(app *bootstrap.App) {
 	watcher := gateway.NewConfigWatcher("config.json", func() {
 		newCfg, err := config.LoadConfig("config.json")
 		if err != nil {
@@ -116,11 +89,7 @@ func startConfigWatcher(app *bootstrap.App, consoleChan *channel.ConsoleChannel)
 			return
 		}
 
-		// 从 default agent 的 agent.json 读取 console 配置
-		consoleConfig := loadConsoleConfig(app)
-		consoleChan.SetEnabled(consoleConfig.Enabled)
-
-		// 同步机器人渠道（飞书/钉钉/企微/微信）：自动注册或注销
+		// 同步渠道（含 console 注册/注销）
 		app.SyncChannels(newCfg)
 		// 同步 Agent 配置
 		app.SyncAgents(newCfg)
@@ -134,7 +103,7 @@ func startConfigWatcher(app *bootstrap.App, consoleChan *channel.ConsoleChannel)
 				enabledCount++
 			}
 		}
-		glog.Logger().Info("配置已热加载", "agents", enabledCount, "console", consoleConfig.Enabled)
+		glog.Logger().Info("配置已热加载", "agents", enabledCount)
 	})
 	if err := watcher.Start(); err != nil {
 		glog.Logger().Warn("启动配置监听失败", "err", err)

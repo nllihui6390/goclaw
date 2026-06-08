@@ -246,6 +246,13 @@ func (g *Gateway) UnregisterChannelForAgent(agentName, channelName string) {
 	g.UnregisterChannel(key)
 }
 
+// GetChannel 获取已注册的渠道实例（未注册返回 nil）
+func (g *Gateway) GetChannel(name string) channel.Channel {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.channels[name]
+}
+
 // HasChannel 检查渠道是否已注册（支持全局渠道名和 agent:channel 格式）
 func (g *Gateway) HasChannel(name string) bool {
 	g.mu.RLock()

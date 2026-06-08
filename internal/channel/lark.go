@@ -182,6 +182,8 @@ func (l *LarkChannel) handleLarkMessage(ctx context.Context, event *larkim.P2Mes
 }
 
 func (l *LarkChannel) Stop() error {
+	// 先停止基类（关闭 msgChan）
+	l.BotChannelBase.Stop()
 	close(l.stopChan)
 	// 官方 SDK 的 wsClient 没有 Stop 方法，关闭 stopChan 即可
 	log.Logger().Info("[Lark] 已停止")
