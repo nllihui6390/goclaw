@@ -18,6 +18,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# 嵌入前端产物须在 go build 之前完成（go:embed 在编译期打包）
+COPY --from=frontend-builder /frontend/dist ./frontend/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -tags server -o /go-claw-server .
 
 # Stage 3: Runtime

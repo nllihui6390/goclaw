@@ -55,7 +55,14 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SPA fallback: index.html
+	// 静态资源（.js/.css 等）未找到时直接 404，避免 SPA fallback 返回 index.html
+	// 导致浏览器报 "Expected JavaScript module but got text/html"
+	if isStaticAsset(path) {
+		http.NotFound(rw, r)
+		return
+	}
+
+	// SPA fallback: index.html（仅用于前端路由，如 /chat、/settings）
 	f, err = FrontendFS.Open("index.html")
 	if err != nil {
 		http.NotFound(rw, r)
@@ -67,7 +74,23 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 	rw.Write(data)
 }
 
-// mimeType 根据文件扩展名返回对应的 MIME 类型
+// isStaticAsset 判断路径是否为应直接 404 的静态资源（不走 SPA fallback）
+func isStaticAsset(path string) bool {
+	switch {
+	case strings.HasSuffix(path, ".js"), strings.HasSuffix(path, ".mjs"),
+		strings.HasSuffix(path, ".css"), strings.HasSuffix(path, ".wasm"),
+		strings.HasSuffix(path, ".map"),
+		strings.HasSuffix(path, ".png"), strings.HasSuffix(path, ".jpg"), strings.HasSuffix(path, ".jpeg"),
+		strings.HasSuffix(path, ".gif"), strings.HasSuffix(path, ".webp"),
+		strings.HasSuffix(path, ".svg"), strings.HasSuffix(path, ".ico"),
+		strings.HasSuffix(path, ".woff"), strings.HasSuffix(path, ".woff2"),
+		strings.HasSuffix(path, ".ttf"), strings.HasSuffix(path, ".eot"),
+		strings.HasSuffix(path, ".json"):
+		return true
+	default:
+		return false
+	}
+}
 
 // mimeType 根据文件扩展名返回对应的 MIME 类型
 func mimeType(path string) string {

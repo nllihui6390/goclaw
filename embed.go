@@ -8,7 +8,7 @@ import (
 	"go-claw/server"
 )
 
-//go:embed frontend/dist
+//go:embed all:frontend/dist
 var embeddedFrontend embed.FS
 
 // initFrontend 将嵌入的前端静态文件注册到 server 包，供 HTTP 服务使用

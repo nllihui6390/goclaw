@@ -6,7 +6,7 @@ export default defineConfig(({ command, mode }) => {
     // 检测是否为 Wails 构建
   const isWails = process.env.WAILS === 'true' || mode === 'wails'
   return {
-    base: isWails ? '/' : './', // 设置 base 路径为根目录
+    base: isWails ? './' : '/', // 设置 base 路径为根目录
     plugins: [vue()],
     resolve: {
       alias: {
