@@ -28,6 +28,21 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 	f, err := FrontendFS.Open(r.URL.Path)
 	if err == nil {
 		defer f.Close()
+		info, statErr := f.Stat()
+		if statErr == nil && info.IsDir() {
+			// 目录请求：转向 index.html（SPA fallback）
+			f.Close()
+			f, err = FrontendFS.Open("/index.html")
+			if err != nil {
+				http.NotFound(rw, r)
+				return
+			}
+			defer f.Close()
+			data, _ := io.ReadAll(f)
+			rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+			rw.Write(data)
+			return
+		}
 		data, _ := io.ReadAll(f)
 		rw.Header().Set("Content-Type", mimeType(r.URL.Path))
 		rw.Write(data)
