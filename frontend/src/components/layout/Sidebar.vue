@@ -14,7 +14,7 @@ const menuGroups = [
   {
     label: '对话',
     items: [
-      { path: '/', icon: 'ChatDotRound', label: '聊天' },
+      { path: '/chat', icon: 'ChatDotRound', label: '聊天' },
     ]
   },
   {
@@ -53,7 +53,7 @@ function navigate(path) {
 <template>
   <aside class="sidebar">
     <!-- Logo header -->
-    <div class="sidebar-header" @click="navigate('/')">
+    <div class="sidebar-header" @click="navigate('/chat')">
       <img :src="currentLogo" alt="go-claw" class="logo-icon" />
     </div>
 

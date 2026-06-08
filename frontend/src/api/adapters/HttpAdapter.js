@@ -15,7 +15,7 @@ export class HttpAdapter {
   // yield { type: 'text', content } 或 { type: 'file', info: {...} }
   async *sendMessage(sessionId, content, agent) {
     // HTTP 模式下，gateway 会拼接 "webhook:" + session 作为完整 sessionID
-    // 如果 sessionId 已含渠道前缀（如 "webhook:xxx"），需剥离前缀避免重复拼接
+    // 如果 sessionId 已含频道前缀（如 "webhook:xxx"），需剥离前缀避免重复拼接
     let chatSession = sessionId
     // if (sessionId.startsWith('webhook:')) {
     //   chatSession = sessionId.slice(8) // 去掉 "webhook:" 前缀
@@ -68,7 +68,7 @@ export class HttpAdapter {
   // 获取历史消息
   async getChatHistory(sessionId, agent) {
     try {
-      // 旧格式有渠道前缀（webhook:, wecom: 等）；UUID 格式不需要加前缀
+      // 旧格式有频道前缀（webhook:, wecom: 等）；UUID 格式不需要加前缀
       const channelPrefixes = ['wecom:', 'dingtalk:', 'lark:', 'cron:']
       const hasChannelPrefix = channelPrefixes.some(p => sessionId.startsWith(p))
       const fullSessionId = hasChannelPrefix ? sessionId : sessionId
@@ -85,7 +85,7 @@ export class HttpAdapter {
   updateAgent(name, config) { return http.put(`/agents/${name}`, config).then(r => r.data) }
   deleteAgent(name) { return http.delete(`/agents/${name}`).then(r => r.data) }
 
-  // 渠道 (per-agent)
+  // 频道 (per-agent)
   getChannels(agent) { return http.get('/channels', { params: { agent } }).then(r => r.data) }
   updateChannel(agent, name, config) { return http.put(`/channels/${name}`, config, { params: { agent } }).then(r => r.data) }
   getChannelQRCode(channel) { return http.get('/channels/qrcode', { params: { channel } }).then(r => r.data) }

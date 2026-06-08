@@ -26,7 +26,7 @@ async function loadSessions() {
 }
 
 function viewSession(session) {
-  router.push({ path: '/', query: { session: session.id, agent: session.agent } })
+  router.push({ path: '/chat', query: { session: session.id, agent: session.agent } })
 }
 
 async function deleteSession(session) {
@@ -135,7 +135,7 @@ watch(() => agentStore.selectedAgent, loadSessions)
               <el-tag size="small" effect="plain">{{ session.agent }}</el-tag>
             </div>
             <div class="meta-item">
-              <span class="meta-label">渠道</span>
+              <span class="meta-label">频道</span>
               <el-tag size="small" :type="getChannelType(session.channel)">
                 {{ getChannelLabel(session.channel) }}
               </el-tag>

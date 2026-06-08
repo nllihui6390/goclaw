@@ -294,7 +294,7 @@ function getTypeIcon(type) {
 
         <el-form-item label="会话 ID">
           <el-input v-model="formData.session_id" placeholder="如: wecom:user（消息发送目标）" />
-          <span class="form-tip">格式: 渠道:用户，如 wecom:user、console:admin</span>
+          <span class="form-tip">格式: 频道:用户，如 wecom:user、console:admin</span>
         </el-form-item>
 
         <el-form-item label="Agent" v-if="formData.type === 'agent'">

@@ -40,7 +40,7 @@ function removeFile(index) {
 }
 
 function backToDefault() {
-  router.push('/')
+  router.push('/chat')
 }
 
 async function loadHistory() {
@@ -220,7 +220,7 @@ function closeNewChat() {
 
 async function confirmNewChat() {
   if (viewingSession.value) {
-    router.push('/')
+    router.push('/chat')
   }
   closeNewChat()
   sending.value = true

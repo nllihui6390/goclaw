@@ -276,7 +276,7 @@ function closeDialog() {
           />
         </el-form-item>
       </el-form>
-      <el-empty v-if="!editChannel" description="请选择一个渠道" :image-size="50" />
+      <el-empty v-if="!editChannel" description="请选择一个频道" :image-size="50" />
       <template #footer>
         <el-button @click="closeDialog">取消</el-button>
         <el-button type="primary" @click="saveChannel" :loading="saving">保存</el-button>

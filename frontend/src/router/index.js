@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
-  { path: '/', name: 'Chat', component: () => import('@/views/chat/Chat.vue') },
+  { path: '/', redirect: '/chat' },
+  { path: '/chat', name: 'Chat', component: () => import('@/views/chat/Chat.vue') },
   { path: '/inbox', name: 'Inbox', component: () => import('@/views/inbox/Inbox.vue') },
   { path: '/channels', name: 'Channels', component: () => import('@/views/control/Channels.vue') },
   { path: '/sessions', name: 'Sessions', component: () => import('@/views/control/Sessions.vue') },
@@ -15,6 +16,7 @@ const routes = [
   { path: '/models', name: 'Models', component: () => import('@/views/settings/Models.vue') },
   { path: '/security', name: 'Security', component: () => import('@/views/settings/Security.vue') },
   { path: '/debug', name: 'Debug', component: () => import('@/views/settings/Debug.vue') },
+
 ]
 
 const router = createRouter({
