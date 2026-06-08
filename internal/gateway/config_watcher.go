@@ -54,7 +54,9 @@ func (w *ConfigWatcher) Start() error {
 					return
 				}
 				if event.Name == w.path && (event.Op&fsnotify.Write == fsnotify.Write ||
-					event.Op&fsnotify.Create == fsnotify.Create) {
+					event.Op&fsnotify.Create == fsnotify.Create ||
+					event.Op&fsnotify.Remove == fsnotify.Remove ||
+					event.Op&fsnotify.Rename == fsnotify.Rename) {
 					// 防抖：重置计时器，只在事件停止后 500ms 执行一次
 					if debounceTimer != nil {
 						debounceTimer.Stop()
