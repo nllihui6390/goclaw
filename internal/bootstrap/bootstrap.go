@@ -36,9 +36,11 @@ func NewApp() (*App, error) {
 	app := &App{}
 
 	// 1. 配置加载
-	if err := app.loadConfig(); err != nil {
+	cfg, err := config.LoadConfigWithDefaults()
+	if err != nil {
 		return nil, err
 	}
+	app.Config = cfg
 
 	// 2. 初始化日志
 	glog.Init(app.Config.Logging.Level, app.Config.Logging.JSONMode, app.Config.Logging.FilePath, app.Config.Logging.Console)

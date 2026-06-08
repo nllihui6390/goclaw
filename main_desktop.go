@@ -6,7 +6,6 @@ import (
 	"embed"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 
 	"go-claw/config"
@@ -23,19 +22,6 @@ import (
 var desktopAssets embed.FS
 
 func main() {
-	// 首次运行：生成默认配置
-	if _, err := os.Stat("config.json"); os.IsNotExist(err) {
-		defaultCfg := config.WriteInitialDefaults()
-		if saveErr := config.SaveConfig("config.json", defaultCfg); saveErr != nil {
-			log.Printf("保存默认配置失败: %v", saveErr)
-		}
-		workspaceDir := filepath.Join(defaultCfg.Gateway.DataDir, defaultCfg.Gateway.Workspace)
-		os.MkdirAll(filepath.Join(workspaceDir, "default"), 0755)
-		if writeErr := config.WriteInitialConfigs(workspaceDir); writeErr != nil {
-			log.Printf("写入 Agent 配置失败: %v", writeErr)
-		}
-	}
-
 	app, err := bootstrap.NewApp()
 	if err != nil {
 		log.Fatal("初始化失败:", err)
