@@ -67,20 +67,19 @@ type ToolCall struct {
 // stripThinkTags 剥离 DeepSeek 等模型的内部推理标签
 // DeepSeek 使用 <think>...</think> 或 ellites 标签做内部推理
 func stripThinkTags(content string) string {
-	// 剥离 <think>...</think>
 	result := content
 	for {
 		start := strings.Index(result, "<think>")
 		if start == -1 {
 			break
 		}
-		end := strings.Index(result, "</think>")
-		if end == -1 || end <= start {
+		sub := result[start:]
+		end := strings.Index(sub, "</think>")
+		if end == -1 {
 			break
 		}
-		result = result[:start] + result[end+8:]
+		result = result[:start] + sub[end+len("</think>"):]
 	}
-
 	return strings.TrimSpace(result)
 }
 
@@ -98,35 +97,39 @@ func extractThinkContent(content string) string {
 	return content[start : start+end]
 }
 
-// looksIncomplete 检测可见内容是否未完成（暗示需要继续迭代）
-func looksIncomplete(content string) bool {
-	visible := stripThinkTags(content)
-	if visible == "" {
-		return true
-	}
-	futureWords := []string{"我会", "我将", "让我", "准备"}
-	transitionWords := []string{"接下来", "下一步"}
-
-	hasFuture := false
-	for _, p := range futureWords {
-		if strings.Contains(visible, p) {
-			hasFuture = true
-			break
-		}
-	}
-	if !hasFuture {
+func shouldForceContinue(resp *ChatMessage) bool {
+	if len(resp.ToolCalls) > 0 {
 		return false
 	}
 
-	hasTransition := false
-	for _, p := range transitionWords {
-		if strings.Contains(visible, p) {
-			hasTransition = true
-			break
+	raw := strings.TrimSpace(resp.Content)
+	visible := strings.TrimSpace(stripThinkTags(raw))
+
+	if resp.FinishReason == "length" {
+		return true
+	}
+
+	if visible == "" {
+		return true
+	}
+
+	if len([]rune(visible)) <= 3 {
+		return true
+	}
+
+	planning := []string{
+		"让我", "我需要", "继续", "检查", "创建", "生成",
+		"运行", "执行", "读取", "先", "接下来", "下一步",
+	}
+
+	score := 0
+	for _, w := range planning {
+		if strings.Contains(raw, w) {
+			score++
 		}
 	}
 
-	return hasFuture && hasTransition
+	return score >= 2
 }
 
 // isRetryableError 检查错误是否可重试
@@ -260,64 +263,31 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		}
 
 		if len(resp.ToolCalls) == 0 {
-			visibleContent := stripThinkTags(resp.Content)
+			visible := stripThinkTags(resp.Content)
 
-			// length finish → 自动继续
-			if resp.FinishReason == "length" && autoContinueCount < maxAutoContinue {
+			if shouldForceContinue(resp) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
 				autoContinueCount++
-				logger.Info("[Runtime] length finish continue",
-					"auto_continue_count", autoContinueCount)
-				messages = append(messages, ChatMessage{
-					Role:    "assistant",
-					Content: resp.Content,
-				})
-				messages = append(messages, ChatMessage{
-					Role:    "system",
-					Content: "Continue.",
-				})
-				continue
-			}
-
-			// 可见内容为空 → 自动继续
-			if visibleContent == "" && autoContinueCount < 2 {
-				autoContinueCount++
-				logger.Info("[Runtime] empty visible continue",
-					"auto_continue_count", autoContinueCount)
+				logger.Info("[Runtime] force continue", "count", autoContinueCount)
 				messages = append(messages, ChatMessage{
 					Role:    "assistant",
 					Content: resp.Content,
 				})
 				messages = append(messages, ChatMessage{
 					Role:    "user",
-					Content: "请给出你的回答。",
+					Content: "继续执行当前任务，不要只描述计划。如果需要工具，请直接调用工具。",
 				})
 				continue
 			}
 
-			// 未完成 → 自动继续
-			if looksIncomplete(visibleContent) && autoContinueCount < 1 && len(tools) > 0 {
-				autoContinueCount++
-				logger.Info("[Runtime] unfinished continue",
-					"auto_continue_count", autoContinueCount)
-				messages = append(messages, ChatMessage{
-					Role:    "assistant",
-					Content: resp.Content,
-				})
-				messages = append(messages, ChatMessage{
-					Role:    "system",
-					Content: "Continue executing instead of planning. Use tools if needed.",
-				})
-				continue
+			if visible == "" {
+				visible = resp.Content
 			}
-
-			if visibleContent == "" {
-				visibleContent = resp.Content
-			}
-			logger.Info("[Runtime] 无工具调用，返回最终响应", "iteration", i+1, "visible_len", len(visibleContent))
-			return visibleContent, nil
+			logger.Info("[Runtime] return final", "len", len(visible))
+			return visible, nil
 		}
 
 		logger.Info("[Runtime] 检测到工具调用", "count", len(resp.ToolCalls))
+		autoContinueCount = 0
 
 		assistantMsg := ChatMessage{
 			Role:      "assistant",
@@ -406,14 +376,15 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			toolMsg := ChatMessage{
 				Role:       "tool",
 				ToolCallID: tc.ID,
-				Content:    result,
+				Content:    result + "\n\n如果任务尚未完成，请继续执行。",
 			}
 			messages = append(messages, toolMsg)
 		}
 	}
 
 }
-	// unreachable: loop has internal returns
+
+// unreachable: loop has internal returns
 
 // ExecuteStream 执行Agent循环（流式版）
 func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []tool.Tool, maxIterations int, cb StreamCallback, handler ToolEventHandler) (string, error) {
@@ -603,8 +574,8 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 
 	var llmResp struct {
 		Choices []struct {
-			FinishReason string     `json:"finish_reason"`
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Role      string     `json:"role"`
 				Content   string     `json:"content"`
 				ToolCalls []ToolCall `json:"tool_calls"`
@@ -1108,7 +1079,7 @@ func (r *Runtime) compressMessages(messages []ChatMessage) string {
 	}
 
 	logger.Info("[Runtime] 压缩摘要生成成功", "len", len(resp.Content))
-	return resp.Content
+	return stripThinkTags(resp.Content)
 }
 
 // ExtractMemory 调用 LLM 提取对话中的关键信息
