@@ -24,15 +24,21 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 清理路径并去掉开头的 /
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	if path == "" {
+		path = "index.html"
+	}
+
 	// 尝试 serve 静态文件
-	f, err := FrontendFS.Open(r.URL.Path)
+	f, err := FrontendFS.Open(path)
 	if err == nil {
 		defer f.Close()
 		info, statErr := f.Stat()
 		if statErr == nil && info.IsDir() {
 			// 目录请求：转向 index.html（SPA fallback）
 			f.Close()
-			f, err = FrontendFS.Open("/index.html")
+			f, err = FrontendFS.Open("index.html")
 			if err != nil {
 				http.NotFound(rw, r)
 				return
@@ -44,13 +50,13 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data, _ := io.ReadAll(f)
-		rw.Header().Set("Content-Type", mimeType(r.URL.Path))
+		rw.Header().Set("Content-Type", mimeType(path))
 		rw.Write(data)
 		return
 	}
 
 	// SPA fallback: index.html
-	f, err = FrontendFS.Open("/index.html")
+	f, err = FrontendFS.Open("index.html")
 	if err != nil {
 		http.NotFound(rw, r)
 		return
