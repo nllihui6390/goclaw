@@ -43,8 +43,17 @@ const themeIcon = computed(() => {
   return 'Sunny'
 })
 
+const skinIcon = computed(() => {
+  const s = themeStore.skins.find(s => s.value === themeStore.skin)
+  return s?.icon || 'Cpu'
+})
+
 function setTheme(mode) {
   themeStore.setTheme(mode)
+}
+
+function setSkin(skin) {
+  themeStore.setSkin(skin)
 }
 </script>
 
@@ -76,7 +85,7 @@ function setTheme(mode) {
 
       <!-- Theme switch -->
       <el-dropdown trigger="click" @command="setTheme">
-        <button class="icon-btn" title="切换主题">
+        <button class="icon-btn" title="切换亮度">
           <el-icon :size="18"><component :is="themeIcon" /></el-icon>
         </button>
         <template #dropdown>
@@ -92,6 +101,21 @@ function setTheme(mode) {
             <el-dropdown-item command="light" :class="{ checked: themeStore.theme === 'light' }">
               <el-icon :size="14"><Sunny /></el-icon>
               <span>亮色</span>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
+      <!-- Skin selector -->
+      <el-dropdown trigger="click" @command="setSkin">
+        <button class="icon-btn" title="切换风格">
+          <el-icon :size="18"><component :is="skinIcon" /></el-icon>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item v-for="s in themeStore.skins" :key="s.value" :command="s.value" :class="{ checked: themeStore.skin === s.value }">
+              <el-icon :size="14"><component :is="s.icon" /></el-icon>
+              <span>{{ s.label }}</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>

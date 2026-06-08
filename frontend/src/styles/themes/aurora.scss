@@ -1,0 +1,86 @@
+// ═════════════════════════════════════════════════════════════════════════════════
+// 极光主题 (Aurora Theme)
+// 北欧极光夜空的颜色层次 - 深色不是黑，是极光夜空的深蓝紫
+// 亮色不是白，是北欧雪原的微蓝白。主色用极光绿，灵动而不冰冷
+// ═════════════════════════════════════════════════════════════════════════════════
+
+// ─────────── 亮色模式：北欧雪原晨光 ───────────
+html.theme-aurora:root {
+  // 背景：雪原微蓝层次
+  --bg-deep: #f0f4f8;           // 雪原晨光 - 微蓝的米白
+  --bg-surface: #f8fafc;        // 新雪 - 接近白但带蓝调
+  --bg-elevated: #e2e8f0;       // 远雪 - 略暗的雪原灰
+  --bg-glass: rgba(248, 250, 252, 0.88);
+  --bg-glass-light: rgba(74, 222, 128, 0.02);
+
+  // 主色：极光绿（略暗版，适合亮色背景）
+  --accent-cyan: #22c55e;       // 极光绿
+  --accent-cyan-dim: rgba(34, 197, 94, 0.08);
+
+  // 辅色：极光光谱
+  --accent-amber: #f59e0b;      // 极光金
+  --accent-amber-dim: rgba(245, 158, 11, 0.1);
+  --accent-emerald: #10b981;    // 极光翠
+  --accent-emerald-dim: rgba(16, 185, 129, 0.08);
+  --accent-rose: #ec4899;       // 极光粉
+  --accent-rose-dim: rgba(236, 72, 153, 0.1);
+
+  // 文字：北欧岩灰
+  --text-primary: #1e293b;      // 深岩灰 - 不是纯黑
+  --text-secondary: #475569;    // 中岩灰
+  --text-muted: #94a3b8;        // 浅岩灰
+  --text-code: #22c55e;
+
+  // 边框：雪痕
+  --border-subtle: #cbd5e1;     // 淡雪痕
+  --border-default: #94a3b8;    // 雪痕
+  --border-glow: rgba(34, 197, 94, 0.25);
+
+  // 阴影：雪原光晕
+  --shadow-soft: 0 2px 8px rgba(30, 41, 59, 0.06);
+  --shadow-medium: 0 4px 16px rgba(30, 41, 59, 0.1);
+  --shadow-glow-cyan: 0 0 20px rgba(34, 197, 94, 0.18);
+  --shadow-glow-amber: 0 0 20px rgba(245, 158, 11, 0.18);
+  --shadow-glow-emerald: 0 0 20px rgba(16, 185, 129, 0.18);
+}
+
+// ─────────── 深色模式：北欧极光夜空 ───────────
+html.theme-aurora[data-theme="dark"],
+html.theme-aurora.dark {
+  // 背景：极光夜空的蓝紫层次
+  --bg-deep: #0a0d14;           // 极光夜空 - 深蓝带紫
+  --bg-surface: #131822;        // 夜云层 - 略亮的蓝灰
+  --bg-elevated: #1b2230;       // 浮云层 - 更亮的蓝调
+  --bg-glass: rgba(19, 24, 34, 0.85);
+  --bg-glass-light: rgba(100, 120, 180, 0.03); // 微蓝调光晕
+
+  // 主色：极光绿 - 北欧极光的标准色
+  --accent-cyan: #4ade80;       // 极光绿 - 明亮灵动
+  --accent-cyan-dim: rgba(74, 222, 128, 0.1);
+
+  // 辅色：极光光谱
+  --accent-amber: #fbbf24;      // 极光金 - 极光中的金色波段
+  --accent-amber-dim: rgba(251, 191, 36, 0.12);
+  --accent-emerald: #34d399;    // 极光翠 - 另一种极光绿
+  --accent-emerald-dim: rgba(52, 211, 153, 0.08);
+  --accent-rose: #f472b6;       // 极光粉 - 极光中的粉色波段
+  --accent-rose-dim: rgba(244, 114, 182, 0.1);
+
+  // 文字：北欧雪原色
+  --text-primary: #eef2f6;      // 雪原白 - 带微蓝调
+  --text-secondary: #94a3b8;    // 雪云灰
+  --text-muted: #64748b;        // 远山灰
+  --text-code: #4ade80;
+
+  // 边框：夜空边界
+  --border-subtle: #1e2836;     // 淡夜云
+  --border-default: #2a3648;    // 夜云
+  --border-glow: rgba(74, 222, 128, 0.35);
+
+  // 阴影：极光弥散
+  --shadow-soft: 0 2px 12px rgba(10, 13, 20, 0.4);
+  --shadow-medium: 0 6px 24px rgba(10, 13, 20, 0.5);
+  --shadow-glow-cyan: 0 0 30px rgba(74, 222, 128, 0.3), 0 0 60px rgba(74, 222, 128, 0.15);
+  --shadow-glow-amber: 0 0 25px rgba(251, 191, 36, 0.3);
+  --shadow-glow-emerald: 0 0 25px rgba(52, 211, 153, 0.3);
+}

@@ -7,6 +7,10 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
 import './styles/global.scss'
+// 主题风格
+import './styles/themes/ink.scss'
+import './styles/themes/aurora.scss'
+import './styles/themes/warm.scss'
 
 async function init() {
   let api

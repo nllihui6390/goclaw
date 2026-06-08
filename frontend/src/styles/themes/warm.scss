@@ -1,0 +1,86 @@
+// ═════════════════════════════════════════════════════════════════════════════════
+// 暖调主题 (Warm Theme)
+// 咖啡店暖色调 - 深色是咖啡色层次，亮色是奶油色层次
+// 主色用咖啡绿，整体温暖舒适，适合长时间使用
+// ═════════════════════════════════════════════════════════════════════════════════
+
+// ─────────── 亮色模式：奶油拿铁 ───────────
+html.theme-warm:root {
+  // 背景：奶油层次
+  --bg-deep: #f8f5f2;           // 奶油底 - 温暖的米白
+  --bg-surface: #fdfaf6;        // 新奶油 - 更亮的暖白
+  --bg-elevated: #ede8e3;       // 浮奶油 - 略暗的奶油色
+  --bg-glass: rgba(253, 250, 246, 0.88);
+  --bg-glass-light: rgba(0, 0, 0, 0.02);
+
+  // 主色：拿铁绿 - 偏暖的绿
+  --accent-cyan: #5a9e54;       // 拿铁绿
+  --accent-cyan-dim: rgba(90, 158, 84, 0.08);
+
+  // 辅色：咖啡系
+  --accent-amber: #c89654;      // 奶咖金
+  --accent-amber-dim: rgba(200, 150, 84, 0.1);
+  --accent-emerald: #5a8a4c;    // 抹茶绿
+  --accent-emerald-dim: rgba(90, 138, 76, 0.08);
+  --accent-rose: #9a5a5a;       // 玫瑰拿铁
+  --accent-rose-dim: rgba(154, 90, 90, 0.1);
+
+  // 文字：咖啡色层次
+  --text-primary: #352a28;      // 浓咖啡 - 不是纯黑
+  --text-secondary: #5a504c;    // 中咖啡
+  --text-muted: #8a7a78;        // 淡咖啡
+  --text-code: #5a9e54;
+
+  // 边框：奶痕
+  --border-subtle: #e0d8d4;     // 淡奶痕
+  --border-default: #d0c8c4;    // 奶痕
+  --border-glow: rgba(90, 158, 84, 0.25);
+
+  // 阴影：奶泡光晕
+  --shadow-soft: 0 2px 8px rgba(53, 42, 40, 0.08);
+  --shadow-medium: 0 4px 16px rgba(53, 42, 40, 0.12);
+  --shadow-glow-cyan: 0 0 20px rgba(90, 158, 84, 0.15);
+  --shadow-glow-amber: 0 0 20px rgba(200, 150, 84, 0.15);
+  --shadow-glow-emerald: 0 0 20px rgba(90, 138, 76, 0.15);
+}
+
+// ─────────── 深色模式：深烘焙咖啡 ───────────
+html.theme-warm[data-theme="dark"],
+html.theme-warm.dark {
+  // 背景：咖啡烘焙层次
+  --bg-deep: #1a1816;           // 深烘焙 - 最深的咖啡色
+  --bg-surface: #242220;        // 中烘焙 - 带暖的深灰褐
+  --bg-elevated: #302c28;       // 浮起层 - 略亮的咖啡灰
+  --bg-glass: rgba(36, 34, 32, 0.85);
+  --bg-glass-light: rgba(255, 255, 255, 0.03);
+
+  // 主色：咖啡绿 - 偏暖的绿
+  --accent-cyan: #6aaa64;       // 咖啡绿 - 温暖的绿调
+  --accent-cyan-dim: rgba(106, 170, 100, 0.12);
+
+  // 辅色：咖啡系
+  --accent-amber: #d4a574;      // 奶咖金 - 咖啡奶泡色
+  --accent-amber-dim: rgba(212, 165, 116, 0.15);
+  --accent-emerald: #7a9e6d;    // 抹茶绿
+  --accent-emerald-dim: rgba(122, 158, 109, 0.1);
+  --accent-rose: #b5656d;       // 玫瑰咖
+  --accent-rose-dim: rgba(181, 101, 109, 0.12);
+
+  // 文字：奶泡色层次
+  --text-primary: #e5e0dc;      // 奶泡白 - 带暖调
+  --text-secondary: #a39898;    // 淡奶泡
+  --text-muted: #726a6a;        // 残奶泡
+  --text-code: #6aaa64;
+
+  // 边框：咖啡渣色
+  --border-subtle: #353130;     // 淡咖啡渣
+  --border-default: #453d3a;    // 咖啡渣
+  --border-glow: rgba(106, 170, 100, 0.28);
+
+  // 阴影：咖啡弥散
+  --shadow-soft: 0 2px 12px rgba(26, 24, 22, 0.35);
+  --shadow-medium: 0 6px 24px rgba(26, 24, 22, 0.45);
+  --shadow-glow-cyan: 0 0 24px rgba(106, 170, 100, 0.25);
+  --shadow-glow-amber: 0 0 24px rgba(212, 165, 116, 0.25);
+  --shadow-glow-emerald: 0 0 24px rgba(122, 158, 109, 0.25);
+}

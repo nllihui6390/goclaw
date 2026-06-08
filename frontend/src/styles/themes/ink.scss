@@ -1,0 +1,86 @@
+// ═════════════════════════════════════════════════════════════════════════════════
+// 墨韵主题 (Ink Theme)
+// 东方水墨风格 - 摒弃纯黑纯白的数码冰冷感，采用水墨画中的灰调层次
+// 不是黑，是"墨灰"；不是白，是"宣纸色"
+// ═════════════════════════════════════════════════════════════════════════════════
+
+// ─────────── 亮色模式：宣纸上的水墨 ───────────
+html.theme-ink:root {
+  // 背景：三层宣纸层次，避免纯白
+  --bg-deep: #f7f6f3;           // 宣纸底色 - 带微暖的米白
+  --bg-surface: #fdfbf7;        // 新宣纸 - 更亮但仍有质感
+  --bg-elevated: #f0ede8;       // 旧宣纸 - 略暗，如卷轴边缘
+  --bg-glass: rgba(253, 251, 247, 0.92);
+  --bg-glass-light: rgba(0, 0, 0, 0.03);
+
+  // 主色：青瓷绿 - 不是蓝，是青瓷釉色
+  --accent-cyan: #3d7a6b;       // 青瓷色
+  --accent-cyan-dim: rgba(61, 122, 107, 0.08);
+
+  // 辅色：古调系
+  --accent-amber: #b8834a;      // 鎏金褐
+  --accent-amber-dim: rgba(184, 131, 74, 0.1);
+  --accent-emerald: #4a7a5c;    // 翠竹绿
+  --accent-emerald-dim: rgba(74, 122, 92, 0.08);
+  --accent-rose: #7a4a4a;       // 朱砂褐
+  --accent-rose-dim: rgba(122, 74, 74, 0.1);
+
+  // 文字：墨色层次
+  --text-primary: #2a2725;      // 浓墨色 - 不是纯黑
+  --text-secondary: #5a5552;    // 中墨色
+  --text-muted: #8a8582;        // 淡墨色
+  --text-code: #3d7a6b;
+
+  // 边框：墨迹边界
+  --border-subtle: #e5e2dc;     // 淡墨痕
+  --border-default: #d5d0c8;    // 墨痕
+  --border-glow: rgba(61, 122, 107, 0.25);
+
+  // 阴影：墨晕效果
+  --shadow-soft: 0 2px 8px rgba(42, 39, 37, 0.08);
+  --shadow-medium: 0 4px 16px rgba(42, 39, 37, 0.12);
+  --shadow-glow-cyan: 0 0 20px rgba(61, 122, 107, 0.15);
+  --shadow-glow-amber: 0 0 20px rgba(184, 131, 74, 0.15);
+  --shadow-glow-emerald: 0 0 20px rgba(74, 122, 92, 0.15);
+}
+
+// ─────────── 深色模式：夜幕下的宣纸 ───────────
+html.theme-ink[data-theme="dark"],
+html.theme-ink.dark {
+  // 背景：三层墨灰层次，避免纯黑
+  --bg-deep: #12131a;           // 夜墨色 - 最深层，带微蓝调
+  --bg-surface: #1a1c24;        // 浓墨色 - 次深，略暖
+  --bg-elevated: #22252f;       // 淡墨色 - 浮起层，如墨晕边缘
+  --bg-glass: rgba(26, 28, 36, 0.88);
+  --bg-glass-light: rgba(255, 255, 255, 0.04);
+
+  // 主色：铜器青绿 - 温润、有质感
+  --accent-cyan: #4a9e8c;       // 青铜绿
+  --accent-cyan-dim: rgba(74, 158, 140, 0.12);
+
+  // 辅色：古调系
+  --accent-amber: #c8956c;      // 鎏金色 - 不是亮黄，是铜器上的金
+  --accent-amber-dim: rgba(200, 149, 108, 0.15);
+  --accent-emerald: #5c8a6d;    // 翠竹色 - 淡雅的绿
+  --accent-emerald-dim: rgba(92, 138, 109, 0.1);
+  --accent-rose: #8b5a5a;       // 朱砂红 - 不是亮红，是温润的朱砂
+  --accent-rose-dim: rgba(139, 90, 90, 0.12);
+
+  // 文字：不是纯白，是宣纸色
+  --text-primary: #e8e6e3;      // 宣纸白 - 带微暖调
+  --text-secondary: #a3a0a0;    // 淡墨灰 - 模糊的墨迹
+  --text-muted: #6b6868;        // 残墨灰 - 最淡
+  --text-code: #4a9e8c;
+
+  // 边框：墨迹边界
+  --border-subtle: #2a2d38;     // 淡墨痕
+  --border-default: #353946;    // 墨痕
+  --border-glow: rgba(74, 158, 140, 0.28);
+
+  // 阴影：墨晕效果
+  --shadow-soft: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --shadow-medium: 0 6px 24px rgba(0, 0, 0, 0.45);
+  --shadow-glow-cyan: 0 0 24px rgba(74, 158, 140, 0.25), 0 0 48px rgba(74, 158, 140, 0.1);
+  --shadow-glow-amber: 0 0 20px rgba(200, 149, 108, 0.25);
+  --shadow-glow-emerald: 0 0 20px rgba(92, 138, 109, 0.25);
+}
