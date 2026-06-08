@@ -68,6 +68,8 @@ func serveFrontend(rw http.ResponseWriter, r *http.Request) {
 }
 
 // mimeType 根据文件扩展名返回对应的 MIME 类型
+
+// mimeType 根据文件扩展名返回对应的 MIME 类型
 func mimeType(path string) string {
 	switch {
 	case strings.HasSuffix(path, ".html"):
@@ -75,19 +77,23 @@ func mimeType(path string) string {
 	case strings.HasSuffix(path, ".css"):
 		return "text/css; charset=utf-8"
 	case strings.HasSuffix(path, ".mjs"):
-		return "application/javascript; charset=utf-8"
+		return "text/javascript; charset=utf-8"
 	case strings.HasSuffix(path, ".js"):
-		return "application/javascript; charset=utf-8"
+		return "text/javascript; charset=utf-8"
 	case strings.HasSuffix(path, ".wasm"):
 		return "application/wasm"
 	case strings.HasSuffix(path, ".json"):
 		return "application/json"
 	case strings.HasSuffix(path, ".png"):
 		return "image/png"
+	case strings.HasSuffix(path, ".jpg"), strings.HasSuffix(path, ".jpeg"):
+		return "image/jpeg"
 	case strings.HasSuffix(path, ".svg"):
 		return "image/svg+xml"
 	case strings.HasSuffix(path, ".ico"):
 		return "image/x-icon"
+	case strings.HasSuffix(path, ".txt"):
+		return "text/plain; charset=utf-8"
 	default:
 		return "application/octet-stream"
 	}

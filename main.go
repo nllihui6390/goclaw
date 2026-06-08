@@ -11,9 +11,9 @@ import (
 	"go-claw/global"
 	"go-claw/internal/bootstrap"
 	"go-claw/internal/gateway"
+	glog "go-claw/pkg/log"
 	"go-claw/server"
 	"go-claw/server/controllers/api"
-	glog "go-claw/pkg/log"
 )
 
 // runServer 启动 go-claw 完整服务
