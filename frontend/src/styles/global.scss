@@ -126,9 +126,9 @@ html, body, #app {
 .el-dialog {
   background: $bg-surface; border: 1px solid $border-subtle; border-radius: $radius-xl;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  .el-dialog__header { border-bottom: 1px solid $border-subtle; padding: 20px 24px; .el-dialog__title { color: $text-primary; font-weight: 600; } }
+  .el-dialog__header { border-bottom: 1px solid $border-subtle; padding: 10px 24px; .el-dialog__title { color: $text-primary; font-weight: 600; } }
   .el-dialog__body { padding: 24px; color: $text-secondary; }
-  .el-dialog__footer { border-top: 1px solid $border-subtle; padding: 16px 24px; }
+  .el-dialog__footer { border-top: 1px solid $border-subtle; padding: 10px 24px; }
 }
 .el-overlay { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
 
