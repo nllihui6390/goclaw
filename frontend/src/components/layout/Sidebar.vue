@@ -1,47 +1,18 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import { computed, inject } from 'vue'
+import { HOME_PATH } from '@/router/routes'
+import { useNavigationStore } from '@/stores/navigation'
 import logoImage from '@/assets/logo.png'
 import logo1Image from '@/assets/logo1.png'
 
 const route = useRoute()
 const router = useRouter()
+const navigationStore = useNavigationStore()
 const sidebarCollapsed = inject('sidebarCollapsed')
 
 const currentLogo = computed(() => sidebarCollapsed.value ? logoImage : logo1Image)
-
-const menuGroups = [
-  {
-    label: '对话',
-    items: [
-      { path: '/chat', icon: 'ChatDotRound', label: '聊天' },
-    ]
-  },
-  {
-    label: '控制',
-    items: [
-      { path: '/channels', icon: 'Connection', label: '频道管理' },
-      { path: '/sessions', icon: 'ChatLineSquare', label: '会话管理' },
-      { path: '/cron-jobs', icon: 'Timer', label: '定时任务' },
-    ]
-  },
-  {
-    label: 'Agent',
-    items: [
-      { path: '/agent-config', icon: 'Setting', label: 'Agent配置' },
-      { path: '/skills', icon: 'MagicStick', label: '技能管理' },
-      { path: '/tools', icon: 'SetUp', label: '工具管理' },
-      { path: '/files', icon: 'Document', label: '文件管理' },
-    ]
-  },
-  {
-    label: '设置',
-    items: [
-      { path: '/models', icon: 'Cpu', label: '模型管理' },
-      { path: '/debug', icon: 'Monitor', label: '调试日志' },
-    ]
-  },
-]
+const menuGroups = computed(() => navigationStore.menuGroups)
 
 const activePath = computed(() => route.path)
 
@@ -53,7 +24,7 @@ function navigate(path) {
 <template>
   <aside class="sidebar">
     <!-- Logo header -->
-    <div class="sidebar-header" @click="navigate('/chat')">
+    <div class="sidebar-header" @click="navigate(HOME_PATH)">
       <img :src="currentLogo" alt="go-claw" class="logo-icon" />
     </div>
 
