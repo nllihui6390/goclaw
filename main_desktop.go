@@ -25,24 +25,15 @@ var desktopAssets embed.FS
 func main() {
 	// 首次运行：生成默认配置
 	if _, err := os.Stat("config.json"); os.IsNotExist(err) {
-		workspaceDir := "clawdata/workspaces"
+		defaultCfg := config.WriteInitialDefaults()
+		if saveErr := config.SaveConfig("config.json", defaultCfg); saveErr != nil {
+			log.Printf("保存默认配置失败: %v", saveErr)
+		}
+		workspaceDir := filepath.Join(defaultCfg.Gateway.DataDir, defaultCfg.Gateway.Workspace)
 		os.MkdirAll(filepath.Join(workspaceDir, "default"), 0755)
-
-		// 写入根配置
-		rootConfig := `{
-  "gateway": {"default_agent":"default","session_ttl":0,"data_dir":"clawdata","workspace":"workspaces"},
-  "providers":{
-    "deepseek":{"type":"openai","base_url":"https://api.deepseek.com/v1","api_key":"","default_model":"deepseek-chat"}
-  },
-  "agents":{"default_agent":"default","order":["default"],"profiles":{"default":{"enabled":true}}},
-  "cron":{"enabled":false},
-  "logging":{"level":"info","file_path":"logs/app.log","console":false}
-}`
-		os.WriteFile("config.json", []byte(rootConfig), 0644)
-
-		// 写入 default agent 配置
-		agentConfig := config.GetDefaultAgentConfig("default", "deepseek", "deepseek-chat")
-		config.SaveAgentConfig(workspaceDir, "default", agentConfig)
+		if writeErr := config.WriteInitialConfigs(workspaceDir); writeErr != nil {
+			log.Printf("写入 Agent 配置失败: %v", writeErr)
+		}
 	}
 
 	app, err := bootstrap.NewApp()

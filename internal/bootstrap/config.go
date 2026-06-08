@@ -1,10 +1,8 @@
 package bootstrap
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"go-claw/config"
 
@@ -20,24 +18,27 @@ func (app *App) loadConfig() error {
 	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Println("首次运行，启动配置向导...")
-			cfg, _ = config.RunWizard()
+			// 首次运行：直接生成默认配置（后续可通过 Web 管理页面配置）
+			fmt.Println("首次运行，生成默认配置（可通过 Web 管理页面修改）...")
+			cfg = getDefaultRootConfig()
+			if saveErr := config.SaveConfig("config.json", cfg); saveErr != nil {
+				fmt.Printf("保存默认配置失败: %v\n", saveErr)
+			} else {
+				fmt.Println("默认配置已保存至 config.json")
+			}
+			// 写入默认 Agent 配置
+			workspaceDir := cfg.Gateway.DataDir + "/" + cfg.Gateway.Workspace
+			if writeErr := config.WriteInitialConfigs(workspaceDir); writeErr != nil {
+				fmt.Printf("写入 Agent 配置失败: %v\n", writeErr)
+			}
 		} else {
 			// 可能是旧格式，尝试迁移
 			fmt.Printf("配置文件格式可能需要迁移: %v\n", err)
 			newCfg, agentConfigs, migrated, migrateErr := config.DetectAndMigrate("config.json", "")
 			if migrateErr != nil {
 				fmt.Printf("迁移失败: %v\n", migrateErr)
-				fmt.Print("是否重新配置? [Y/n]: ")
-				reader := bufio.NewReader(os.Stdin)
-				line, _ := reader.ReadString('\n')
-				line = strings.TrimSpace(strings.ToLower(line))
-				if line != "n" && line != "no" {
-					cfg, _ = config.RunWizard()
-				} else {
-					cfg = getDefaultRootConfig()
-					fmt.Printf("使用默认配置（注意：默认配置无有效 API Key）\n")
-				}
+				fmt.Println("使用默认配置启动...")
+				cfg = getDefaultRootConfig()
 			} else if migrated {
 				cfg = newCfg
 				// 迁移后保存根配置和 agent 配置
@@ -49,16 +50,8 @@ func (app *App) loadConfig() error {
 				}
 				fmt.Println("配置已从旧格式迁移完成")
 			} else {
-				fmt.Print("是否重新配置? [Y/n]: ")
-				reader := bufio.NewReader(os.Stdin)
-				line, _ := reader.ReadString('\n')
-				line = strings.TrimSpace(strings.ToLower(line))
-				if line != "n" && line != "no" {
-					cfg, _ = config.RunWizard()
-				} else {
-					cfg = getDefaultRootConfig()
-					fmt.Printf("使用默认配置（注意：默认配置无有效 API Key）\n")
-				}
+				fmt.Println("使用默认配置启动...")
+				cfg = getDefaultRootConfig()
 			}
 		}
 	} else {
