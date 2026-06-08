@@ -5,6 +5,7 @@ logs
 *.exe~
 .env
 .claude
+.agents
 config.json
 data.json
 CLAUDE.md
