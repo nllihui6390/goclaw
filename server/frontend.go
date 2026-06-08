@@ -68,8 +68,12 @@ func mimeType(path string) string {
 		return "text/html; charset=utf-8"
 	case strings.HasSuffix(path, ".css"):
 		return "text/css; charset=utf-8"
+	case strings.HasSuffix(path, ".mjs"):
+		return "application/javascript; charset=utf-8"
 	case strings.HasSuffix(path, ".js"):
 		return "application/javascript; charset=utf-8"
+	case strings.HasSuffix(path, ".wasm"):
+		return "application/wasm"
 	case strings.HasSuffix(path, ".json"):
 		return "application/json"
 	case strings.HasSuffix(path, ".png"):
