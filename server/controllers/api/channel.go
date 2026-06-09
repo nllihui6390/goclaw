@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"go-claw/global"
 )
 
 // HandleChannels 返回渠道列表（GET）
@@ -51,6 +49,6 @@ func HandleChannelByID(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusInternalServerError, "update failed")
 		return
 	}
-	global.ReloadConfig()
+	// 返回更新成功的响应
 	writeJSON(rw, http.StatusOK, map[string]string{"status": "updated"})
 }

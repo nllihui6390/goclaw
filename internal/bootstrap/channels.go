@@ -11,8 +11,8 @@ import (
 func toDisplayConfig(showToolMessages, showThinking, streamOutput bool) channel.DisplayConfig {
 	return channel.DisplayConfig{
 		ShowToolMessages: showToolMessages,
-		ShowThinking:    showThinking,
-		StreamOutput:    streamOutput,
+		ShowThinking:     showThinking,
+		StreamOutput:     streamOutput,
 	}
 }
 

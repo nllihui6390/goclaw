@@ -19,17 +19,14 @@ import (
 // 对比新旧配置，增删改 Agent
 func (app *App) SyncAgents(newCfg *config.Config) {
 	app.logger.Info("开始同步 Agent 配置")
-
 	// workspace 目录
 	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
-
 	// 获取当前已注册的 agent 名称
 	currentAgents := app.Gateway.GetAgents()
 	currentNames := make(map[string]bool)
 	for name := range currentAgents {
 		currentNames[name] = true
 	}
-
 	// 新配置中的 agent 名称（从 profiles）
 	newNames := make(map[string]bool)
 	for name, profile := range newCfg.Agents.Profiles {
@@ -37,7 +34,6 @@ func (app *App) SyncAgents(newCfg *config.Config) {
 			newNames[name] = true
 		}
 	}
-
 	// 1. 删除不再存在或禁用的 Agent
 	for name := range currentNames {
 		if !newNames[name] {
@@ -60,6 +56,27 @@ func (app *App) SyncAgents(newCfg *config.Config) {
 	app.Config = newCfg
 
 	app.logger.Info("Agent 配置同步完成", "total", len(newNames))
+}
+
+// 注销并且删除指定 Agent - 并且删除 agent 工作空间目录
+func (app *App) DeleteAgent(name string) error {
+	app.Gateway.UnregisterAgent(name)
+	// 删除 agent 工作空间目录
+	workspaceDir := filepath.Join(app.Config.Gateway.DataDir, app.Config.Gateway.Workspace)
+	agentWorkspaceDir := filepath.Join(workspaceDir, name)
+	os.RemoveAll(agentWorkspaceDir)
+	slog.Info("已移除 Agent", "name", name)
+	return nil
+}
+
+// 热加载单个 Agent 配置（热加载）
+func (app *App) ReloadAgent(agentName string) error {
+	workspaceDir := filepath.Join(app.Config.Gateway.DataDir, app.Config.Gateway.Workspace)
+	// 注销 agent
+	app.Gateway.UnregisterAgent(agentName)
+	// 重新创建或更新 agent
+	app.createOrUpdateAgentFromJSON(agentName, workspaceDir, app.Config)
+	return nil
 }
 
 // createOrUpdateAgentFromJSON 从 agent.json 创建或更新单个 Agent
@@ -219,7 +236,6 @@ func initDataDirs(workspaceDir, sessionsDir string, logger *slog.Logger) {
 			logger.Error("创建目录失败", "dir", d, "err", err)
 		}
 	}
-
 	// 使用共享的人设文件初始化逻辑
 	workspace.InitPersonaFiles(workspaceDir)
 

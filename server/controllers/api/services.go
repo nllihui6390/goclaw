@@ -90,13 +90,6 @@ func SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) 
 	}
 }
 
-// SetChannelChangedCallback 设置渠道变化回调（用于动态注册渠道）
-func SetChannelChangedCallback(cb func(agentName, channelName string)) {
-	if channelSvc != nil {
-		channelSvc.SetChannelChangedCallback(cb)
-	}
-}
-
 // writeJSON 写入 JSON 响应
 func writeJSON(rw http.ResponseWriter, status int, data interface{}) {
 	rw.Header().Set("Content-Type", "application/json")

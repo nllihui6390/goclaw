@@ -27,9 +27,9 @@ type Config struct {
 
 // AgentsRefConfig Agent 轻量引用配置（根 config.json 中）
 type AgentsRefConfig struct {
-	DefaultAgent string                       `json:"default_agent"` // 默认 agent
-	Order        []string                     `json:"order"`         // 显示顺序
-	Profiles     map[string]AgentProfileRef   `json:"profiles"`      // agent 引用（key = agent name）
+	DefaultAgent string                     `json:"default_agent"` // 默认 agent
+	Order        []string                   `json:"order"`         // 显示顺序
+	Profiles     map[string]AgentProfileRef `json:"profiles"`      // agent 引用（key = agent name）
 }
 
 // AgentProfileRef Agent 轻量引用（仅 id + enabled）
@@ -60,8 +60,8 @@ type CronJob struct {
 
 // MCPConfig MCP 集成配置
 type MCPConfig struct {
-	Enabled  bool             `json:"enabled"`
-	Servers  []MCPServerConfig `json:"servers"`
+	Enabled bool              `json:"enabled"`
+	Servers []MCPServerConfig `json:"servers"`
 }
 
 // MCPServerConfig MCP 服务器配置
@@ -76,7 +76,7 @@ type MCPServerConfig struct {
 
 // ACPConfig ACP 协议配置
 type ACPConfig struct {
-	Enabled bool            `json:"enabled"`
+	Enabled bool             `json:"enabled"`
 	Agents  []ACPAgentConfig `json:"agents"`
 }
 
@@ -144,23 +144,23 @@ type AuthConfig struct {
 
 // AgentConfig Agent 完整配置（agent.json）
 type AgentConfig struct {
-	Name                   string         `json:"name"`
-	DisplayName            string         `json:"display_name"`          // 中文展示名称
-	Description            string         `json:"description"`           // 描述说明
-	Provider               string         `json:"provider"`
-	Model                  string         `json:"model"`
-	SystemPrompt           string         `json:"system_prompt"`
-	Tools                  []string       `json:"tools"`
-	MaxIterations          int            `json:"max_iterations"`
-	MaxTokens              int            `json:"max_tokens"`
-	CompactThresholdRatio  float64        `json:"compact_threshold_ratio"`
-	ReserveThresholdRatio  float64        `json:"reserve_threshold_ratio"`
-	ToolResultMaxBytes     int            `json:"tool_result_max_bytes"`
-	ToolResultExemptTools  []string       `json:"tool_result_exempt_tools"`
-	ToolResultExemptExts   []string       `json:"tool_result_exempt_extensions"`
-	SupportsImage          bool           `json:"supports_image"`
-	SupportsVideo          bool           `json:"supports_video"`
-	Channels               ChannelsConfig `json:"channels"` // Agent 自己的渠道配置
+	Name                  string         `json:"name"`
+	DisplayName           string         `json:"display_name"` // 中文展示名称
+	Description           string         `json:"description"`  // 描述说明
+	Provider              string         `json:"provider"`
+	Model                 string         `json:"model"`
+	SystemPrompt          string         `json:"system_prompt"`
+	Tools                 []string       `json:"tools"`
+	MaxIterations         int            `json:"max_iterations"`
+	MaxTokens             int            `json:"max_tokens"`
+	CompactThresholdRatio float64        `json:"compact_threshold_ratio"`
+	ReserveThresholdRatio float64        `json:"reserve_threshold_ratio"`
+	ToolResultMaxBytes    int            `json:"tool_result_max_bytes"`
+	ToolResultExemptTools []string       `json:"tool_result_exempt_tools"`
+	ToolResultExemptExts  []string       `json:"tool_result_exempt_extensions"`
+	SupportsImage         bool           `json:"supports_image"`
+	SupportsVideo         bool           `json:"supports_video"`
+	Channels              ChannelsConfig `json:"channels"` // Agent 自己的渠道配置
 }
 
 // ChannelsConfig 渠道配置集合
@@ -672,23 +672,23 @@ func DetectAndMigrate(path string, workspaceDir string) (*Config, []*AgentConfig
 	for _, oldAgent := range oldCfg.Agents {
 		// 构建 agent.json 配置
 		agentCfg := &AgentConfig{
-			Name:                   oldAgent.Name,
-			DisplayName:            oldAgent.DisplayName,
-			Description:            oldAgent.Description,
-			Provider:               oldAgent.Provider,
-			Model:                  oldAgent.Model,
-			SystemPrompt:           oldAgent.SystemPrompt,
-			Tools:                  oldAgent.Tools,
-			MaxIterations:          oldAgent.MaxIterations,
-			MaxTokens:              oldAgent.MaxTokens,
-			CompactThresholdRatio:  oldAgent.CompactThresholdRatio,
-			ReserveThresholdRatio:  oldAgent.ReserveThresholdRatio,
-			ToolResultMaxBytes:     oldAgent.ToolResultMaxBytes,
-			ToolResultExemptTools:  oldAgent.ToolResultExemptTools,
-			ToolResultExemptExts:   oldAgent.ToolResultExemptExts,
-			SupportsImage:          oldAgent.SupportsImage,
-			SupportsVideo:          oldAgent.SupportsVideo,
-			Channels:               oldCfg.Channels, // 全局 channels 迁移到每个 agent
+			Name:                  oldAgent.Name,
+			DisplayName:           oldAgent.DisplayName,
+			Description:           oldAgent.Description,
+			Provider:              oldAgent.Provider,
+			Model:                 oldAgent.Model,
+			SystemPrompt:          oldAgent.SystemPrompt,
+			Tools:                 oldAgent.Tools,
+			MaxIterations:         oldAgent.MaxIterations,
+			MaxTokens:             oldAgent.MaxTokens,
+			CompactThresholdRatio: oldAgent.CompactThresholdRatio,
+			ReserveThresholdRatio: oldAgent.ReserveThresholdRatio,
+			ToolResultMaxBytes:    oldAgent.ToolResultMaxBytes,
+			ToolResultExemptTools: oldAgent.ToolResultExemptTools,
+			ToolResultExemptExts:  oldAgent.ToolResultExemptExts,
+			SupportsImage:         oldAgent.SupportsImage,
+			SupportsVideo:         oldAgent.SupportsVideo,
+			Channels:              oldCfg.Channels, // 全局 channels 迁移到每个 agent
 		}
 
 		// 第一个 agent 使用原 channels，其他 agent 使用空配置
@@ -738,7 +738,9 @@ func GetDefaultChannelsConfig() ChannelsConfig {
 			Enabled: false,
 		},
 		WeChat: WeChatConfig{
-			Enabled: false,
+			Enabled:      false,
+			BotTokenFile: "clawdata/wechat_bot_token",
+			MediaDir:     "clawdata/media/wechat",
 		},
 	}
 }

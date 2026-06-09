@@ -241,38 +241,8 @@ func (s *ConfigService) GetProviders() map[string]interface{} {
 	return providers
 }
 
-// UpdateAgent 更新 Agent 配置（写入 agent.json）
-func (s *ConfigService) UpdateAgent(name string, agentConfig map[string]interface{}) error {
-	workspaceDir := s.WorkspaceBase()
-
-	// 确保 agent 目录存在
-	os.MkdirAll(filepath.Join(workspaceDir, name), 0755)
-
-	// 将 map 转为 AgentConfig 结构体
-	agentData, _ := json.Marshal(agentConfig)
-	var agentCfg config.AgentConfig
-	if err := json.Unmarshal(agentData, &agentCfg); err != nil {
-		return err
-	}
-
-	// 确保 name 正确
-	agentCfg.Name = name
-
-	// 请求未带 channels 时：新建 agent 用默认渠道配置，更新已有 agent 则保留原渠道配置
-	if _, hasChannels := agentConfig["channels"]; !hasChannels {
-		if existing, err := config.LoadAgentConfig(workspaceDir, name); err == nil {
-			agentCfg.Channels = existing.Channels
-		} else {
-			agentCfg.Channels = config.GetDefaultChannelsConfig()
-		}
-	}
-
-	// 保存 agent.json
-	if err := config.SaveAgentConfig(workspaceDir, name, &agentCfg); err != nil {
-		return err
-	}
-
-	// 更新根配置的 profiles（确保 agent 在 profiles 中）
+// AddProfile 将 agent 添加到根配置 profiles/order 中并写回 config.json
+func (s *ConfigService) AddProfile(name string) {
 	s.mu.Lock()
 	agentsSection, _ := s.config["agents"].(map[string]interface{})
 	if agentsSection == nil {
@@ -286,36 +256,18 @@ func (s *ConfigService) UpdateAgent(name string, agentConfig map[string]interfac
 	}
 	if _, exists := profiles[name]; !exists {
 		profiles[name] = map[string]interface{}{"enabled": true}
-		// 更新 order
 		order, _ := agentsSection["order"].([]interface{})
 		order = append(order, name)
 		agentsSection["order"] = order
 
-		// 写回根配置
 		data, _ := json.MarshalIndent(s.config, "", "  ")
 		os.WriteFile("config.json", data, 0644)
 	}
 	s.mu.Unlock()
-
-	// 通知观察者
-	for _, w := range s.watchers {
-		w()
-	}
-	return nil
 }
 
-// DeleteAgent 删除 Agent（删除 agent.json + 从 profiles 移除）
-func (s *ConfigService) DeleteAgent(name string) error {
-	if name == "default" {
-		return nil // 不允许删除 default
-	}
-
-	workspaceDir := s.WorkspaceBase()
-
-	// 删除 agent.json
-	config.DeleteAgentConfig(workspaceDir, name)
-
-	// 从根配置的 profiles 移除
+// RemoveProfile 从根配置 profiles/order 中移除 agent 并写回 config.json
+func (s *ConfigService) RemoveProfile(name string) {
 	s.mu.Lock()
 	agentsSection, _ := s.config["agents"].(map[string]interface{})
 	if agentsSection != nil {
@@ -323,7 +275,6 @@ func (s *ConfigService) DeleteAgent(name string) error {
 		if profiles != nil {
 			delete(profiles, name)
 		}
-		// 从 order 移除
 		order, _ := agentsSection["order"].([]interface{})
 		newOrder := make([]interface{}, 0)
 		for _, o := range order {
@@ -333,17 +284,17 @@ func (s *ConfigService) DeleteAgent(name string) error {
 		}
 		agentsSection["order"] = newOrder
 
-		// 写回根配置
 		data, _ := json.MarshalIndent(s.config, "", "  ")
 		os.WriteFile("config.json", data, 0644)
 	}
 	s.mu.Unlock()
+}
 
-	// 通知观察者
+// NotifyWatchers 通知配置变更观察者
+func (s *ConfigService) NotifyWatchers() {
 	for _, w := range s.watchers {
 		w()
 	}
-	return nil
 }
 
 // UpdateChannel 更新指定 agent 的渠道配置

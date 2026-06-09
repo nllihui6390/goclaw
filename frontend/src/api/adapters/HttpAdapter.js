@@ -82,8 +82,9 @@ export class HttpAdapter {
 
   // Agent
   getAgents() { return http.get('/agents').then(r => r.data) }
-  updateAgent(name, config) { return http.put(`/agents/${name}`, config).then(r => r.data) }
-  deleteAgent(name) { return http.delete(`/agents/${name}`).then(r => r.data) }
+  createAgent(config) { return http.post('/agents/create', config).then(r => r.data) }
+  updateAgent(name, config) { return http.put(`/agents/update/${name}`, config).then(r => r.data) }
+  deleteAgent(name) { return http.delete(`/agents/delete/${name}`).then(r => r.data) }
 
   // 频道 (per-agent)
   getChannels(agent) { return http.get('/channels', { params: { agent } }).then(r => r.data) }

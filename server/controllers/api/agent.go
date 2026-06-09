@@ -14,36 +14,38 @@ func HandleAgents(rw http.ResponseWriter, r *http.Request) {
 	writeJSON(rw, http.StatusOK, agents)
 }
 
-// HandleAgentByID 更新/删除指定 Agent 配置（PUT/DELETE）
-func HandleAgentByID(rw http.ResponseWriter, r *http.Request) {
-	// 解析 URL: /api/v1/agents/{name}
-	name := strings.TrimPrefix(r.URL.Path, "/api/v1/agents/")
+// HandleDeleteAgent 删除指定 Agent 配置（DELETE）
+func HandleDeleteAgent(rw http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/v1/agents/delete/")
 	name = strings.TrimSuffix(name, "/")
 	if name == "" {
 		writeError(rw, http.StatusBadRequest, "agent name required")
 		return
 	}
 
-	if r.Method == http.MethodDelete {
-		if name == "default" {
-			writeError(rw, http.StatusForbidden, "default agent cannot be deleted")
-			return
-		}
-		if err := agentSvc.Delete(name); err != nil {
-			writeError(rw, http.StatusInternalServerError, "delete failed")
-			return
-		}
-		// 从 gateway 中注销 agent
-		if gw := global.GetGateway(); gw != nil {
-			gw.UnregisterAgent(name)
-		}
-		global.ReloadConfig()
-		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
+	if name == "default" {
+		writeError(rw, http.StatusForbidden, "default agent cannot be deleted")
 		return
 	}
+	if err := agentSvc.Delete(name); err != nil {
+		writeError(rw, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	// 从 gateway 中注销 agent
+	// if gw := global.GetGateway(); gw != nil {
+	// 	gw.UnregisterAgent(name)
+	// }
+	// 注销并且删除指定agent的配置文件
+	global.RemoveAgentAndConfig(name)
+	writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
+}
 
-	if r.Method != http.MethodPut {
-		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+// HandleUpdateAgent 更新指定 Agent 配置（PUT）
+func HandleUpdateAgent(rw http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/v1/agents/update/")
+	name = strings.TrimSuffix(name, "/")
+	if name == "" {
+		writeError(rw, http.StatusBadRequest, "agent name required")
 		return
 	}
 
@@ -57,6 +59,30 @@ func HandleAgentByID(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusInternalServerError, "update failed")
 		return
 	}
-	global.ReloadConfig()
+	// 热加载单个 Agent 配置（热加载）
+	global.ReloadAgent(name)
 	writeJSON(rw, http.StatusOK, updateData)
+}
+
+// HandleCreateAgent 创建新 Agent（POST）
+func HandleCreateAgent(rw http.ResponseWriter, r *http.Request) {
+	var createData map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&createData); err != nil {
+		writeError(rw, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	name, _ := createData["name"].(string)
+	if name == "" {
+		writeError(rw, http.StatusBadRequest, "agent name required")
+		return
+	}
+
+	if err := agentSvc.Create(name, createData); err != nil {
+		writeError(rw, http.StatusInternalServerError, "create failed")
+		return
+	}
+	// 热加载单个 Agent 配置（热加载）
+	global.ReloadAgent(name)
+	writeJSON(rw, http.StatusOK, createData)
 }

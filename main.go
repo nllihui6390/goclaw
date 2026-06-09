@@ -57,6 +57,7 @@ func runServer() {
 	api.SetSkillChangedCallback(func(agentName string, enabledSkills []string) {
 		app.ReloadAgentSkills(agentName, enabledSkills)
 	})
+
 	// 初始化管理后台 HTTP 服务
 	webServer := server.New(server.Config{Port: "8080"})
 	webServer.Start()

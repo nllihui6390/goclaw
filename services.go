@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	wailsCtrl "go-claw/server/controllers/wails"
 	"go-claw/internal/channel"
+	wailsCtrl "go-claw/server/controllers/wails"
 )
 
 // ChatService Wails 对话服务（薄包装层，保持在 main 包以保持绑定名 main.ChatService）
@@ -45,7 +45,7 @@ func (a *AppService) GetAgents() string                   { return a.inner.GetAg
 func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	return a.inner.UpdateAgent(name, agentJSON)
 }
-func (a *AppService) DeleteAgent(name string) string { return a.inner.DeleteAgent(name) }
+func (a *AppService) DeleteAgent(name string) string      { return a.inner.DeleteAgent(name) }
 func (a *AppService) GetChannels(agentName string) string { return a.inner.GetChannels(agentName) }
 func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) string {
 	return a.inner.UpdateChannel(agentName, channelName, configJSON)
@@ -65,9 +65,7 @@ func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 func (a *AppService) SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
 	a.inner.SetSkillChangedCallback(cb)
 }
-func (a *AppService) SetChannelChangedCallback(cb func(agentName, channelName string)) {
-	a.inner.SetChannelChangedCallback(cb)
-}
+
 func (a *AppService) GetSessions() string                   { return a.inner.GetSessions() }
 func (a *AppService) DeleteSession(sessionID string) string { return a.inner.DeleteSession(sessionID) }
 func (a *AppService) GetCronJobs() string                   { return a.inner.GetCronJobs() }

@@ -22,6 +22,20 @@ var (
 	G_START_TIME  time.Time           // 启动时间
 )
 
+// SetConfig 设置配置
+func SetConfig(cfg *config.Config) {
+	mu.Lock()
+	defer mu.Unlock()
+	G_CONFIG = cfg
+}
+
+// GetConfig 获取配置
+func GetConfig() *config.Config {
+	mu.RLock()
+	defer mu.RUnlock()
+	return G_CONFIG
+}
+
 // SetApp 设置 App 实例
 func SetApp(app *bootstrap.App) {
 	mu.Lock()
@@ -90,17 +104,36 @@ func GetGateway() *gateway.Gateway {
 // ReloadConfig 重新载入配置（从 config.json 读取并更新全局配置，不重启 App）
 // 同时更新 G_CONFIG 和 app.Config，确保 Agent 的 ConfigProvider 能读到最新值
 // 同步 Agent 配置（含工具、技能等），确保实时生效
-func ReloadConfig() error {
+// ReloadConfigOnly 加载配置并刷新，但不主动重启 Agent，仅更新全局配置和缓存
+func ReloadConfigOnly() error {
 	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
-		glog.Logger().Error("ReloadConfig 加载失败", "err", err)
+		glog.Logger().Error("ReloadConfigOnly 加载失败", "err", err)
 		return err
 	}
 	// 更新全局配置
 	SetConfig(cfg)
 	// 清除 agent 配置缓存
 	config.InvalidateAllAgentCache()
-	// 同步 Agent 配置（工具、技能等）
+	mu.RLock()
+	app := G_APP
+	mu.RUnlock()
+	if app != nil {
+		app.Config = cfg
+	}
+	glog.Logger().Info("配置已重新加载（仅全局，无 Agent 重启）", "agents", len(cfg.Agents.Profiles))
+	return nil
+}
+
+// ReloadConfigAndSyncAgents 加载配置并同步 Agent（刷新工具、技能等，适用热加载）
+func ReloadConfigAndSyncAgents() error {
+	cfg, err := config.LoadConfig("config.json")
+	if err != nil {
+		glog.Logger().Error("ReloadConfigAndSyncAgents 加载失败", "err", err)
+		return err
+	}
+	SetConfig(cfg)
+	config.InvalidateAllAgentCache()
 	mu.RLock()
 	app := G_APP
 	mu.RUnlock()
@@ -108,22 +141,31 @@ func ReloadConfig() error {
 		app.Config = cfg
 		app.SyncAgents(cfg)
 	}
-	glog.Logger().Info("配置已重新加载", "agents", len(cfg.Agents.Profiles))
+	glog.Logger().Info("配置已重新加载并同步 Agent", "agents", len(cfg.Agents.Profiles))
 	return nil
 }
 
-// SetConfig 设置配置
-func SetConfig(cfg *config.Config) {
-	mu.Lock()
-	defer mu.Unlock()
-	G_CONFIG = cfg
+// 网关中删除指定agent-并且删除 agent 工作空间目录
+// name=agent名称
+func RemoveAgentAndConfig(name string) error {
+	mu.RLock()
+	app := G_APP
+	mu.RUnlock()
+	if app == nil {
+		return errors.New("app not initialized")
+	}
+	return app.DeleteAgent(name)
 }
 
-// GetConfig 获取配置
-func GetConfig() *config.Config {
+// 热加载单个 Agent 配置（热加载）
+func ReloadAgent(name string) error {
 	mu.RLock()
-	defer mu.RUnlock()
-	return G_CONFIG
+	app := G_APP
+	mu.RUnlock()
+	if app == nil {
+		return errors.New("app not initialized")
+	}
+	return app.ReloadAgent(name)
 }
 
 // SetSessionIndex 设置会话索引
@@ -138,4 +180,15 @@ func GetSessionIndex() *store.SessionIndex {
 	mu.RLock()
 	defer mu.RUnlock()
 	return G_SESSION_IDX
+}
+
+// 重新加载配置后精准同步指定 agent 的某个渠道（注销旧的 + 注册新的）
+func ReloadConfigAndSyncSingleChannel(agentName, channelName string) {
+	ReloadConfigOnly()
+	mu.RLock()
+	app := G_APP
+	mu.RUnlock()
+	if app != nil {
+		app.SyncSingleChannel(GetConfig(), agentName, channelName)
+	}
 }

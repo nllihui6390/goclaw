@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"go-claw/global"
 	"sort"
 	"sync"
 )
@@ -9,10 +10,10 @@ import (
 // ChannelInfo 渠道信息
 type ChannelInfo struct {
 	Name    string                 `json:"name"`
-	Key     string                 `json:"key"`     // 渠道标识（用于前端匹配）
+	Key     string                 `json:"key"` // 渠道标识（用于前端匹配）
 	Type    string                 `json:"type"`
 	Enabled bool                   `json:"enabled"`
-	Status  string                 `json:"status"`  // "connected" 或 "disconnected"
+	Status  string                 `json:"status"` // "connected" 或 "disconnected"
 	Config  map[string]interface{} `json:"config"`
 }
 
@@ -24,10 +25,9 @@ type GatewayProvider interface {
 
 // ChannelService 渠道管理服务
 type ChannelService struct {
-	config            *ConfigService
-	gateway           GatewayProvider
-	mu                sync.RWMutex
-	OnChannelChanged  func(agentName, channelName string) // 渠道配置变更回调（触发动态注册）
+	config  *ConfigService
+	gateway GatewayProvider
+	mu      sync.RWMutex // 渠道配置变更回调（触发动态注册）
 }
 
 // NewChannelService 创建渠道服务
@@ -40,11 +40,6 @@ func (s *ChannelService) SetGateway(gw GatewayProvider) {
 	s.mu.Lock()
 	s.gateway = gw
 	s.mu.Unlock()
-}
-
-// SetChannelChangedCallback 设置渠道变更回调
-func (s *ChannelService) SetChannelChangedCallback(cb func(agentName, channelName string)) {
-	s.OnChannelChanged = cb
 }
 
 // channelTypes 渠道类型映射
@@ -65,45 +60,45 @@ var channelOrder = map[string]int{"console": 0, "lark": 1, "dingtalk": 2, "wecom
 // defaultChannelConfig 各渠道的默认配置
 var defaultChannelConfig = map[string]map[string]interface{}{
 	"console": {
-		"enabled":           true,
+		"enabled":            true,
 		"show_tool_messages": false,
-		"show_thinking":     false,
-		"stream_output":     true,
+		"show_thinking":      false,
+		"stream_output":      true,
 	},
 	"lark": {
-		"enabled":           false,
-		"app_id":            "",
-		"app_secret":        "",
+		"enabled":            false,
+		"app_id":             "",
+		"app_secret":         "",
 		"show_tool_messages": false,
-		"show_thinking":     false,
-		"stream_output":     true,
+		"show_thinking":      false,
+		"stream_output":      true,
 	},
 	"dingtalk": {
-		"enabled":           false,
-		"client_id":         "",
-		"client_secret":     "",
+		"enabled":            false,
+		"client_id":          "",
+		"client_secret":      "",
 		"show_tool_messages": false,
-		"show_thinking":     false,
-		"stream_output":     true,
+		"show_thinking":      false,
+		"stream_output":      true,
 	},
 	"wecom": {
-		"enabled":           false,
-		"bot_id":            "",
-		"secret":            "",
+		"enabled":            false,
+		"bot_id":             "",
+		"secret":             "",
 		"show_tool_messages": false,
-		"show_thinking":     false,
-		"stream_output":     true,
+		"show_thinking":      false,
+		"stream_output":      true,
 	},
 	"wechat": {
-		"enabled":           false,
-		"bot_token":         "",
-		"bot_token_file":    "",
-		"bot_prefix":        "",
-		"base_url":          "",
-		"media_dir":         "",
+		"enabled":            false,
+		"bot_token":          "",
+		"bot_token_file":     "clawdata/wechat_bot_token",
+		"bot_prefix":         "",
+		"base_url":           "",
+		"media_dir":          "clawdata/media/wechat",
 		"show_tool_messages": false,
-		"show_thinking":     false,
-		"stream_output":     true,
+		"show_thinking":      false,
+		"stream_output":      true,
 	},
 }
 
@@ -186,9 +181,11 @@ func (s *ChannelService) ListJSON(agentName string) string {
 // Update 更新指定 agent 的渠道配置
 func (s *ChannelService) Update(agentName, channelName string, channelConfig map[string]interface{}) error {
 	err := s.config.UpdateChannel(agentName, channelName, channelConfig)
-	if err == nil && s.OnChannelChanged != nil {
-		s.OnChannelChanged(agentName, channelName) // 传递变更的渠道信息
+	if err == nil {
+		// 重新加载配置并同步指定渠道
+		global.ReloadConfigAndSyncSingleChannel(agentName, channelName)
 	}
+
 	return err
 }
 

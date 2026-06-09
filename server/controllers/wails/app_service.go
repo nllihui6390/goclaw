@@ -100,7 +100,7 @@ func (a *AppService) SaveConfig(configJSON string) string {
 	if err := a.configSvc.SaveJSON(configJSON); err != nil {
 		return `{"error":"save failed"}`
 	}
-	global.ReloadConfig()
+	global.ReloadConfigAndSyncAgents()
 	return `{"status":"saved"}`
 }
 
@@ -110,14 +110,33 @@ func (a *AppService) GetAgents() string {
 	return a.agentSvc.ListJSON()
 }
 
+// CreateAgent 创建新 Agent（JSON 字符串）
+func (a *AppService) CreateAgent(agentJSON string) string {
+	var agentConfig map[string]interface{}
+	if err := json.Unmarshal([]byte(agentJSON), &agentConfig); err != nil {
+		return `{"error":"invalid JSON"}`
+	}
+	name, _ := agentConfig["name"].(string)
+	if name == "" {
+		return `{"error":"agent name required"}`
+	}
+	if err := a.agentSvc.Create(name, agentConfig); err != nil {
+		return `{"error":"create failed"}`
+	}
+	global.ReloadConfigAndSyncAgents()
+	return `{"status":"created"}`
+}
+
+// UpdateAgent 更新 Agent 配置（JSON 字符串）
 func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	if err := a.agentSvc.UpdateJSON(name, agentJSON); err != nil {
 		return `{"error":"update failed"}`
 	}
-	global.ReloadConfig()
+	global.ReloadConfigAndSyncAgents()
 	return `{"status":"updated"}`
 }
 
+// 删除 Agent 配置（DELETE）
 func (a *AppService) DeleteAgent(name string) string {
 	if name == "default" {
 		return `{"error":"default agent cannot be deleted"}`
@@ -129,12 +148,13 @@ func (a *AppService) DeleteAgent(name string) string {
 	if gw := global.GetGateway(); gw != nil {
 		gw.UnregisterAgent(name)
 	}
-	global.ReloadConfig()
+	// 注销并且删除指定agent的配置文件
+	global.RemoveAgentAndConfig(name)
 	return `{"status":"deleted"}`
 }
 
 // ─────────── Channels ───────────
-
+// GetChannels 获取渠道列表 JSON 字符串
 func (a *AppService) GetChannels(agentName string) string {
 	if agentName == "" {
 		agentName = a.channelSvc.GetDefaultAgent()
@@ -144,6 +164,7 @@ func (a *AppService) GetChannels(agentName string) string {
 	return string(data)
 }
 
+// UpdateChannel 更新渠道配置（JSON 字符串）
 func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) string {
 	if agentName == "" {
 		agentName = a.channelSvc.GetDefaultAgent()
@@ -151,7 +172,6 @@ func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) st
 	if err := a.channelSvc.UpdateJSON(agentName, channelName, configJSON); err != nil {
 		return `{"error":"update failed"}`
 	}
-	global.ReloadConfig()
 	return `{"status":"updated"}`
 }
 
@@ -221,11 +241,6 @@ func (a *AppService) SetEnabledSkills(agent, skillsJSON string) string {
 // SetSkillChangedCallback 设置技能变化回调（用于动态重载 agent 技能）
 func (a *AppService) SetSkillChangedCallback(cb func(agentName string, enabledSkills []string)) {
 	a.skillSvc.OnSkillsChanged = cb
-}
-
-// SetChannelChangedCallback 设置渠道变化回调（用于动态注册渠道）
-func (a *AppService) SetChannelChangedCallback(cb func(agentName, channelName string)) {
-	a.channelSvc.SetChannelChangedCallback(cb)
 }
 
 // ─────────── Sessions ───────────

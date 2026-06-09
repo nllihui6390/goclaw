@@ -8,10 +8,8 @@ import (
 	"os"
 	"time"
 
-	"go-claw/config"
 	"go-claw/global"
 	"go-claw/internal/bootstrap"
-	glog "go-claw/pkg/log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -38,17 +36,6 @@ func main() {
 	// 注入技能变化回调（动态重载 agent 技能）
 	appSvc.SetSkillChangedCallback(func(agentName string, enabledSkills []string) {
 		app.ReloadAgentSkills(agentName, enabledSkills)
-	})
-	// 注入渠道变化回调（动态注册渠道——精准同步）
-	appSvc.SetChannelChangedCallback(func(agentName, channelName string) {
-		newCfg, err := config.LoadConfig("config.json")
-		if err != nil {
-			glog.Logger().Error("渠道变更回调：加载配置失败", "err", err)
-			return
-		}
-		app.SyncSingleChannel(newCfg, agentName, channelName)
-		global.SetConfig(newCfg)
-		glog.Logger().Info("渠道已精准同步", "agent", agentName, "channel", channelName)
 	})
 
 	go app.Run()

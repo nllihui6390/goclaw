@@ -96,7 +96,11 @@ async function saveAgent() {
     return
   }
   try {
-    await api.updateAgent(currentAgent.value.name, currentAgent.value)
+    if (isEditing.value) {
+      await api.updateAgent(currentAgent.value.name, currentAgent.value)
+    } else {
+      await api.createAgent(currentAgent.value)
+    }
     ElMessage.success('保存成功')
     await loadData()
     dialogVisible.value = false

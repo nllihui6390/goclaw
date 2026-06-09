@@ -26,7 +26,7 @@ func HandleConfig(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// 保存后重新加载配置（更新 global.G_CONFIG + app.Config，Agent 下次请求自动用新模型）
-		global.ReloadConfig()
+		global.ReloadConfigAndSyncAgents()
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}

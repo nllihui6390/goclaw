@@ -54,7 +54,9 @@ func (s *Server) setupRoutes() {
 
 	// 管理 API - 使用 controllers/api 层
 	mux.HandleFunc("/api/v1/agents", api.HandleAgents)
-	mux.HandleFunc("/api/v1/agents/", api.HandleAgentByID)
+	mux.HandleFunc("/api/v1/agents/create", api.HandleCreateAgent)
+	mux.HandleFunc("/api/v1/agents/delete/", api.HandleDeleteAgent)
+	mux.HandleFunc("/api/v1/agents/update/", api.HandleUpdateAgent)
 	mux.HandleFunc("/api/v1/channels", api.HandleChannels)
 	mux.HandleFunc("/api/v1/channels/", api.HandleChannelByID)
 	mux.HandleFunc("/api/v1/channels/qrcode", api.HandleChannelQRCode)
