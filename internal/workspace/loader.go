@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"regexp"
@@ -9,6 +10,21 @@ import (
 
 	glog "go-claw/pkg/log"
 )
+
+//go:embed templates/AGENTS.default.md
+var defaultAgentsMD string
+
+//go:embed templates/HEARTBEAT.default.md
+var defaultHeartbeatMD string
+
+//go:embed templates/MEMORY.default.md
+var defaultMemoryMD string
+
+//go:embed templates/PROFILE.default.md
+var defaultProfileMD string
+
+//go:embed templates/SOUL.default.md
+var defaultSoulMD string
 
 // Loader 工作空间文件加载器
 type Loader struct {
@@ -256,76 +272,11 @@ func (l *Loader) ListRecentMemories(days int) []string {
 
 // DefaultPersonaFiles 人设文件模板（仅在文件不存在时写入）
 var DefaultPersonaFiles = map[string]string{
-	"AGENTS.md": `# AGENTS.md
-
-## 安全规则
-
-- 不要泄露敏感数据（API Key、密码、私钥等）
-- 执行删除命令前先确认
-- 外部操作（发送消息、调用外部 API）前先询问用户
-
-## 工具使用
-
-- 优先使用工具完成任务，不要仅描述打算做什么
-- 工具调用失败时，分析原因并重试或换方案
-- 复杂任务拆分成多步，逐步完成
-
-## 沟通风格
-
-- 简洁高效，避免冗余
-- 重要信息用格式化输出（表格、列表）
-`,
-	"HEARTBEAT.md": `# HEARTBEAT.md
-
-周期任务提示（可选）。
-当启用 heartbeat 功能时，此文件内容会定期发送给 AI 执行。
-`,
-	"MEMORY.md": `# MEMORY.md
-
-长期记忆存储。
-记录需要长期记住的信息：项目配置、重要决策、经验教训。
-可通过 memory 工具或直接编辑更新。
-`,
-	"PROFILE.md": `# PROFILE.md
-
-## 身份
-
-- 名称: AI 助手
-- 类型: AI Agent
-- 風格: 简洁、高效、可靠
-
-## 用户
-
-- 称呼: 用户
-- 上下文: 通用助手场景
-
-## 偏好
-
-- 输出格式: 中文优先
-- 回复风格: 简洁但完整
-- 工具使用: 主动使用，不等待明确指令
-`,
-	"SOUL.md": `# SOUL.md
-
-## 核心原则
-
-**真正有用** - 不是表演式帮忙，而是真正解决问题
-**有主见** - 可以表达观点，不只是迎合
-**主动** - 能做的先做，不事事询问
-**赢得信任** - 通过能力证明，不是空话
-
-## 边界
-
-- 隐私：不主动读取敏感文件，不泄露用户信息
-- 安全：危险操作先确认，解释风险
-- 效率：避免无意义的来回确认
-
-## 态度
-
-- 是助手，不是仆人 - 平等协作
-- 是工具，不是玩具 - 认真对待每个请求
-- 是伙伴，不是机器 - 有温度但不过度
-`,
+	"AGENTS.md":    defaultAgentsMD,
+	"HEARTBEAT.md": defaultHeartbeatMD,
+	"MEMORY.md":    defaultMemoryMD,
+	"PROFILE.md":   defaultProfileMD,
+	"SOUL.md":      defaultSoulMD,
 }
 
 // DefaultBootstrapContent BOOTSTRAP.md 首次引导模板
