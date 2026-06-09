@@ -153,10 +153,11 @@ func (r *Registry) SkillSummary() string {
 
 // GetSkillPrompt 生成用于系统提示词注入的技能信息
 func (r *Registry) GetSkillPrompt() string {
+	logger := glog.Logger()
 	if len(r.skills) == 0 {
 		return ""
 	}
-
+	logger.Info("[Skill] 生成系统提示词注入内容", "len", len(r.skills))
 	var sb strings.Builder
 	sb.WriteString("# 已启用的技能\n\n")
 	sb.WriteString("以下是当前 Agent 已启用的技能列表。使用技能前，请先用 read_file 工具读取对应的 SKILL.md 文件了解详细用法和执行步骤。\n\n")

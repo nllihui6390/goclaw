@@ -217,6 +217,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			logger.Debug("[Runtime] 已替换最后一条 user 消息为增强版本", "original_len", len(channel.TextOnlyContent(originalContent)), "enhanced_len", len(enhancedMessage))
 		}
 	}
+	// 构建消息列表（包含工具调用结果）
 
 	messages := r.buildMessages(session, tools)
 
@@ -973,11 +974,13 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 			logger.Info("[Runtime] 检测到技能创建意图，注入模板")
 		}
 	}
-
+	// 注入工具提示
+	logger.Info("[Runtime] 开始构建工具加入到上下文", "len", len(tools))
 	// 如果有工具，则添加到系统提示中
 	if len(tools) > 0 {
 		systemContent += "\n\n## 可用工具\n你必须通过调用工具来完成用户的请求，不要直接猜测或仅描述打算使用什么工具。\n"
 		for _, t := range tools {
+			logger.Debug("[Runtime] 可用工具已加载", "tool", t.Name(), "description", t.Description())
 			systemContent += fmt.Sprintf("- **%s**: %s\n", t.Name(), t.Description())
 		}
 		systemContent += "\n重要：当用户提出需要查询天气、执行命令、读写文件等具体请求时，你必须实际调用对应的工具（通过tool_calls），而不是仅在文本中说明你打算使用工具。"
