@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+
+	"go-claw/global"
 )
 
 // HandleConfig 读取/保存 config.json（GET/PUT）
@@ -23,6 +25,8 @@ func HandleConfig(rw http.ResponseWriter, r *http.Request) {
 			writeError(rw, http.StatusInternalServerError, "保存失败")
 			return
 		}
+		// 保存后重新加载配置（更新 global.G_CONFIG + app.Config，Agent 下次请求自动用新模型）
+		global.ReloadConfig()
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}

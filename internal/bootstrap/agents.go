@@ -121,6 +121,13 @@ func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, root
 		ToolResultExemptExts:  agentCfg.ToolResultExemptExts,
 		SupportsImage:         supportsImage,
 		SupportsVideo:         supportsVideo,
+		// 动态配置提供器：每次调用 LLM 时实时读取 app.Config（指针），改配置即生效
+		ConfigProvider: func() (string, string, string, string) {
+			// app.Config 是指针，外部 global.SetConfig 更新后这里自动读到新值
+			curAgentCfg, _ := config.LoadAgentConfig(workspaceDir, agentName)
+			m, b, k, p := app.Config.ResolveAgentConfig(curAgentCfg)
+			return m, k, b, p
+		},
 	})
 	app.Gateway.RegisterAgent(agentName, ag)
 	app.logger.Info("Agent 已注册/更新", "name", agentName, "provider", agentCfg.Provider, "model", model, "skills", len(enabledSkills))

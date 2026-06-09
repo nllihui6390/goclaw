@@ -51,6 +51,9 @@ type Config struct {
 	SupportsVideo          bool       // 模型是否支持视频输入
 	ToolGuard              *security.ToolGuard // 工具安全守卫
 	InboxStore             *inbox.Store        // Inbox 事件通知存储
+	// ConfigProvider 动态配置提供器：每次调用 LLM 时获取最新 model/apiKey/baseURL/providerType
+	// 优先使用此函数，降级使用 Model/APIKey/BaseURL/ProviderType 字段
+	ConfigProvider func() (model, apiKey, baseURL, providerType string)
 }
 
 // Agent AI智能体

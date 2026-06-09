@@ -37,6 +37,7 @@ func HandleAgentByID(rw http.ResponseWriter, r *http.Request) {
 		if gw := global.GetGateway(); gw != nil {
 			gw.UnregisterAgent(name)
 		}
+		global.ReloadConfig()
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
 		return
 	}
@@ -56,6 +57,6 @@ func HandleAgentByID(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusInternalServerError, "update failed")
 		return
 	}
-
+	global.ReloadConfig()
 	writeJSON(rw, http.StatusOK, updateData)
 }

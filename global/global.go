@@ -6,6 +6,7 @@ import (
 	"go-claw/internal/bootstrap"
 	"go-claw/internal/gateway"
 	"go-claw/internal/store"
+	glog "go-claw/pkg/log"
 	"sync"
 	"time"
 )
@@ -14,11 +15,11 @@ var (
 	mu sync.RWMutex // 保护并发读写
 
 	// 核心共享实例
-	G_APP         *bootstrap.App       // App 实例（用于重启等操作）
-	G_GATEWAY     *gateway.Gateway     // Gateway（含 agents, channels, router）
-	G_CONFIG      *config.Config       // 配置结构（解析后的静态配置）
-	G_SESSION_IDX *store.SessionIndex  // 会话索引
-	G_START_TIME  time.Time            // 启动时间
+	G_APP         *bootstrap.App      // App 实例（用于重启等操作）
+	G_GATEWAY     *gateway.Gateway    // Gateway（含 agents, channels, router）
+	G_CONFIG      *config.Config      // 配置结构（解析后的静态配置）
+	G_SESSION_IDX *store.SessionIndex // 会话索引
+	G_START_TIME  time.Time           // 启动时间
 )
 
 // SetApp 设置 App 实例
@@ -84,6 +85,31 @@ func GetGateway() *gateway.Gateway {
 	mu.RLock()
 	defer mu.RUnlock()
 	return G_GATEWAY
+}
+
+// ReloadConfig 重新载入配置（从 config.json 读取并更新全局配置，不重启 App）
+// 同时更新 G_CONFIG 和 app.Config，确保 Agent 的 ConfigProvider 能读到最新值
+// 同步 Agent 配置（含工具、技能等），确保实时生效
+func ReloadConfig() error {
+	cfg, err := config.LoadConfig("config.json")
+	if err != nil {
+		glog.Logger().Error("ReloadConfig 加载失败", "err", err)
+		return err
+	}
+	// 更新全局配置
+	SetConfig(cfg)
+	// 清除 agent 配置缓存
+	config.InvalidateAllAgentCache()
+	// 同步 Agent 配置（工具、技能等）
+	mu.RLock()
+	app := G_APP
+	mu.RUnlock()
+	if app != nil {
+		app.Config = cfg
+		app.SyncAgents(cfg)
+	}
+	glog.Logger().Info("配置已重新加载", "agents", len(cfg.Agents.Profiles))
+	return nil
 }
 
 // SetConfig 设置配置

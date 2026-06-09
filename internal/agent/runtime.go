@@ -44,6 +44,33 @@ func (r *Runtime) SetSkillRegistry(reg *skill.Registry) {
 	r.config.SkillRegistry = reg
 }
 
+// runtimeConfig 运行时配置（model、apiKey、baseURL、providerType）
+type runtimeConfig struct {
+	Model        string
+	APIKey       string
+	BaseURL      string
+	ProviderType string
+}
+
+// getRuntimeConfig 获取当前运行时配置（优先从 ConfigProvider 动态获取，降级使用静态值）
+func (r *Runtime) getRuntimeConfig() *runtimeConfig {
+	if r.config.ConfigProvider != nil {
+		model, apiKey, baseURL, providerType := r.config.ConfigProvider()
+		return &runtimeConfig{
+			Model:        model,
+			APIKey:       apiKey,
+			BaseURL:      baseURL,
+			ProviderType: providerType,
+		}
+	}
+	return &runtimeConfig{
+		Model:        r.config.Model,
+		APIKey:       r.config.APIKey,
+		BaseURL:      r.config.BaseURL,
+		ProviderType: r.config.ProviderType,
+	}
+}
+
 // ChatMessage 对话消息
 type ChatMessage struct {
 	Role         string     `json:"role"`
@@ -102,8 +129,7 @@ func shouldForceContinue(resp *ChatMessage) bool {
 		return false
 	}
 
-	raw := strings.TrimSpace(resp.Content)
-	visible := strings.TrimSpace(stripThinkTags(raw))
+	visible := strings.TrimSpace(stripThinkTags(resp.Content))
 
 	if resp.FinishReason == "length" {
 		return true
@@ -113,23 +139,28 @@ func shouldForceContinue(resp *ChatMessage) bool {
 		return true
 	}
 
-	if len([]rune(visible)) <= 3 {
+	runes := len([]rune(visible))
+	if runes <= 3 {
 		return true
 	}
 
-	planning := []string{
-		"让我", "我需要", "继续", "检查", "创建", "生成",
-		"运行", "执行", "读取", "先", "接下来", "下一步",
+	// 可见回复已较完整，视为最终答案
+	if runes >= 150 {
+		return false
 	}
 
-	score := 0
-	for _, w := range planning {
-		if strings.Contains(raw, w) {
-			score++
+	// 仅对短回复中明确的「将要行动」措辞轻推，避免技能说明等正文误触发
+	intentPhrases := []string{
+		"让我来", "让我先", "我需要先", "接下来我会", "接下来我将",
+		"我现在来", "我现在先", "我先来", "我将要", "我会先",
+	}
+	for _, phrase := range intentPhrases {
+		if strings.Contains(visible, phrase) {
+			return true
 		}
 	}
 
-	return score >= 2
+	return false
 }
 
 // isRetryableError 检查错误是否可重试
@@ -198,8 +229,8 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 	}
 
 	logger.Info("[Runtime] 开始执行循环",
-		"model", r.config.Model,
-		"provider", r.config.ProviderType,
+		"model", r.getRuntimeConfig().Model,
+		"provider", r.getRuntimeConfig().ProviderType,
 		"messages_count", len(messages),
 		"tools_count", len(tools),
 		"max_iterations", maxIterations)
@@ -266,6 +297,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			visible := stripThinkTags(resp.Content)
 
 			if shouldForceContinue(resp) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
+				// 强制继续，但不计入迭代次数
 				autoContinueCount++
 				logger.Info("[Runtime] force continue", "count", autoContinueCount)
 				messages = append(messages, ChatMessage{
@@ -274,7 +306,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				})
 				messages = append(messages, ChatMessage{
 					Role:    "user",
-					Content: "继续执行当前任务，不要只描述计划。如果需要工具，请直接调用工具。",
+					Content: "你刚才描述了后续步骤但未调用工具。若完成用户的上一条请求仍需工具，请直接调用；若已充分回答，请给出简洁的最终回复。",
 				})
 				continue
 			}
@@ -481,16 +513,16 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 // callLLM 调用大模型API（阻塞版）
 func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
 	logger := glog.Logger()
-	logger.Debug("[Runtime] callLLM", "provider", r.config.ProviderType, "model", r.config.Model, "messages", len(messages))
-	if r.config.ProviderType == "ollama" {
-		// Ollama 通过 OpenAI 兼容 API (/v1/chat/completions) 调用，避免原生 API 的模型兼容问题
-		savedURL := r.config.BaseURL
+	rtCfg := r.getRuntimeConfig()
+	logger.Debug("[Runtime] callLLM", "provider", rtCfg.ProviderType, "model", rtCfg.Model, "messages", len(messages))
+	if rtCfg.ProviderType == "ollama" {
+		// Ollama 通过 OpenAI 兼容 API (/v1/chat/completions) 调用
+		savedURL := rtCfg.BaseURL
 		if !strings.HasSuffix(savedURL, "/v1") && !strings.HasSuffix(savedURL, "/v1/") {
-			r.config.BaseURL = strings.TrimRight(savedURL, "/") + "/v1"
+			rtCfg.BaseURL = strings.TrimRight(savedURL, "/") + "/v1"
 		}
-		defer func() { r.config.BaseURL = savedURL }()
 	}
-	return r.callOpenAI(ctx, messages, tools)
+	return r.callOpenAIWithConfig(ctx, messages, tools, rtCfg)
 }
 
 // callLLMWithRetry 带重试的LLM调用（429/5xx自动重试 + 指数退避）
@@ -521,18 +553,18 @@ func (r *Runtime) callLLMWithRetry(ctx context.Context, messages []ChatMessage, 
 	return nil, fmt.Errorf("重试次数耗尽")
 }
 
-// callOpenAI OpenAI兼容API调用
-func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
+// callOpenAIWithConfig OpenAI兼容API调用（使用动态获取的运行时配置）
+func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessage, tools []tool.Tool, rtCfg *runtimeConfig) (*ChatMessage, error) {
 	logger := glog.Logger()
-	reqBody := r.buildOpenAIRequest(messages, tools)
+	reqBody := r.buildOpenAIRequestWithConfig(messages, tools, rtCfg)
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		logger.Error("[Runtime] 构建请求JSON失败", "err", err)
 		return nil, err
 	}
 
-	url := r.config.BaseURL + "/chat/completions"
-	logger.Info("[Runtime] 发送OpenAI请求", "url", url, "model", r.config.Model, "request_len", len(jsonData))
+	url := rtCfg.BaseURL + "/chat/completions"
+	logger.Info("[Runtime] 发送OpenAI请求", "url", url, "model", rtCfg.Model, "request_len", len(jsonData))
 	logger.Debug("[Runtime] 请求体", "body", string(jsonData))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
@@ -542,8 +574,8 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if r.config.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+r.config.APIKey)
+	if rtCfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+rtCfg.APIKey)
 	}
 
 	startTime := time.Now()
@@ -619,10 +651,10 @@ func (r *Runtime) callOpenAI(ctx context.Context, messages []ChatMessage, tools 
 	return msg, nil
 }
 
-// buildOpenAIRequest 构建 OpenAI 请求体
-func (r *Runtime) buildOpenAIRequest(messages []ChatMessage, tools []tool.Tool) map[string]interface{} {
+// buildOpenAIRequestWithConfig 构建 OpenAI 请求体（使用动态运行时配置）
+func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []tool.Tool, rtCfg *runtimeConfig) map[string]interface{} {
 	reqBody := map[string]interface{}{
-		"model":       r.config.Model,
+		"model":       rtCfg.Model,
 		"messages":    messages,
 		"max_tokens":  2000,
 		"temperature": 0.7,
@@ -639,15 +671,16 @@ func (r *Runtime) buildOpenAIRequest(messages []ChatMessage, tools []tool.Tool) 
 // callLLMStream 调用大模型API（流式版）
 func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb StreamCallback) (strings.Builder, []ToolCall, error) {
 	logger := glog.Logger()
-	reqBody := r.buildOpenAIRequest(messages, nil)
+	rtCfg := r.getRuntimeConfig()
+	reqBody := r.buildOpenAIRequestWithConfig(messages, nil, rtCfg)
 	reqBody["stream"] = true
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return strings.Builder{}, nil, err
 	}
 
-	url := r.config.BaseURL + "/chat/completions"
-	logger.Debug("[Runtime] 发送SSE流式请求", "url", url, "model", r.config.Model)
+	url := rtCfg.BaseURL + "/chat/completions"
+	logger.Debug("[Runtime] 发送SSE流式请求", "url", url, "model", rtCfg.Model)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -656,8 +689,8 @@ func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if r.config.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+r.config.APIKey)
+	if rtCfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+rtCfg.APIKey)
 	}
 	req.Header.Set("Accept", "text/event-stream")
 

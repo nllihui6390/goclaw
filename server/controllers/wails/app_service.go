@@ -100,6 +100,7 @@ func (a *AppService) SaveConfig(configJSON string) string {
 	if err := a.configSvc.SaveJSON(configJSON); err != nil {
 		return `{"error":"save failed"}`
 	}
+	global.ReloadConfig()
 	return `{"status":"saved"}`
 }
 
@@ -113,6 +114,7 @@ func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	if err := a.agentSvc.UpdateJSON(name, agentJSON); err != nil {
 		return `{"error":"update failed"}`
 	}
+	global.ReloadConfig()
 	return `{"status":"updated"}`
 }
 
@@ -127,6 +129,7 @@ func (a *AppService) DeleteAgent(name string) string {
 	if gw := global.GetGateway(); gw != nil {
 		gw.UnregisterAgent(name)
 	}
+	global.ReloadConfig()
 	return `{"status":"deleted"}`
 }
 
@@ -148,6 +151,7 @@ func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) st
 	if err := a.channelSvc.UpdateJSON(agentName, channelName, configJSON); err != nil {
 		return `{"error":"update failed"}`
 	}
+	global.ReloadConfig()
 	return `{"status":"updated"}`
 }
 

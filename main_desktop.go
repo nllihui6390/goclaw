@@ -11,7 +11,6 @@ import (
 	"go-claw/config"
 	"go-claw/global"
 	"go-claw/internal/bootstrap"
-	"go-claw/internal/gateway"
 	glog "go-claw/pkg/log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -54,9 +53,6 @@ func main() {
 
 	go app.Run()
 	time.Sleep(500 * time.Millisecond)
-
-	// 配置文件热加载：同步渠道启用状态
-	startDesktopConfigWatcher(app)
 
 	forceQuit := false
 	var win *application.WebviewWindow
@@ -134,34 +130,5 @@ func main() {
 	err = wailsApp.Run()
 	if err != nil {
 		log.Fatal(err)
-	}
-}
-
-// startDesktopConfigWatcher 桌面模式配置热加载
-func startDesktopConfigWatcher(app *bootstrap.App) {
-	watcher := gateway.NewConfigWatcher("config.json", func() {
-		newCfg, err := config.LoadConfig("config.json")
-		if err != nil {
-			glog.Logger().Error("重新加载配置失败", "err", err)
-			return
-		}
-		// 同步渠道（自动注册/注销）
-		app.SyncChannels(newCfg)
-		// 同步 Agent 配置
-		app.SyncAgents(newCfg)
-		// 更新全局配置
-		global.SetConfig(newCfg)
-
-		// 统计启用的 agent 数量
-		enabledCount := 0
-		for _, profile := range newCfg.Agents.Profiles {
-			if profile.Enabled {
-				enabledCount++
-			}
-		}
-		glog.Logger().Info("配置已热加载", "agents", enabledCount)
-	})
-	if err := watcher.Start(); err != nil {
-		glog.Logger().Warn("启动配置监听失败", "err", err)
 	}
 }
