@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go-claw/global"
 	"go-claw/internal/channel"
+	"go-claw/internal/cron"
 	"go-claw/internal/media"
 	glog "go-claw/pkg/log"
 	"go-claw/server/service"
@@ -275,6 +276,8 @@ func (a *AppService) SaveCronJob(jobJSON string) string {
 	if err := a.cronSvc.Save(job); err != nil {
 		return `{"error":"save failed"}`
 	}
+	// 同步到调度器（cron.Manager），确保内存和文件一致
+	a.syncCronToManager(job)
 	return `{"status":"saved"}`
 }
 
@@ -282,10 +285,21 @@ func (a *AppService) DeleteCronJob(id string) string {
 	if err := a.cronSvc.Delete(id); err != nil {
 		return `{"error":"delete failed"}`
 	}
+	// 从调度器中移除
+	if mgr := global.GetApp().CronMgr; mgr != nil {
+		mgr.RemoveJob(id)
+	}
 	return `{"status":"deleted"}`
 }
 
 func (a *AppService) RunCronJob(id string) string {
+	// 优先使用调度器立即执行
+	if mgr := global.GetApp().CronMgr; mgr != nil {
+		if err := mgr.RunJobNow(id); err != nil {
+			return `{"error":"` + err.Error() + `"}`
+		}
+		return `{"status":"executed"}`
+	}
 	a.cronSvc.Run(id)
 	return `{"status":"executed"}`
 }
@@ -302,6 +316,40 @@ func (a *AppService) SetCronEnabled(enabled string) string {
 		return `{"error":"set failed"}`
 	}
 	return `{"status":"ok"}`
+}
+
+// syncCronToManager 将保存的任务同步到调度器内存中，确保调度器拿到最新值
+func (a *AppService) syncCronToManager(job service.CronJob) {
+	mgr := global.GetApp().CronMgr
+	if mgr == nil {
+		return
+	}
+	jobType := cron.JobTypeText
+	if job.Type == "agent" {
+		jobType = cron.JobTypeAgent
+	}
+	cronJob := &cron.Job{
+		ID:          job.ID,
+		Name:        job.Name,
+		Type:        jobType,
+		Schedule:    job.Schedule,
+		Content:     job.Content,
+		AgentName:   job.AgentName,
+		SessionID:   job.SessionID,
+		Enabled:     job.Enabled,
+		LastRun:     job.LastRun,
+		NextRun:     job.NextRun,
+		ActiveStart: job.ActiveStart,
+		ActiveEnd:   job.ActiveEnd,
+	}
+	// 新任务（无 ID 或 manager 中不存在）用 AddJob，已有任务用 UpdateJob
+	if job.ID == "" {
+		mgr.AddJob(cronJob)
+	} else if _, err := mgr.GetJob(job.ID); err != nil {
+		mgr.AddJob(cronJob)
+	} else {
+		mgr.UpdateJob(cronJob)
+	}
 }
 
 // ─────────── Logs & Status ───────────

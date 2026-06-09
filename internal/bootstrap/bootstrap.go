@@ -122,6 +122,11 @@ func (app *App) Restart() error {
 	app.SyncAgents(newCfg)
 	app.Config = newCfg
 
+	// 重新加载定时任务（使磁盘修改生效）
+	if app.CronMgr != nil {
+		app.CronMgr.ReloadFromFile()
+	}
+
 	// 统计启用的 agent 数量
 	enabledCount := 0
 	for _, profile := range newCfg.Agents.Profiles {

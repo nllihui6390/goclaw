@@ -114,6 +114,15 @@ func (m *Manager) loadFromFile() {
 	glog.Logger().Info("[Cron] 从文件加载任务", "count", len(jobs), "file", m.dataFile)
 }
 
+// ReloadFromFile 重新从文件加载任务（覆盖内存状态，用于配置热加载后恢复）
+func (m *Manager) ReloadFromFile() {
+	m.mu.Lock()
+	m.jobs = make(map[string]*Job)
+	m.mu.Unlock()
+	m.loadFromFile()
+	glog.Logger().Info("[Cron] 已从文件重新加载任务", "file", m.dataFile)
+}
+
 // saveToFile 保存任务到文件
 func (m *Manager) saveToFile() {
 	if m.dataFile == "" {

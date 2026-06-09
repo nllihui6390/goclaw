@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"go-claw/global"
+	"go-claw/internal/cron"
 	"net/http"
 	"strings"
 
@@ -24,6 +26,8 @@ func HandleCronJobs(rw http.ResponseWriter, r *http.Request) {
 			writeError(rw, http.StatusInternalServerError, "save failed")
 			return
 		}
+		// 同步到调度器（cron.Manager），确保内存和文件一致
+		syncCronToManager(newJob)
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "created"})
 	default:
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
@@ -41,13 +45,21 @@ func HandleCronJobByID(rw http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		// 异步立即执行定时任务
-		cronSvc.Run(id)
+		// 优先使用调度器立即执行
+		if mgr := global.GetApp().CronMgr; mgr != nil {
+			mgr.RunJobNow(id)
+		} else {
+			cronSvc.Run(id)
+		}
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "executed"})
 	case http.MethodDelete:
 		if err := cronSvc.Delete(id); err != nil {
 			writeError(rw, http.StatusInternalServerError, "delete failed")
 			return
+		}
+		// 从调度器中移除
+		if mgr := global.GetApp().CronMgr; mgr != nil {
+			mgr.RemoveJob(id)
 		}
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "deleted"})
 	case http.MethodPut:
@@ -61,8 +73,43 @@ func HandleCronJobByID(rw http.ResponseWriter, r *http.Request) {
 			writeError(rw, http.StatusInternalServerError, "update failed")
 			return
 		}
+		// 同步到调度器（cron.Manager），确保内存和文件一致
+		syncCronToManager(updatedJob)
 		writeJSON(rw, http.StatusOK, map[string]string{"status": "updated"})
 	default:
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// syncCronToManager 将保存的任务同步到调度器内存中，确保调度器拿到最新值
+func syncCronToManager(job service.CronJob) {
+	mgr := global.GetApp().CronMgr
+	if mgr == nil {
+		return
+	}
+	jobType := cron.JobTypeText
+	if job.Type == "agent" {
+		jobType = cron.JobTypeAgent
+	}
+	cronJob := &cron.Job{
+		ID:          job.ID,
+		Name:        job.Name,
+		Type:        jobType,
+		Schedule:    job.Schedule,
+		Content:     job.Content,
+		AgentName:   job.AgentName,
+		SessionID:   job.SessionID,
+		Enabled:     job.Enabled,
+		LastRun:     job.LastRun,
+		NextRun:     job.NextRun,
+		ActiveStart: job.ActiveStart,
+		ActiveEnd:   job.ActiveEnd,
+	}
+	if job.ID == "" {
+		mgr.AddJob(cronJob)
+	} else if _, err := mgr.GetJob(job.ID); err != nil {
+		mgr.AddJob(cronJob)
+	} else {
+		mgr.UpdateJob(cronJob)
 	}
 }
