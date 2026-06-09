@@ -341,6 +341,7 @@ func (s *SkillService) SetEnabledSkillsJSON(agentName, skillsJSON string) error 
 // skillYAMLFrontmatter YAML 前置元数据结构
 type skillYAMLFrontmatter struct {
 	Name        string             `yaml:"name"`
+	Slug        string             `yaml:"slug"`
 	Description string             `yaml:"description"`
 	Author      string             `yaml:"author"`
 	Version     string             `yaml:"version"`
@@ -359,6 +360,7 @@ type skillYAMLFrontmatter struct {
 // parsedSkill 解析 SKILL.md 的结果
 type parsedSkill struct {
 	Name         string
+	Slug         string
 	Description  string
 	Author       string
 	Version      string
@@ -394,6 +396,7 @@ func (s *SkillService) parseSkillMD(data []byte) *parsedSkill {
 
 	skill := &parsedSkill{
 		Name:         strings.TrimSpace(frontmatter.Name),
+		Slug:         strings.TrimSpace(frontmatter.Slug),
 		Description:  strings.TrimSpace(frontmatter.Description),
 		Author:       strings.TrimSpace(frontmatter.Author),
 		Version:      strings.TrimSpace(frontmatter.Version),
@@ -583,18 +586,39 @@ func (s *SkillService) ImportFromZip(data []byte) (map[string]interface{}, error
 }
 
 // importParsedSkill 将解析后的 SKILL.md 写入技能目录，返回导入条目；如果技能已存在则返回 nil
+// 将 SKILL.md 及其同级文件（scripts/等）复制到目标目录，不保留 zip 中的额外嵌套层级
 func (s *SkillService) importParsedSkill(parsed *parsedSkill, sourceDir string) *SkillRegistryEntry {
-	targetSkillDir := filepath.Join(s.skillDir(), parsed.Name)
+	// 清理名称首尾空格
+	cleanName := strings.TrimSpace(parsed.Name)
+	if cleanName == "" {
+		return nil
+	}
+	// 目录名优先使用 slug，否则用清理后的名称转 slug
+	dirName := strings.TrimSpace(parsed.Slug)
+	if dirName == "" {
+		dirName = strings.ToLower(strings.ReplaceAll(cleanName, " ", "-"))
+	}
+
+	targetSkillDir := filepath.Join(s.skillDir(), dirName)
 	if _, err := os.Stat(targetSkillDir); err == nil {
 		return nil // 已存在
 	}
 
+	// 找出 SKILL.md 所在的最深子目录（sourceDir 可能是 zip 根目录，SKILL.md 可能在嵌套子目录中）
+	skillFileDir := s.findSkillFileDir(sourceDir, cleanName)
+
 	os.MkdirAll(targetSkillDir, 0755)
-	copyDirContents(sourceDir, targetSkillDir)
+	if skillFileDir != "" {
+		// 从 SKILL.md 所在目录复制内容（保留 scripts/ 等子目录）
+		copyDirContents(skillFileDir, targetSkillDir)
+	} else {
+		// 回退：复制整个 sourceDir
+		copyDirContents(sourceDir, targetSkillDir)
+	}
 
 	return &SkillRegistryEntry{
-		Name:         parsed.Name,
-		Folder:       parsed.Name,
+		Name:         cleanName,
+		Folder:       dirName,
 		Description:  parsed.Description,
 		Author:       parsed.Author,
 		Version:      parsed.Version,
@@ -606,6 +630,41 @@ func (s *SkillService) importParsedSkill(parsed *parsedSkill, sourceDir string) 
 		Sections:     parsed.Sections,
 		DiscoveredAt: time.Now().Format(time.RFC3339),
 	}
+}
+
+// findSkillFileDir 在 sourceDir 中找到包含 SKILL.md 的子目录
+// 如果 SKILL.md 就在 sourceDir 根目录，返回空字符串
+func (s *SkillService) findSkillFileDir(sourceDir, skillName string) string {
+	// 先在根目录查找
+	if _, err := os.Stat(filepath.Join(sourceDir, "SKILL.md")); err == nil {
+		return "" // SKILL.md 就在根目录
+	}
+	// 递归查找包含 SKILL.md 的最深目录
+	return s.findDeepestSkillFile(sourceDir)
+}
+
+// findDeepestSkillFile 递归查找包含 SKILL.md 的最深目录
+func (s *SkillService) findDeepestSkillFile(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	var deepest string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		subDir := filepath.Join(dir, entry.Name())
+		if _, err := os.Stat(filepath.Join(subDir, "SKILL.md")); err == nil {
+			// 找到 SKILL.md，返回这个目录
+			return subDir
+		}
+		// 递归深入查找
+		if d := s.findDeepestSkillFile(subDir); d != "" {
+			deepest = d
+		}
+	}
+	return deepest
 }
 
 // copyFile 复制单个文件
