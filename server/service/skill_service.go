@@ -393,16 +393,16 @@ func (s *SkillService) parseSkillMD(data []byte) *parsedSkill {
 	}
 
 	skill := &parsedSkill{
-		Name:         frontmatter.Name,
-		Description:  frontmatter.Description,
-		Author:       frontmatter.Author,
-		Version:      frontmatter.Version,
+		Name:         strings.TrimSpace(frontmatter.Name),
+		Description:  strings.TrimSpace(frontmatter.Description),
+		Author:       strings.TrimSpace(frontmatter.Author),
+		Version:      strings.TrimSpace(frontmatter.Version),
 		Emoji:        frontmatter.Metadata.OpenClaw.Emoji,
 		Credentials:  frontmatter.Credentials,
 		Requirements: frontmatter.Requirements,
 		HasScripts:   false,
 	}
-	// ClawdBot emoji 兜底（sill 格式兼容）
+	// ClawdBot emoji 兜底（skill 格式兼容）
 	if skill.Emoji == "" {
 		skill.Emoji = frontmatter.Metadata.ClawdBot.Emoji
 	}
@@ -640,7 +640,7 @@ func copyDirContents(src, dst string) error {
 	return nil
 }
 
-// copyDir 复制目录内容
+// copyDir 复制整个目录内容
 func copyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
@@ -651,10 +651,13 @@ func copyDir(src, dst string) error {
 		dstPath := filepath.Join(dst, entry.Name())
 		if entry.IsDir() {
 			os.MkdirAll(dstPath, 0755)
-			copyDir(srcPath, dstPath)
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
 		} else {
-			data, _ := os.ReadFile(srcPath)
-			os.WriteFile(dstPath, data, 0644)
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
