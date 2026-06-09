@@ -104,8 +104,8 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 		}
 	}
 
-	// 命令执行超时：最多60秒（pip install 等操作需要更长时间）
-	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	// 命令执行超时：最多300秒（pip install 等操作需要更长时间）
+	timeoutCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	// 根据操作系统选择 shell 执行
@@ -118,7 +118,7 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	output, err := cmd.CombinedOutput()
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("命令执行超时（60秒）: %s", command)
+		return "", fmt.Errorf("命令执行超时（300秒）: %s", command)
 	}
 	if err != nil {
 		return "", fmt.Errorf("命令执行失败: %v, 输出: %s", err, string(output))

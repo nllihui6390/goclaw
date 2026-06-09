@@ -22,7 +22,6 @@ type BrowserUseTool struct{}
 var (
 	browserMu   sync.Mutex
 	browser     *rod.Browser
-	browserOnce sync.Once
 	currentPage *rod.Page
 )
 
@@ -118,48 +117,53 @@ func resolveSelector(selector string) (string, error) {
 }
 
 func getBrowser() (*rod.Browser, error) {
-	var initErr error
-	browserOnce.Do(func() {
-		glog.Logger().Info("[Browser] 正在启动浏览器...")
-
-		// 使用 rod 自动管理浏览器（会自动下载 Chromium 如果需要）
-		l := launcher.New()
-		l.Headless(true)
-		l.NoSandbox(true)
-		l.Leakless(true) // 更稳定的进程管理
-
-		// 尝试查找已安装的 Chrome
-		chromePath, _ := launcher.LookPath()
-		if chromePath != "" {
-			glog.Logger().Info("[Browser] 使用已安装浏览器", "path", chromePath)
-			l.Bin(chromePath)
-		} else {
-			glog.Logger().Info("[Browser] 将自动下载 Chromium")
-		}
-
-		url, err := l.Launch()
-		if err != nil {
-			initErr = fmt.Errorf("启动浏览器失败: %v", err)
-			glog.Logger().Error("[Browser] 启动失败", "err", err)
-			return
-		}
-
-		var b *rod.Browser
-		if err := safeCall(func() {
-			b = rod.New().ControlURL(url).MustConnect()
-		}); err != nil {
-			initErr = fmt.Errorf("连接浏览器失败: %v", err)
-			glog.Logger().Error("[Browser] 连接失败", "err", err)
-			return
-		}
-
-		browser = b
-		glog.Logger().Info("[Browser] 浏览器启动成功")
-	})
-
-	if initErr != nil {
-		return nil, initErr
+	browserMu.Lock()
+	if browser != nil {
+		browserMu.Unlock()
+		return browser, nil
 	}
+	browserMu.Unlock()
+
+	browserMu.Lock()
+	defer browserMu.Unlock()
+	// double-check
+	if browser != nil {
+		return browser, nil
+	}
+
+	glog.Logger().Info("[Browser] 正在启动浏览器...")
+
+	// 使用 rod 自动管理浏览器（会自动下载 Chromium 如果需要）
+	l := launcher.New()
+	l.Headless(true)
+	l.Append("--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage", "--disable-gpu")
+	l.Leakless(true) // 更稳定的进程管理
+
+	// 尝试查找已安装的 Chrome
+	chromePath, _ := launcher.LookPath()
+	if chromePath != "" {
+		glog.Logger().Info("[Browser] 使用已安装浏览器", "path", chromePath)
+		l.Bin(chromePath)
+	} else {
+		glog.Logger().Info("[Browser] 将自动下载 Chromium")
+	}
+
+	url, err := l.Launch()
+	if err != nil {
+		glog.Logger().Error("[Browser] 启动失败", "err", err)
+		return nil, fmt.Errorf("启动浏览器失败: %v", err)
+	}
+
+	var b *rod.Browser
+	if err := safeCall(func() {
+		b = rod.New().ControlURL(url).MustConnect()
+	}); err != nil {
+		glog.Logger().Error("[Browser] 连接失败", "err", err)
+		return nil, fmt.Errorf("连接浏览器失败: %v", err)
+	}
+
+	browser = b
+	glog.Logger().Info("[Browser] 浏览器启动成功")
 	return browser, nil
 }
 
