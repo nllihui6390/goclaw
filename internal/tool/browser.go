@@ -136,6 +136,7 @@ func getBrowser() (*rod.Browser, error) {
 	// 使用 rod 自动管理浏览器（会自动下载 Chromium 如果需要）
 	l := launcher.New()
 	l.Headless(true)
+	l.NoSandbox(true) // Docker/容器 root 用户必需
 	l.Append("--no-first-run", "--no-default-browser-check", "--disable-dev-shm-usage", "--disable-gpu")
 	l.Leakless(true) // 更稳定的进程管理
 
