@@ -123,7 +123,7 @@ func (a *AppService) CreateAgent(agentJSON string) string {
 	if err := a.agentSvc.Create(name, agentConfig); err != nil {
 		return `{"error":"create failed"}`
 	}
-	global.ReloadConfigAndSyncAgents()
+	global.ReloadAgent(name)
 	return `{"status":"created"}`
 }
 
@@ -132,7 +132,7 @@ func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	if err := a.agentSvc.UpdateJSON(name, agentJSON); err != nil {
 		return `{"error":"update failed"}`
 	}
-	global.ReloadConfigAndSyncAgents()
+	global.ReloadAgent(name)
 	return `{"status":"updated"}`
 }
 
@@ -145,9 +145,9 @@ func (a *AppService) DeleteAgent(name string) string {
 		return `{"error":"delete failed"}`
 	}
 	// 从 gateway 中注销 agent
-	if gw := global.GetGateway(); gw != nil {
-		gw.UnregisterAgent(name)
-	}
+	// if gw := global.GetGateway(); gw != nil {
+	// 	gw.UnregisterAgent(name)
+	// }
 	// 注销并且删除指定agent的配置文件
 	global.RemoveAgentAndConfig(name)
 	return `{"status":"deleted"}`

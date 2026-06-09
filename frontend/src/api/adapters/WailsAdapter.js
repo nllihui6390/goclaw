@@ -78,7 +78,7 @@ export class WailsAdapter {
     }
   }
   async createAgent(config) {
-    const json = await Call.ByName('main.AppService.CreateAgent', JSON.stringify(config))
+  const json = await Call.ByName('main.AppService.CreateAgent', JSON.stringify(config))
     return JSON.parse(json)
   }
   async updateAgent(name, config) {

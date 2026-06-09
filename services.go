@@ -41,11 +41,16 @@ func (a *AppService) SetSaveFileFunc(fn func(filename string) (string, error)) {
 
 func (a *AppService) GetConfig() string                   { return a.inner.GetConfig() }
 func (a *AppService) SaveConfig(configJSON string) string { return a.inner.SaveConfig(configJSON) }
+
+// Agent相关操作
 func (a *AppService) GetAgents() string                   { return a.inner.GetAgents() }
+func (a *AppService) CreateAgent(agentJSON string) string { return a.inner.CreateAgent(agentJSON) }
 func (a *AppService) UpdateAgent(name, agentJSON string) string {
 	return a.inner.UpdateAgent(name, agentJSON)
 }
-func (a *AppService) DeleteAgent(name string) string      { return a.inner.DeleteAgent(name) }
+func (a *AppService) DeleteAgent(name string) string { return a.inner.DeleteAgent(name) }
+
+// 频道相关操作
 func (a *AppService) GetChannels(agentName string) string { return a.inner.GetChannels(agentName) }
 func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) string {
 	return a.inner.UpdateChannel(agentName, channelName, configJSON)
