@@ -179,6 +179,7 @@ type SkillsConfig struct {
 
 type ConsoleConfig struct {
 	Enabled          bool `json:"enabled"`
+	BotPrefix        string `json:"bot_prefix"`
 	ShowToolMessages bool `json:"show_tool_messages"` // 显示工具调用和输出消息
 	ShowThinking     bool `json:"show_thinking"`      // 显示模型思考/推理内容
 	StreamOutput     bool `json:"stream_output"`      // 流式输出
@@ -217,6 +218,7 @@ type LarkConfig struct {
 	Enabled          bool   `json:"enabled"`
 	AppID            string `json:"app_id"`
 	AppSecret        string `json:"app_secret"`
+	BotPrefix        string `json:"bot_prefix"`
 	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
 	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
 	StreamOutput     bool   `json:"stream_output"`      // 流式输出
@@ -227,6 +229,7 @@ type DingTalkConfig struct {
 	Enabled          bool   `json:"enabled"`
 	ClientID         string `json:"client_id"`
 	ClientSecret     string `json:"client_secret"`
+	BotPrefix        string `json:"bot_prefix"`
 	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
 	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
 	StreamOutput     bool   `json:"stream_output"`      // 流式输出
@@ -237,6 +240,7 @@ type WeComConfig struct {
 	Enabled          bool   `json:"enabled"`
 	BotID            string `json:"bot_id"`
 	Secret           string `json:"secret"`
+	BotPrefix        string `json:"bot_prefix"`
 	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
 	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
 	StreamOutput     bool   `json:"stream_output"`      // 流式输出

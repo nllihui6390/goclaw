@@ -20,7 +20,7 @@ func toDisplayConfig(showToolMessages, showThinking, streamOutput bool) channel.
 func (app *App) registerConsoleChannel(workspaceDir, agentName string) {
 	consoleConfig := app.loadConsoleConfigForAgent(workspaceDir, agentName)
 	display := toDisplayConfig(consoleConfig.ShowToolMessages, consoleConfig.ShowThinking, consoleConfig.StreamOutput)
-	consoleChan := channel.NewConsoleChannel(display)
+	consoleChan := channel.NewConsoleChannel(consoleConfig.BotPrefix, display)
 	consoleChan.SetEnabled(true)
 	app.Gateway.RegisterChannelWithoutServer(consoleChan)
 }
@@ -117,7 +117,7 @@ func (app *App) registerBotChannelsForAgent(agentName string, channels config.Ch
 	// 飞书
 	if channels.Lark.Enabled {
 		display := toDisplayConfig(channels.Lark.ShowToolMessages, channels.Lark.ShowThinking, channels.Lark.StreamOutput)
-		larkChan := channel.NewLarkChannel(channels.Lark.AppID, channels.Lark.AppSecret, display)
+		larkChan := channel.NewLarkChannel(channels.Lark.AppID, channels.Lark.AppSecret, channels.Lark.BotPrefix, display)
 		if err := app.Gateway.RegisterChannelForAgent(agentName, larkChan); err != nil {
 			app.logger.Error("注册飞书渠道失败", "agent", agentName, "err", err)
 		} else {
@@ -128,7 +128,7 @@ func (app *App) registerBotChannelsForAgent(agentName string, channels config.Ch
 	// 钉钉
 	if channels.DingTalk.Enabled {
 		display := toDisplayConfig(channels.DingTalk.ShowToolMessages, channels.DingTalk.ShowThinking, channels.DingTalk.StreamOutput)
-		dingtalkChan := channel.NewDingTalkChannel(channels.DingTalk.ClientID, channels.DingTalk.ClientSecret, display)
+		dingtalkChan := channel.NewDingTalkChannel(channels.DingTalk.ClientID, channels.DingTalk.ClientSecret, channels.DingTalk.BotPrefix, display)
 		if err := app.Gateway.RegisterChannelForAgent(agentName, dingtalkChan); err != nil {
 			app.logger.Error("注册钉钉渠道失败", "agent", agentName, "err", err)
 		} else {
@@ -139,7 +139,7 @@ func (app *App) registerBotChannelsForAgent(agentName string, channels config.Ch
 	// 企业微信
 	if channels.WeCom.Enabled {
 		display := toDisplayConfig(channels.WeCom.ShowToolMessages, channels.WeCom.ShowThinking, channels.WeCom.StreamOutput)
-		wecomChan := channel.NewWeComChannel(channels.WeCom.BotID, channels.WeCom.Secret, display)
+		wecomChan := channel.NewWeComChannel(channels.WeCom.BotID, channels.WeCom.Secret, channels.WeCom.BotPrefix, display)
 		if err := app.Gateway.RegisterChannelForAgent(agentName, wecomChan); err != nil {
 			app.logger.Error("注册企业微信渠道失败", "agent", agentName, "err", err)
 		} else {
@@ -256,7 +256,7 @@ func (app *App) registerSingleBotChannel(agentName, channelName string, channels
 	case "lark":
 		if channels.Lark.Enabled {
 			display := toDisplayConfig(channels.Lark.ShowToolMessages, channels.Lark.ShowThinking, channels.Lark.StreamOutput)
-			larkChan := channel.NewLarkChannel(channels.Lark.AppID, channels.Lark.AppSecret, display)
+			larkChan := channel.NewLarkChannel(channels.Lark.AppID, channels.Lark.AppSecret, channels.Lark.BotPrefix, display)
 			if err := app.Gateway.RegisterChannelForAgent(agentName, larkChan); err != nil {
 				app.logger.Error("注册飞书渠道失败", "agent", agentName, "err", err)
 			} else {
@@ -266,7 +266,7 @@ func (app *App) registerSingleBotChannel(agentName, channelName string, channels
 	case "dingtalk":
 		if channels.DingTalk.Enabled {
 			display := toDisplayConfig(channels.DingTalk.ShowToolMessages, channels.DingTalk.ShowThinking, channels.DingTalk.StreamOutput)
-			dingtalkChan := channel.NewDingTalkChannel(channels.DingTalk.ClientID, channels.DingTalk.ClientSecret, display)
+			dingtalkChan := channel.NewDingTalkChannel(channels.DingTalk.ClientID, channels.DingTalk.ClientSecret, channels.DingTalk.BotPrefix, display)
 			if err := app.Gateway.RegisterChannelForAgent(agentName, dingtalkChan); err != nil {
 				app.logger.Error("注册钉钉渠道失败", "agent", agentName, "err", err)
 			} else {
@@ -276,7 +276,7 @@ func (app *App) registerSingleBotChannel(agentName, channelName string, channels
 	case "wecom":
 		if channels.WeCom.Enabled {
 			display := toDisplayConfig(channels.WeCom.ShowToolMessages, channels.WeCom.ShowThinking, channels.WeCom.StreamOutput)
-			wecomChan := channel.NewWeComChannel(channels.WeCom.BotID, channels.WeCom.Secret, display)
+			wecomChan := channel.NewWeComChannel(channels.WeCom.BotID, channels.WeCom.Secret, channels.WeCom.BotPrefix, display)
 			if err := app.Gateway.RegisterChannelForAgent(agentName, wecomChan); err != nil {
 				app.logger.Error("注册企业微信渠道失败", "agent", agentName, "err", err)
 			} else {

@@ -24,6 +24,7 @@ type DingTalkChannel struct {
 	*BotChannelBase
 	clientID     string
 	clientSecret string
+	botPrefix    string
 
 	conn     *websocket.Conn
 	connMu   sync.Mutex
@@ -43,11 +44,12 @@ type dingtalkSession struct {
 }
 
 // NewDingTalkChannel 创建钉钉渠道
-func NewDingTalkChannel(clientID, clientSecret string, display DisplayConfig) *DingTalkChannel {
+func NewDingTalkChannel(clientID, clientSecret, botPrefix string, display DisplayConfig) *DingTalkChannel {
 	return &DingTalkChannel{
 		BotChannelBase: NewBotChannelBase("dingtalk", "", display), // 不需要端口
 		clientID:       clientID,
 		clientSecret:   clientSecret,
+		botPrefix:      botPrefix,
 		stopChan:       make(chan struct{}),
 		sessionInfo:    make(map[string]dingtalkSession),
 	}
@@ -292,6 +294,14 @@ func (d *DingTalkChannel) Send(ctx context.Context, resp Response) error {
 				log.Logger().Warn("[DingTalk] 文件上传失败，回退到文本", "err", err)
 			}
 		}
+	}
+
+	content := resp.Content
+	if strings.Contains(content, "[FILE_BLOCK]") {
+		content = ExtractFileBlockDescription(content)
+	}
+	if d.botPrefix != "" {
+		content = d.botPrefix + "  " + content
 	}
 
 	url := "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"

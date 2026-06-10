@@ -30,6 +30,7 @@ type LarkChannel struct {
 	*BotChannelBase
 	appID     string
 	appSecret string
+	botPrefix string
 
 	// 官方 SDK WebSocket 客户端
 	wsClient *larkws.Client
@@ -50,11 +51,12 @@ type larkSession struct {
 }
 
 // NewLarkChannel 创建飞书渠道
-func NewLarkChannel(appID, appSecret string, display DisplayConfig) *LarkChannel {
+func NewLarkChannel(appID, appSecret, botPrefix string, display DisplayConfig) *LarkChannel {
 	return &LarkChannel{
 		BotChannelBase:   NewBotChannelBase("lark", "", display),
 		appID:            appID,
 		appSecret:        appSecret,
+		botPrefix:        botPrefix,
 		stopChan:         make(chan struct{}),
 		sessionInfo:      make(map[string]larkSession),
 		pendingReactions: make(map[string]string),
@@ -302,6 +304,9 @@ func (l *LarkChannel) Send(ctx context.Context, resp Response) error {
 	content := resp.Content
 	if strings.Contains(content, "[FILE_BLOCK]") {
 		content = ExtractFileBlockDescription(content)
+	}
+	if l.botPrefix != "" {
+		content = l.botPrefix + "  " + content
 	}
 
 	if detectTable(content) {

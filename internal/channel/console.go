@@ -13,6 +13,7 @@ import (
 // ConsoleChannel Web 前端聊天渠道（经 Gateway 路由到 Agent）
 type ConsoleChannel struct {
 	name        string
+	botPrefix   string
 	msgChan     chan Message
 	mu          sync.RWMutex
 	responses   map[string]chan Response
@@ -25,9 +26,10 @@ type ConsoleChannel struct {
 }
 
 // NewConsoleChannel 创建 Console 渠道
-func NewConsoleChannel(display DisplayConfig) *ConsoleChannel {
+func NewConsoleChannel(botPrefix string, display DisplayConfig) *ConsoleChannel {
 	return &ConsoleChannel{
 		name:        "console",
+		botPrefix:   botPrefix,
 		msgChan:     make(chan Message, 100),
 		responses:   make(map[string]chan Response),
 		streamResps: make(map[string]chan string),
@@ -110,6 +112,9 @@ func (w *ConsoleChannel) Stop() error {
 
 func (w *ConsoleChannel) Send(ctx context.Context, resp Response) error {
 	resp.Content = ExtractFileBlockDescription(resp.Content)
+	if w.botPrefix != "" {
+		resp.Content = w.botPrefix + "  " + resp.Content
+	}
 
 	w.mu.Lock()
 	ch, exists := w.responses[resp.To]

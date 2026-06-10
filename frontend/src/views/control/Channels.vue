@@ -20,26 +20,31 @@ const qrcodeStatus = ref('')
 const currentAgent = computed(() => agentStore.selectedAgent || 'default')
 
 const channelDefs = {
-  console: { icon: 'Monitor', fields: [] },
+  console: { icon: 'Monitor', fields: [
+      { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀' }
+    ] },
   lark: {
     icon: 'ChatDotSquare',
     fields: [
       { key: 'app_id', label: 'App ID', type: 'text', placeholder: '飞书应用 ID' },
-      { key: 'app_secret', label: 'App Secret', type: 'password', placeholder: '飞书应用密钥' }
+      { key: 'app_secret', label: 'App Secret', type: 'password', placeholder: '飞书应用密钥' },
+      { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀，如 @机器人' }
     ]
   },
   dingtalk: {
     icon: 'ChatLineSquare',
     fields: [
       { key: 'client_id', label: 'Client ID', type: 'text', placeholder: '钉钉应用 Client ID' },
-      { key: 'client_secret', label: 'Client Secret', type: 'password', placeholder: '钉钉应用密钥' }
+      { key: 'client_secret', label: 'Client Secret', type: 'password', placeholder: '钉钉应用密钥' },
+      { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀，如 @机器人' }
     ]
   },
   wecom: {
     icon: 'ChatRound',
     fields: [
       { key: 'bot_id', label: 'Bot ID', type: 'text', placeholder: '企业微信机器人 ID' },
-      { key: 'secret', label: 'Secret', type: 'password', placeholder: '企业微信机器人密钥' }
+      { key: 'secret', label: 'Secret', type: 'password', placeholder: '企业微信机器人密钥' },
+      { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀' }
     ]
   },
   wechat: {
@@ -275,6 +280,24 @@ function closeDialog() {
             clearable
           />
         </el-form-item>
+
+        <!-- 显示配置 -->
+        <el-divider content-position="left" style="margin: 16px 0;">显示配置</el-divider>
+
+        <el-form-item label="工具消息">
+          <el-switch v-model="editConfig.show_tool_messages" />
+          <span class="field-hint">显示工具调用过程和输出结果</span>
+        </el-form-item>
+
+        <el-form-item label="思考内容">
+          <el-switch v-model="editConfig.show_thinking" />
+          <span class="field-hint">显示模型推理/思考过程</span>
+        </el-form-item>
+
+        <el-form-item label="流式输出">
+          <el-switch v-model="editConfig.stream_output" />
+          <span class="field-hint">逐字流式输出响应内容</span>
+        </el-form-item>
       </el-form>
       <el-empty v-if="!editChannel" description="请选择一个频道" :image-size="50" />
       <template #footer>
@@ -413,6 +436,14 @@ function closeDialog() {
   margin-top: 8px;
   font-size: $font-size-sm;
   color: $text-secondary;
+  font-family: $font-display;
+}
+
+.field-hint {
+  display: block;
+  margin-left: 12px;
+  font-size: $font-size-xs;
+  color: $text-muted;
   font-family: $font-display;
 }
 </style>

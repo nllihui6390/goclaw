@@ -46,8 +46,9 @@ const DefaultWsURL = "wss://openws.work.weixin.qq.com"
 // WeComChannel 企业微信机器人渠道（WebSocket 长连接模式）
 type WeComChannel struct {
 	*BotChannelBase
-	botID  string
-	secret string
+	botID     string
+	secret    string
+	botPrefix string
 
 	conn     *websocket.Conn
 	connMu   sync.Mutex
@@ -93,11 +94,12 @@ type sessionData struct {
 }
 
 // NewWeComChannel 创建企业微信渠道
-func NewWeComChannel(botID, secret string, display DisplayConfig) *WeComChannel {
+func NewWeComChannel(botID, secret, botPrefix string, display DisplayConfig) *WeComChannel {
 	return &WeComChannel{
 		BotChannelBase:         NewBotChannelBase("wecom", "", display),
 		botID:                  botID,
 		secret:                 secret,
+		botPrefix:              botPrefix,
 		stopChan:               make(chan struct{}),
 		heartbeatInterval:      30 * time.Second,
 		maxMissedPong:          2,
@@ -699,6 +701,9 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 
 	// 普通文本消息
 	sendContent := extractFileContent(resp.Content)
+	if w.botPrefix != "" {
+		sendContent = w.botPrefix + "  " + sendContent
+	}
 
 	frame := map[string]any{
 		"cmd": WsCmdResponse,
