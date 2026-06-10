@@ -407,7 +407,7 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 				})
 			}
 
-			response, err := ag.ProcessWithHandler(msgCtx, sessionID, msg.Content, handler)
+			response, err := ag.ProcessWithBlocks(msgCtx, sessionID, msg.Content, msg.Blocks, handler)
 			if err != nil {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)

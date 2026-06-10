@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"go-claw/internal/channel"
@@ -101,6 +100,11 @@ func (a *Agent) SetSkillRegistry(reg *skill.Registry) {
 
 // ProcessWithHandler 处理用户消息（带工具事件回调）
 func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage string, handler ToolEventHandler) (string, error) {
+	return a.ProcessWithBlocks(ctx, sessionID, userMessage, nil, handler)
+}
+
+// ProcessWithBlocks 处理用户消息，支持传入结构化内容块（多模态：图片/文件等）
+func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage string, blocks channel.ContentBlocks, handler ToolEventHandler) (string, error) {
 	logger := glog.Logger()
 	logger.Info("[Agent] 开始处理消息",
 		"agent", a.config.Name,
@@ -138,15 +142,16 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 
 	// 构建发送给 LLM 的消息（原始消息 + 记忆上下文）
 	llmMessage := userMessage
-	if len(relevantMemories) > 0 {
-		memoryContext := "相关记忆:\n" + strings.Join(relevantMemories, "\n")
-		llmMessage = memoryContext + "\n\n用户问题: " + userMessage
-		logger.Debug("[Agent] 消息已增强，加入记忆上下文")
+	if len(blocks) > 0 {
+		// 有结构化内容块时，将其与文本消息合并保存
+		userBlocks := channel.ParseFileMarkers(userMessage)
+		// 将传入的 blocks（如图片）放到前面
+		userBlocks = append(blocks, userBlocks...)
+		session.AddMessage("user", userBlocks)
+	} else {
+		session.AddMessage("user", channel.ParseFileMarkers(userMessage))
 	}
-
-	// 会话历史只保存原始用户消息，不保存增强后的记忆上下文
-	session.AddMessage("user", channel.ParseFileMarkers(userMessage))
-	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages))
+	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages), "blocks", len(blocks))
 
 	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）
 	// 收集内容块（用于追加到最终响应，确保 session 持久化）
@@ -164,9 +169,16 @@ func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage s
 
 	logger.Info("[Agent] 开始执行Runtime",
 		"tools_count", len(a.config.Tools),
-		"max_iterations", a.config.MaxIterations)
+		"max_iterations", a.config.MaxIterations,
+		"blocks_count", len(blocks))
 
-	finalResponse, err := a.runtime.ExecuteWithEnhancedMessage(ctx, session, llmMessage, a.config.Tools, a.config.MaxIterations, wrappedHandler)
+	// 如果有图片等多模态 blocks，将其文本内容作为增强消息传入
+	var enhancedMsg string
+	if len(blocks) > 0 {
+		enhancedMsg = llmMessage
+	}
+
+	finalResponse, err := a.runtime.ExecuteWithEnhancedMessage(ctx, session, enhancedMsg, a.config.Tools, a.config.MaxIterations, wrappedHandler)
 	if err != nil {
 		logger.Error("[Agent] Runtime执行失败", "err", err)
 		return "", err

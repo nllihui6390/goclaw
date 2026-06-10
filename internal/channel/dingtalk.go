@@ -185,11 +185,20 @@ func (d *DingTalkChannel) handleMessage(data []byte) {
 		Text           struct {
 			Content string `json:"content"`
 		} `json:"text"`
-		SenderStaffId  string `json:"senderStaffId"`
-		SenderNick     string `json:"senderNick"`
-		SessionWebhook string `json:"sessionWebhook"`
-		CreateTime     int64  `json:"createTime"`
-		ChatId         string `json:"chatid"`
+		Pictures         []struct {
+			DownloadCode string `json:"downloadCode"`
+			PreviewURL   string `json:"previewUrl"`
+		} `json:"pictureUrls"`
+		AudioContent     string `json:"audioContent"`
+		VideoContent     string `json:"videoContent"`
+		FileDownloadCode string `json:"fileDownloadCode"`
+		FileName         string `json:"fileName"`
+		RichTextContent  string `json:"richTextContent"`
+		SenderStaffId    string `json:"senderStaffId"`
+		SenderNick       string `json:"senderNick"`
+		SessionWebhook   string `json:"sessionWebhook"`
+		CreateTime       int64  `json:"createTime"`
+		ChatId           string `json:"chatid"`
 	}
 
 	if err := json.Unmarshal(payload.Data, &msgData); err != nil {
@@ -197,26 +206,59 @@ func (d *DingTalkChannel) handleMessage(data []byte) {
 		return
 	}
 
-	// 只处理文本消息
-	if msgData.MsgType != "text" || msgData.Text.Content == "" {
+	// 处理不同消息类型
+	var content string
+	var blocks ContentBlocks
+	switch msgData.MsgType {
+	case "text":
+		content = msgData.Text.Content
+	case "picture":
+		if len(msgData.Pictures) > 0 {
+			content = "[image]"
+			if msgData.Pictures[0].PreviewURL != "" {
+				content = "[image_url:" + msgData.Pictures[0].PreviewURL + "]"
+				blocks = append(blocks, NewImageBlockURL(msgData.Pictures[0].PreviewURL))
+			}
+		} else {
+			content = "[image]"
+		}
+	case "audio":
+		content = "[audio:" + msgData.AudioContent + "]"
+	case "video":
+		content = "[video:" + msgData.VideoContent + "]"
+	case "file":
+		fileName := msgData.FileName
+		if fileName == "" {
+			fileName = "[file]"
+		}
+		content = "[file:" + fileName + ",code:" + msgData.FileDownloadCode + "]"
+	case "richText":
+		content = "[richText]"
+	default:
+		content = "[" + msgData.MsgType + " message]"
+	}
+
+	if content == "" {
 		return
 	}
 
 	msgID := fmt.Sprintf("dingtalk-%d", msgData.CreateTime)
-	log.Logger().Info("[DingTalk] 收到消息", "msg_id", msgID, "sender", msgData.SenderNick, "content", msgData.Text.Content)
+	log.Logger().Info("[DingTalk] 收到消息", "msg_id", msgID, "sender", msgData.SenderNick, "msg_type", msgData.MsgType, "content", content)
 
 	// 创建消息
 	msg := Message{
 		ID:        msgID,
 		Channel:   d.name,
 		From:      msgData.SenderStaffId,
-		Content:   msgData.Text.Content,
+		Content:   content,
 		Timestamp: msgData.CreateTime / 1000,
+		Blocks:    blocks,
 		Metadata: map[string]any{
 			"sender_nick":     msgData.SenderNick,
 			"session_webhook": msgData.SessionWebhook,
 			"sender_staff_id": msgData.SenderStaffId,
 			"chat_id":         msgData.ChatId,
+			"msg_type":        msgData.MsgType,
 		},
 	}
 

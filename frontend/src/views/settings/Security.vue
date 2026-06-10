@@ -808,12 +808,12 @@ onUnmounted(() => {
 
   &.file {
     background: $accent-amber-dim;
-    border-color: rgba($accent-amber, 0.2);
+    border-color: $accent-amber;
   }
 
   &.browser {
     background: rgba(#a78bfa, 0.1);
-    border-color: rgba(#a78bfa, 0.2);
+    border-color: rgba(#a78bfa, 0.8);
     color: #a78bfa;
   }
 }

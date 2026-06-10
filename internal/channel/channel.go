@@ -43,6 +43,7 @@ type Message struct {
 	Agent     string                 // 目标Agent名称（由用户指定，为空时使用默认）
 	Timestamp int64
 	Metadata  map[string]any
+	Blocks    ContentBlocks          // 结构化内容块（多模态：图片/文件等）
 }
 
 // Response 响应消息

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"go-claw/internal/channel"
@@ -73,12 +74,13 @@ func (r *Runtime) getRuntimeConfig() *runtimeConfig {
 
 // ChatMessage 对话消息
 type ChatMessage struct {
-	Role         string     `json:"role"`
-	Content      string     `json:"content"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID   string     `json:"tool_call_id,omitempty"`
-	Name         string     `json:"name,omitempty"` // tool 角色消息的工具名称
-	FinishReason string     `json:"-"`              // LLM 返回的 finish_reason
+	Role         string                  `json:"role"`
+	Content      string                  `json:"content"`
+	Blocks       channel.ContentBlocks   `json:"-"`       // 结构化内容块（多模态：图片/文件等）
+	ToolCalls    []ToolCall              `json:"tool_calls,omitempty"`
+	ToolCallID   string                  `json:"tool_call_id,omitempty"`
+	Name         string                  `json:"name,omitempty"` // tool 角色消息的工具名称
+	FinishReason string                  `json:"-"`              // LLM 返回的 finish_reason
 }
 
 // ToolCall 工具调用
@@ -654,9 +656,33 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 
 // buildOpenAIRequestWithConfig 构建 OpenAI 请求体（使用动态运行时配置）
 func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []tool.Tool, rtCfg *runtimeConfig) map[string]interface{} {
+	// 转换消息格式：将带 Blocks 的消息转为 OpenAI vision 多模态格式
+	apiMessages := make([]map[string]interface{}, 0, len(messages))
+	for _, msg := range messages {
+		apiMsg := map[string]interface{}{
+			"role": msg.Role,
+		}
+		if msg.Name != "" {
+			apiMsg["name"] = msg.Name
+		}
+		// 处理 content：有媒体块时转为多模态数组格式
+		if len(msg.Blocks) > 0 {
+			apiMsg["content"] = r.buildMessageContent(msg)
+		} else {
+			apiMsg["content"] = msg.Content
+		}
+		if len(msg.ToolCalls) > 0 {
+			apiMsg["tool_calls"] = msg.ToolCalls
+		}
+		if msg.ToolCallID != "" {
+			apiMsg["tool_call_id"] = msg.ToolCallID
+		}
+		apiMessages = append(apiMessages, apiMsg)
+	}
+
 	reqBody := map[string]interface{}{
 		"model":       rtCfg.Model,
-		"messages":    messages,
+		"messages":    apiMessages,
 		"temperature": 0.7,
 	}
 
@@ -666,6 +692,107 @@ func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []t
 	}
 
 	return reqBody
+}
+
+// buildMessageContent 将 ChatMessage 的 Blocks 转为 OpenAI vision 格式的 content 数组
+func (r *Runtime) buildMessageContent(msg ChatMessage) interface{} {
+	hasImage := false
+	for _, block := range msg.Blocks {
+		if block.Type() == channel.ContentTypeImage {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return msg.Content
+	}
+
+	var content []interface{}
+	for _, block := range msg.Blocks {
+		switch b := block.(type) {
+		case *channel.ImageBlock:
+			if b.Source.Type == "url" {
+				imgURL := b.Source.URL
+				// file:// URL → 读取本地文件并转为 base64 内联（云端 LLM 无法访问本地路径）
+				localPath := channel.FileURLToLocalPath(imgURL)
+				if localPath != imgURL {
+					// 确实是 file:// 转换后的本地路径
+					imgURL = r.fileToDataURL(localPath, b.Source.MediaType)
+				}
+				content = append(content, map[string]interface{}{
+					"type": "image_url",
+					"image_url": map[string]interface{}{
+						"url": imgURL,
+					},
+				})
+			} else if b.Source.Type == "base64" {
+				content = append(content, map[string]interface{}{
+					"type": "image_url",
+					"image_url": map[string]interface{}{
+						"url": "data:" + b.Source.MediaType + ";base64," + b.Source.Data,
+					},
+				})
+			}
+		case *channel.TextBlock:
+			content = append(content, map[string]interface{}{
+				"type": "text",
+				"text": b.Text,
+			})
+		}
+	}
+
+	// 兜底：如果 blocks 里没有文本，但 msg.Content 有值，补上
+	if len(content) == 0 || (msg.Content != "" && !hasTextBlock(content)) {
+		content = append(content, map[string]interface{}{
+			"type": "text",
+			"text": msg.Content,
+		})
+	}
+
+	return content
+}
+
+// fileToDataURL 读取本地图片文件并返回 base64 data URI
+// 如果读取失败或文件不存在，返回原始路径
+func (r *Runtime) fileToDataURL(localPath, mediaType string) string {
+	logger := glog.Logger()
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		logger.Warn("[Runtime] 读取本地图片文件失败，使用原始URL", "path", localPath, "err", err)
+		return "file://" + localPath
+	}
+
+	// 如果未提供 mediaType，尝试从文件扩展名推断
+	if mediaType == "" {
+		ext := strings.ToLower(filepath.Ext(localPath))
+		switch ext {
+		case ".png":
+			mediaType = "image/png"
+		case ".jpg", ".jpeg":
+			mediaType = "image/jpeg"
+		case ".gif":
+			mediaType = "image/gif"
+		case ".webp":
+			mediaType = "image/webp"
+		case ".bmp":
+			mediaType = "image/bmp"
+		default:
+			mediaType = "application/octet-stream"
+		}
+	}
+
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+// hasTextBlock 检查 content 数组是否包含文本块
+func hasTextBlock(content []interface{}) bool {
+	for _, c := range content {
+		if m, ok := c.(map[string]interface{}); ok && m["type"] == "text" {
+			return true
+		}
+	}
+	return false
 }
 
 // callLLMStream 调用大模型API（流式版）
@@ -1060,6 +1187,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		chatMsg := ChatMessage{
 			Role:       msg.Role,
 			Content:    channel.TextOnlyContent(msg.Content),
+			Blocks:     msg.Content, // 传递结构化内容块（多模态）
 			ToolCallID: msg.ToolCallID,
 		}
 		if msg.Role == "tool" && msg.Name != "" {

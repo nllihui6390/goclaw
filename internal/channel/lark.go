@@ -3,8 +3,11 @@ package channel
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,32 +117,8 @@ func (l *LarkChannel) handleLarkMessage(ctx context.Context, event *larkim.P2Mes
 	messageID := event.Event.Message.MessageId
 	msgType := event.Event.Message.MessageType
 
-	// 只处理文本消息
-	if *msgType != "text" {
-		log.Logger().Debug("[Lark] 收到非文本消息", "msg_type", *msgType)
-		return
-	}
-
-	// 解析消息内容
-	contentStr := event.Event.Message.Content
-	var contentObj map[string]string
-	if err := json.Unmarshal([]byte(*contentStr), &contentObj); err != nil {
-		log.Logger().Error("[Lark] 解析消息内容失败", "err", err)
-		return
-	}
-
-	content, ok := contentObj["text"]
-	if !ok || content == "" {
-		return
-	}
-
 	chatID := event.Event.Message.ChatId
 	chatType := event.Event.Message.ChatType
-
-	log.Logger().Info("[Lark] 收到文本消息", "msg_id", *messageID, "open_id", *senderID, "chat_id", *chatID, "chat_type", *chatType, "content", content)
-
-	// 给用户消息添加处理中的 reaction 图标
-	l.addReaction(*messageID, "OK")
 
 	// 会话ID区分单聊和群聊，群聊加 app 后缀防止多机器人冲突
 	sessionKey := *senderID
@@ -163,6 +142,54 @@ func (l *LarkChannel) handleLarkMessage(ctx context.Context, event *larkim.P2Mes
 	l.pendingReactions[sessionKey] = *messageID
 	l.pendingReactionsMu.Unlock()
 
+	// 只处理文本消息
+	if *msgType != "text" {
+		log.Logger().Debug("[Lark] 收到非文本消息", "msg_type", *msgType)
+		// 图片/文件等非文本消息也转发给 Agent
+		content, blocks := l.extractNonTextContent(event)
+		if content == "" {
+			return
+		}
+		log.Logger().Info("[Lark] 收到非文本消息", "msg_id", *messageID, "msg_type", *msgType, "content", content)
+
+		msg := Message{
+			ID:        *messageID,
+			Channel:   l.name,
+			From:      sessionKey,
+			Content:   content,
+			Timestamp: time.Now().Unix(),
+			Blocks:    blocks,
+			Metadata: map[string]any{
+				"open_id":    *senderID,
+				"message_id": *messageID,
+				"chat_id":    *chatID,
+				"chat_type":  *chatType,
+				"msg_type":   *msgType,
+			},
+		}
+		l.PushMessage(msg)
+		l.addReaction(*messageID, "OK")
+		return
+	}
+
+	// 解析消息内容
+	contentStr := event.Event.Message.Content
+	var contentObj map[string]string
+	if err := json.Unmarshal([]byte(*contentStr), &contentObj); err != nil {
+		log.Logger().Error("[Lark] 解析消息内容失败", "err", err)
+		return
+	}
+
+	content, ok := contentObj["text"]
+	if !ok || content == "" {
+		return
+	}
+
+	log.Logger().Info("[Lark] 收到文本消息", "msg_id", *messageID, "open_id", *senderID, "chat_id", *chatID, "chat_type", *chatType, "content", content)
+
+	// 给用户消息添加处理中的 reaction 图标
+	l.addReaction(*messageID, "OK")
+
 	msg := Message{
 		ID:        *messageID,
 		Channel:   l.name,
@@ -179,6 +206,53 @@ func (l *LarkChannel) handleLarkMessage(ctx context.Context, event *larkim.P2Mes
 	}
 
 	l.PushMessage(msg)
+}
+
+// extractNonTextContent 提取非文本消息（图片、文件等）的内容标识和内容块
+func (l *LarkChannel) extractNonTextContent(event *larkim.P2MessageReceiveV1) (string, ContentBlocks) {
+	msg := event.Event.Message
+
+	// 飞书 SDK 的消息结构
+	// image 消息: content 是 {"image_key": "xxx"}
+	// file 消息: content 是 {"file_key": "xxx", "file_name": "xxx"}
+	// audio 消息: content 是 {"file_key": "xxx"}
+	contentStr := msg.Content
+	if contentStr == nil {
+		return "", nil
+	}
+	var contentObj map[string]string
+	if err := json.Unmarshal([]byte(*contentStr), &contentObj); err != nil {
+		return "", nil
+	}
+
+	msgType := event.Event.Message.MessageType
+	if msgType == nil {
+		return "", nil
+	}
+	switch *msgType {
+	case "image":
+		if imageKey, ok := contentObj["image_key"]; ok && imageKey != "" {
+			// 通过 SDK API 下载图片并转为 base64
+			base64Data, mediaType := l.downloadImageAsBase64(imageKey)
+			if base64Data != "" {
+				blocks := ContentBlocks{NewImageBlockBase64(base64Data, mediaType)}
+				return "[image]", blocks
+			}
+			return "[image_key:" + imageKey + "]", nil
+		}
+		return "[image]", nil
+	case "file":
+		fileName, _ := contentObj["file_name"]
+		if fileName == "" {
+			fileName = "[file]"
+		}
+		if fileKey, ok := contentObj["file_key"]; ok && fileKey != "" {
+			return "[file:" + fileName + ",key:" + fileKey + "]", nil
+		}
+		return "[file:" + fileName + "]", nil
+	default:
+		return fmt.Sprintf("[%s message]", *msgType), nil
+	}
 }
 
 func (l *LarkChannel) Stop() error {
@@ -419,6 +493,51 @@ func (l *LarkChannel) uploadImage(ctx context.Context, filePath string) (string,
 	}
 
 	return *resp.Data.ImageKey, nil
+}
+
+// downloadImageAsBase64 通过 image_key 下载飞书图片并转为 base64
+func (l *LarkChannel) downloadImageAsBase64(imageKey string) (base64Data, mediaType string) {
+	// 使用飞书 Open API 直接下载图片
+	// GET /open-apis/im/v1/images?image_key=xxx
+	url := "https://open.feishu.cn/open-apis/im/v1/images?image_key=" + imageKey
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Logger().Warn("[Lark] 创建请求失败", "err", err)
+		return "", ""
+	}
+	// 飞书 SDK 的 HTTP 客户端内部管理 token，这里用 SDK client 的 transport
+	// 但最简单的方式是直接调用 SDK 提供的下载 API
+	// 由于 SDK 没有暴露 GetMessageResource，使用 HTTP 直接下载
+	client := l.HTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Logger().Warn("[Lark] 下载图片失败", "err", err)
+		return "", ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Logger().Warn("[Lark] 下载图片失败", "status", resp.StatusCode)
+		return "", ""
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Logger().Warn("[Lark] 读取图片数据失败", "err", err)
+		return "", ""
+	}
+	base64Data = base64.StdEncoding.EncodeToString(data)
+	// 根据 Content-Type 判断 mediaType
+	mediaType = "image/png" // 默认
+	ct := resp.Header.Get("Content-Type")
+	switch ct {
+	case "image/jpeg":
+		mediaType = "image/jpeg"
+	case "image/gif":
+		mediaType = "image/gif"
+	case "image/webp":
+		mediaType = "image/webp"
+	}
+	return base64Data, mediaType
 }
 
 // sendImageMessage 发送图片消息

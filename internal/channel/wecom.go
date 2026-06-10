@@ -387,6 +387,31 @@ func (w *WeComChannel) handleMessageCallback(frame map[string]any) {
 
 	if msgType != "text" {
 		log.Logger().Debug("[WeCom] 收到非文本消息", "msgtype", msgType)
+		// 图片/文件等非文本消息也转发给 Agent
+		content, blocks := wecomExtractNonTextContent(body, msgType)
+		if content == "" {
+			return
+		}
+		log.Logger().Info("[WeCom] 收到非文本消息",
+			"msg_id", msgID, "msgtype", msgType, "content", content)
+
+		msg := Message{
+			ID:        msgID,
+			Channel:   w.name,
+			From:      userID,
+			Content:   content,
+			Timestamp: time.Now().Unix(),
+			Blocks:    blocks,
+			Metadata: map[string]any{
+				"chatid":   chatID,
+				"chattype": chatType,
+				"userid":   userID,
+				"req_id":   reqID,
+				"aibotid":  aibotID,
+				"msg_type": msgType,
+			},
+		}
+		w.PushMessage(msg)
 		return
 	}
 
@@ -417,7 +442,42 @@ func (w *WeComChannel) handleMessageCallback(frame map[string]any) {
 	w.PushMessage(msg)
 }
 
-// handleEventCallback 处理事件推送回调
+// wecomExtractNonTextContent 提取企业微信非文本消息的内容标识和内容块
+func wecomExtractNonTextContent(body map[string]any, msgType string) (string, ContentBlocks) {
+	switch msgType {
+	case "image":
+		if imageMap, ok := body["image"].(map[string]any); ok {
+			if mediaID, ok := imageMap["media_id"].(string); ok && mediaID != "" {
+				// 企业微信图片需要先下载再转 base64
+				// 暂时返回 media_id 占位，后续通过 API 下载
+				return "[image_media:" + mediaID + "]", nil
+			}
+		}
+		return "[image]", nil
+	case "file":
+		fileName := ""
+		if fileMap, ok := body["file"].(map[string]any); ok {
+			if name, ok := fileMap["filename"].(string); ok {
+				fileName = name
+			}
+		}
+		if fileName == "" {
+			fileName = "[file]"
+		}
+		return "[file:" + fileName + "]", nil
+	case "voice":
+		return "[voice]", nil
+	case "video":
+		if videoMap, ok := body["video"].(map[string]any); ok {
+			if mediaID, ok := videoMap["media_id"].(string); ok && mediaID != "" {
+				return "[video_media:" + mediaID + "]", nil
+			}
+		}
+		return "[video]", nil
+	default:
+		return "[" + msgType + " message]", nil
+	}
+}
 func (w *WeComChannel) handleEventCallback(frame map[string]any) {
 	body, _ := frame["body"].(map[string]any)
 	if body == nil {

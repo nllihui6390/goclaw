@@ -386,6 +386,7 @@ type wechatInMsg struct {
 	MsgType      int    // 1=text, 2=image, 3=voice, 4=file, 5=video
 	ContextToken string // 回复时必须携带
 	Timestamp    int64
+	ImageURL     string // 图片 URL（用于构建 ImageBlock）
 }
 
 func (w *WeChatChannel) parseMessage(msg map[string]any) *wechatInMsg {
@@ -428,6 +429,30 @@ func (w *WeChatChannel) parseMessage(msg map[string]any) *wechatInMsg {
 				m.Content, _ = textItem["text"].(string)
 			}
 			m.MsgType = 1
+		case 2: // image
+			m.MsgType = 2
+			if imageItem, ok := itemMap["image_item"].(map[string]any); ok {
+				if media, ok := imageItem["media"].(map[string]any); ok {
+					// 尝试获取图片 URL
+					if url, ok := media["url"].(string); ok && url != "" {
+						m.Content = url
+						m.ImageURL = url
+					} else if cdnUrl, ok := media["cdn_url"].(string); ok && cdnUrl != "" {
+						m.Content = "[image]"
+						m.ImageURL = cdnUrl
+					} else {
+						// 有 media 但无 URL，标记为图片
+						m.Content = "[image]"
+					}
+				}
+			}
+			// 兜底：尝试从 item 中直接获取 url
+			if m.Content == "" || m.Content == "[image]" {
+				if url, ok := itemMap["url"].(string); ok && url != "" {
+					m.Content = "[image]"
+					m.ImageURL = url
+				}
+			}
 		case 4: // file
 			m.MsgType = 4
 			if fileItem, ok := itemMap["file_item"].(map[string]any); ok {
@@ -519,6 +544,11 @@ func (w *WeChatChannel) handleMessage(msg map[string]any) {
 			"msg_type":       m.MsgType,
 			"context_token":  m.ContextToken,
 		},
+	}
+
+	// 构建 ContentBlocks（图片等多模态）
+	if m.ImageURL != "" {
+		channelMsg.Blocks = append(channelMsg.Blocks, NewImageBlockURL(m.ImageURL))
 	}
 
 	w.PushMessage(channelMsg)
