@@ -56,6 +56,9 @@ func (a *AppService) UpdateChannel(agentName, channelName, configJSON string) st
 	return a.inner.UpdateChannel(agentName, channelName, configJSON)
 }
 func (a *AppService) GetProviders() string { return a.inner.GetProviders() }
+func (a *AppService) TestProvider(provider, model string) string {
+	return a.inner.TestProvider(provider, model)
+}
 func (a *AppService) GetTools() string     { return a.inner.GetTools() }
 func (a *AppService) GetSkillPool() string { return a.inner.GetSkillPool() }
 func (a *AppService) ScanSkills() string   { return a.inner.ScanSkills() }

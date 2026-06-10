@@ -138,6 +138,14 @@ export class WailsAdapter {
       return []
     }
   }
+  async testProvider(provider, model) {
+    try {
+      const json = await Call.ByName('main.AppService.TestProvider', provider, model || '')
+      return JSON.parse(json)
+    } catch (e) {
+      return { success: false, error: e.message }
+    }
+  }
 
   // 工具/Skills
   async getTools() {

@@ -182,6 +182,13 @@ func (a *AppService) GetProviders() string {
 	return a.providerSvc.ListJSON()
 }
 
+// TestProvider 测试模型连接和多模态能力
+func (a *AppService) TestProvider(provider, model string) string {
+	result := a.providerSvc.TestProvider(provider, model)
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
 // ─────────── Tools ───────────
 
 func (a *AppService) GetTools() string {

@@ -10,6 +10,7 @@ const config = ref({})
 const dialogVisible = ref(false)
 const modelDialogVisible = ref(false)
 const addProviderDialogVisible = ref(false)
+const testDialogVisible = ref(false)
 const editingProvider = ref(null)
 const editingModels = ref([])
 const currentProviderName = ref('')
@@ -17,6 +18,8 @@ const searchKeyword = ref('')
 const defaultProvider = ref('')
 const defaultModel = ref('')
 const newProvider = ref({ name: '', type: 'openai', base_url: '', api_key: '', models: [] })
+const testingProvider = ref(false)
+const testResult = ref(null)
 
 const providerModelOptions = computed(() => {
   const p = config.value?.providers?.[defaultProvider.value]
@@ -183,6 +186,31 @@ async function deleteProvider(name) {
   }
 }
 
+async function testModel(providerName, model) {
+  testingProvider.value = true
+  testResult.value = null
+  testDialogVisible.value = true
+  try {
+    const result = await api.testProvider(providerName, model || '')
+    testResult.value = result
+    if (!result.success) {
+      ElMessage.error('测试失败: ' + (result.error || '未知错误'))
+    } else if (result.image_tested) {
+      if (result.image_success) {
+        ElMessage.success('文字测试和图片测试均通过')
+      } else {
+        ElMessage.warning('文字测试通过，图片测试失败: ' + result.image_error)
+      }
+    } else {
+      ElMessage.success('文字测试通过')
+    }
+  } catch (e) {
+    testResult.value = { success: false, error: e.message }
+    ElMessage.error('测试失败: ' + e.message)
+  }
+  testingProvider.value = false
+}
+
 function maskKey(key) {
   if (!key) return '(未设置)'
   if (key.length < 8) return '****'
@@ -266,6 +294,7 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
         <div class="provider-actions">
           <el-button size="small" @click="openModelSettings(p.name, p)">模型设置</el-button>
           <el-button size="small" type="primary" @click="openProviderSettings(p.name, p)">设置</el-button>
+          <el-button size="small" type="warning" @click="testModel(p.name, p.models?.[0]?.name)" :loading="testingProvider">测试</el-button>
           <el-button size="small" type="danger" link @click="deleteProvider(p.name)">删除</el-button>
         </div>
       </div>
@@ -329,8 +358,14 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
       </div>
       <div class="model-edit-list">
         <div v-for="(m, idx) in editingModels" :key="idx" class="model-edit-item">
-          <el-input v-model="m.name" placeholder="模型名称" style="width: 160px" />
-          <el-input v-model="m.description" placeholder="描述" style="width: 200px" />
+          <el-input v-model="m.name" placeholder="模型名称" style="width: 140px" />
+          <el-input v-model="m.description" placeholder="描述" style="width: 140px" />
+          <el-tooltip content="支持图片输入（视觉）" placement="top">
+            <el-switch v-model="m.supports_image" active-text="图片" inline-prompt size="small" style="--el-switch-on-color: #67c23a" />
+          </el-tooltip>
+          <el-tooltip content="支持视频输入" placement="top">
+            <el-switch v-model="m.supports_video" active-text="视频" inline-prompt size="small" style="--el-switch-on-color: #409eff" />
+          </el-tooltip>
           <el-button type="danger" link size="small" @click="removeModel(idx)">删除</el-button>
         </div>
         <el-empty v-if="!editingModels.length" description="暂无模型" :image-size="50" />
@@ -338,6 +373,54 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
       <template #footer>
         <el-button @click="modelDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveModelSettings" :loading="saving">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 测试对话框 -->
+    <el-dialog v-model="testDialogVisible" title="模型测试" width="480px" :close-on-click-modal="false">
+      <div v-if="!testResult" class="test-loading">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <p>正在测试模型连接...</p>
+      </div>
+      <div v-else class="test-result">
+        <!-- 文字测试 -->
+        <div class="test-item" :class="testResult.success ? 'pass' : 'fail'">
+          <div class="test-item-header">
+            <el-icon v-if="testResult.success"><CircleCheck /></el-icon>
+            <el-icon v-else><CircleClose /></el-icon>
+            <span>文字测试</span>
+          </div>
+          <div class="test-item-body">
+            <span v-if="testResult.success" class="test-response">{{ testResult.response_text || '(空响应)' }}</span>
+            <span v-else class="test-error">{{ testResult.error }}</span>
+            <span class="test-latency">{{ testResult.latency_ms }}ms</span>
+          </div>
+        </div>
+        <!-- 图片测试 -->
+        <div v-if="testResult.image_tested" class="test-item" :class="testResult.image_success ? 'pass' : 'fail'">
+          <div class="test-item-header">
+            <el-icon v-if="testResult.image_success"><CircleCheck /></el-icon>
+            <el-icon v-else><CircleClose /></el-icon>
+            <span>图片测试（多模态）</span>
+          </div>
+          <div class="test-item-body">
+            <span v-if="testResult.image_success" class="test-response">{{ testResult.response_text }}</span>
+            <span v-else class="test-error">{{ testResult.image_error }}</span>
+          </div>
+        </div>
+        <div v-else class="test-item skipped">
+          <div class="test-item-header">
+            <el-icon><InfoFilled /></el-icon>
+            <span>图片测试</span>
+          </div>
+          <div class="test-item-body">
+            <span class="test-skipped">该模型未启用图片支持，跳过测试</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="testDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="testModel(testResult?.provider, testResult?.model)" :loading="testingProvider" v-if="testResult?.success">重新测试</el-button>
       </template>
     </el-dialog>
   </div>
@@ -537,5 +620,82 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+// Test dialog styles
+.test-loading {
+  text-align: center;
+  padding: 32px 0;
+  .el-icon {
+    font-size: 40px;
+    color: $accent-cyan;
+  }
+  p {
+    margin-top: 12px;
+    color: $text-muted;
+    font-size: $font-size-sm;
+  }
+}
+
+.test-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.test-item {
+  padding: 14px;
+  border-radius: $radius-md;
+  border: 1px solid $border-default;
+
+  &.pass {
+    border-color: #67c23a;
+    background: rgba(103, 194, 58, 0.05);
+  }
+  &.fail {
+    border-color: #f56c6c;
+    background: rgba(245, 108, 108, 0.05);
+  }
+  &.skipped {
+    border-color: $border-default;
+    opacity: 0.7;
+  }
+}
+
+.test-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: $text-primary;
+  margin-bottom: 8px;
+}
+
+.test-item-body {
+  font-size: $font-size-xs;
+  color: $text-secondary;
+}
+
+.test-response {
+  font-style: italic;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.test-error {
+  color: #f56c6c;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.test-latency {
+  font-family: $font-display;
+  color: $accent-cyan;
+}
+
+.test-skipped {
+  color: $text-muted;
+  font-size: $font-size-xs;
 }
 </style>

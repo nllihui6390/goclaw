@@ -62,6 +62,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/channels/qrcode", api.HandleChannelQRCode)
 	mux.HandleFunc("/api/v1/channels/qrcode/status", api.HandleChannelQRCodeStatus)
 	mux.HandleFunc("/api/v1/providers", api.HandleProviders)
+	mux.HandleFunc("/api/v1/providers/test", api.HandleProviderTest)
 	mux.HandleFunc("/api/v1/tools", api.HandleTools)
 	mux.HandleFunc("/api/v1/skills/pool", api.HandleSkillPool)
 	mux.HandleFunc("/api/v1/skills/scan", api.HandleSkillScan)
