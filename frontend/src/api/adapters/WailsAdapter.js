@@ -298,6 +298,55 @@ export class WailsAdapter {
     return await Call.ByName('main.AppService.WriteAgentFile', agent, file, content)
   }
 
+  // 安全审批
+  async getPendingApprovals() {
+    try {
+      const json = await Call.ByName('main.AppService.GetPendingApprovals')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getPendingApprovals error:', e)
+      return []
+    }
+  }
+  async approveRequest(id) {
+    try {
+      const json = await Call.ByName('main.AppService.ApproveRequest', id, 'wails_user')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] approveRequest error:', e)
+      return { success: false }
+    }
+  }
+  async denyRequest(id, reason) {
+    try {
+      const json = await Call.ByName('main.AppService.DenyRequest', id, 'wails_user', reason || '')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] denyRequest error:', e)
+      return { success: false }
+    }
+  }
+
+  // 安全配置
+  async getSecurityConfig() {
+    try {
+      const json = await Call.ByName('main.AppService.GetSecurityConfig')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getSecurityConfig error:', e)
+      return {}
+    }
+  }
+  async updateSecurityConfig(config) {
+    try {
+      const json = await Call.ByName('main.AppService.UpdateSecurityConfig', JSON.stringify(config))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] updateSecurityConfig error:', e)
+      return { success: false }
+    }
+  }
+
   // 获取媒体文件（图片、视频、PDF 等）返回 Blob URL
   // 后端返回 JSON: {"base64": "...", "mime": "image/png"}
   // 前端解码 base64 → Uint8Array → Blob → URL.createObjectURL

@@ -154,6 +154,15 @@ export class HttpAdapter {
 
   // 重启
   restart() { return http.post('/restart').then(r => r.data) }
+
+  // 安全审批
+  getPendingApprovals() { return http.get('/security/approvals').then(r => r.data) }
+  approveRequest(id) { return http.post('/security/approve', { approval_id: id }).then(r => r.data) }
+  denyRequest(id, reason) { return http.post('/security/deny', { approval_id: id, reason }).then(r => r.data) }
+
+  // 安全配置
+  getSecurityConfig() { return http.get('/security/config').then(r => r.data) }
+  updateSecurityConfig(config) { return http.put('/security/config', config).then(r => r.data) }
 }
 
 export default new HttpAdapter()

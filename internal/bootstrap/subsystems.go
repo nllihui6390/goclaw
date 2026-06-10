@@ -128,6 +128,7 @@ func (app *App) initSecurity() {
 	if app.Config.Security.GuardBrowser {
 		toolGuard.AddGuardian(security.NewRuleGuardian())
 	}
+	app.ToolGuard = toolGuard // 保存到 App 结构体
 	app.logger.Info("工具安全守卫已启用",
 		"shell_inject", app.Config.Security.DenyShellInject,
 		"sensitive_path", app.Config.Security.DenySensitivePath,

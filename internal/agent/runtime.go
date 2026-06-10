@@ -792,9 +792,47 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			return fmt.Sprintf("操作被拒绝: %s", guardResult.Message), nil, nil
 		}
 		if guardResult.Decision == security.DecisionGuard {
+			// 需要用户确认，创建审批请求
 			logger.Warn("[Runtime] 工具调用需要确认",
 				"tool", tc.Function.Name, "reason", guardResult.Reason)
-			return fmt.Sprintf("此操作需要确认: %s\n请明确确认后再执行。", guardResult.Message), nil, nil
+
+			approvalSvc := security.GetApprovalService()
+			approvalID := fmt.Sprintf("approval_%s_%d", tc.Function.Name, time.Now().UnixNano())
+			approval := approvalSvc.CreateApproval(
+				approvalID,
+				tc.Function.Name,
+				params,
+				guardResult.Reason,
+				guardResult.Message,
+			)
+
+			// 构建通知消息（返回给 LLM，让 LLM 告知用户）
+			notificationMsg := fmt.Sprintf(
+				"⚠️ 安全守卫拦截了工具调用\n\n"+
+					"工具: %s\n"+
+					"原因: %s\n"+
+					"审批ID: %s\n\n"+
+					"请在安全设置页面审批，或使用 /approval approve %s 批准，或 /approval deny %s [原因] 拒绝",
+				tc.Function.Name,
+				guardResult.Message,
+				approvalID,
+				approvalID,
+				approvalID,
+			)
+
+			// 等待用户审批（阻塞）
+			result, err := approvalSvc.WaitForResult(ctx, approval)
+			if err != nil {
+				return fmt.Sprintf("%s\n\n审批等待失败: %v", notificationMsg, err), nil, nil
+			}
+
+			if !result.Approved {
+				return fmt.Sprintf("%s\n\n操作被用户拒绝: %s", notificationMsg, result.DenyReason), nil, nil
+			}
+
+			// 用户批准了，继续执行工具
+			logger.Info("[Runtime] 工具调用已获用户批准", "tool", tc.Function.Name, "approval_id", approvalID)
+			_ = approval // 避免未使用警告
 		}
 	}
 

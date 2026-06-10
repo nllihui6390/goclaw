@@ -138,6 +138,7 @@ func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, root
 		ToolResultExemptExts:  agentCfg.ToolResultExemptExts,
 		SupportsImage:         supportsImage,
 		SupportsVideo:         supportsVideo,
+		ToolGuard:             app.ToolGuard,
 		// 动态配置提供器：每次调用 LLM 时实时读取 app.Config（指针），改配置即生效
 		ConfigProvider: func() (string, string, string, string) {
 			// app.Config 是指针，外部 global.SetConfig 更新后这里自动读到新值

@@ -86,6 +86,12 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/chat/history/", api.HandleChatHistory)
 	mux.HandleFunc("/api/v1/chat/files/upload", api.HandleChatFileUpload)
 
+	// 安全审批 API
+	mux.HandleFunc("/api/v1/security/approvals", api.HandleGetPendingApprovals)
+	mux.HandleFunc("/api/v1/security/approve", api.HandleApproveRequest)
+	mux.HandleFunc("/api/v1/security/deny", api.HandleDenyRequest)
+	mux.HandleFunc("/api/v1/security/config", api.HandleSecurityConfig)
+
 	// 前端 SPA
 	mux.HandleFunc("/", serveFrontend)
 

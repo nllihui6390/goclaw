@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -67,43 +66,6 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 		return "", fmt.Errorf("缺少命令参数")
 	}
 
-	// 安全检查：禁止危险命令（clawdata/tmp 目录下的删除操作除外）
-	commandLower := strings.ToLower(command)
-	firstWord := ""
-	if parts := strings.Fields(commandLower); len(parts) > 0 {
-		base := parts[0]
-		if idx := strings.LastIndex(base, "/"); idx >= 0 {
-			base = base[idx+1:]
-		}
-		if idx := strings.LastIndex(base, "\\"); idx >= 0 {
-			base = base[idx+1:]
-		}
-		firstWord = base
-	}
-
-	// 检查是否只针对 clawdata/tmp 目录的删除操作
-	isTmpCleanup := isTmpDirCommand(commandLower)
-
-	dangerousCommands := []string{"rm", "dd", "mkfs", "sudo", "chmod", "chown", "format", "rmdir", "del"}
-	for _, d := range dangerousCommands {
-		if firstWord == d {
-			if isTmpCleanup && (d == "rm" || d == "del" || d == "rmdir") {
-				// 允许删除 clawdata/tmp 目录下的文件
-				continue
-			}
-			return "", fmt.Errorf("禁止执行危险命令: %s", d)
-		}
-	}
-
-	if !isTmpCleanup {
-		dangerousPatterns := []string{"del /f", "del /q", "rd /s"}
-		for _, p := range dangerousPatterns {
-			if strings.Contains(commandLower, p) {
-				return "", fmt.Errorf("禁止执行危险命令模式: %s", p)
-			}
-		}
-	}
-
 	// 命令执行超时：最多300秒（pip install 等操作需要更长时间）
 	timeoutCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
@@ -125,15 +87,4 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]interface{}) (
 	}
 
 	return string(output), nil
-}
-
-// isTmpDirCommand 检查命令是否只针对 clawdata/temp 目录
-func isTmpDirCommand(commandLower string) bool {
-	if globalDataDir == "" {
-		return false
-	}
-	tempDir := strings.ToLower(globalDataDir + "/temp")
-	tempDirWin := strings.ToLower(globalDataDir + "\\temp")
-
-	return strings.Contains(commandLower, tempDir) || strings.Contains(commandLower, tempDirWin)
 }

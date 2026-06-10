@@ -9,6 +9,7 @@ import (
 	"go-claw/internal/channel"
 	"go-claw/internal/cron"
 	"go-claw/internal/media"
+	"go-claw/internal/security"
 	glog "go-claw/pkg/log"
 	"go-claw/server/service"
 	"os"
@@ -194,6 +195,84 @@ func (a *AppService) TestAllModels(provider string) string {
 	results := a.providerSvc.TestAllModels(provider)
 	data, _ := json.Marshal(results)
 	return string(data)
+}
+
+// ─────────── Security Approvals ───────────
+
+// GetPendingApprovals 获取待审批列表
+func (a *AppService) GetPendingApprovals() string {
+	approvalSvc := security.GetApprovalService()
+	pending := approvalSvc.ListPending()
+	data, _ := json.Marshal(pending)
+	return string(data)
+}
+
+// ApproveRequest 批准请求
+func (a *AppService) ApproveRequest(approvalID, approvedBy string) string {
+	approvalSvc := security.GetApprovalService()
+	if approvedBy == "" {
+		approvedBy = "wails_user"
+	}
+	success := approvalSvc.Approve(approvalID, approvedBy)
+	return fmt.Sprintf(`{"success": %t}`, success)
+}
+
+// DenyRequest 拒绝请求
+func (a *AppService) DenyRequest(approvalID, deniedBy, reason string) string {
+	approvalSvc := security.GetApprovalService()
+	if deniedBy == "" {
+		deniedBy = "wails_user"
+	}
+	success := approvalSvc.Deny(approvalID, deniedBy, reason)
+	return fmt.Sprintf(`{"success": %t}`, success)
+}
+
+// GetSecurityConfig 获取安全配置
+func (a *AppService) GetSecurityConfig() string {
+	configJSON := a.configSvc.GetJSON()
+	var fullConfig map[string]interface{}
+	if err := json.Unmarshal([]byte(configJSON), &fullConfig); err != nil {
+		return `{}`
+	}
+
+	securityCfg, ok := fullConfig["security"]
+	if !ok {
+		securityCfg = map[string]interface{}{
+			"enabled":             false,
+			"deny_shell_inject":   false,
+			"deny_sensitive_path": false,
+			"guard_browser":       false,
+			"allowed_paths":       []string{},
+		}
+	}
+
+	data, _ := json.Marshal(securityCfg)
+	return string(data)
+}
+
+// UpdateSecurityConfig 更新安全配置
+func (a *AppService) UpdateSecurityConfig(configJSON string) string {
+	var securityCfg map[string]interface{}
+	if err := json.Unmarshal([]byte(configJSON), &securityCfg); err != nil {
+		return `{"success": false, "error": "invalid json"}`
+	}
+
+	// 获取完整配置
+	fullConfigJSON := a.configSvc.GetJSON()
+	var fullConfig map[string]interface{}
+	if err := json.Unmarshal([]byte(fullConfigJSON), &fullConfig); err != nil {
+		return `{"success": false, "error": "failed to parse config"}`
+	}
+
+	// 更新 security 部分
+	fullConfig["security"] = securityCfg
+
+	// 保存完整配置
+	if err := a.configSvc.Save(fullConfig); err != nil {
+		return fmt.Sprintf(`{"success": false, "error": "%s"}`, err.Error())
+	}
+
+	return `{"success": true}`
 }
 
 // ─────────── Tools ───────────

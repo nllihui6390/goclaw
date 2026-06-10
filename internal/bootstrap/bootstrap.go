@@ -11,6 +11,7 @@ import (
 	"go-claw/internal/gateway"
 	"go-claw/internal/mcp"
 	"go-claw/internal/proactive"
+	"go-claw/internal/security"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 )
@@ -26,6 +27,7 @@ type App struct {
 	CronMgr      *cron.Manager
 	MCPMgr       *mcp.Manager
 	ProactiveMgr *proactive.ProactiveManager
+	ToolGuard    *security.ToolGuard // 工具安全守卫
 
 	// 内部状态
 	logger *slog.Logger
@@ -50,25 +52,27 @@ func NewApp() (*App, error) {
 	// 3. Gateway + 数据目录
 	app.initGateway()
 
-	// 4. Agents 注册（必须在 Start 前）
+	// 4. 安全守卫（必须在 Agents 前，Agent 创建时注入 ToolGuard）
+	app.initSecurity()
+
+	// 5. Agents 注册（必须在 Start 前）
 	app.initAgents()
 
-	// 5. Channels 注册（必须在 Start 前）
+	// 6. Channels 注册（必须在 Start 前）
 	app.initChannels()
 
-	// 6. 启动 Gateway
+	// 7. 启动 Gateway
 	if err := app.Gateway.Start(); err != nil {
 		app.logger.Error("启动网关失败", "err", err)
 		os.Exit(1)
 	}
 	app.logger.Info("GoClaw AI Agent Gateway 已启动", "data_dir", app.DataDir)
 
-	// 7. 其他子系统（顺序无关）
+	// 8. 其他子系统（顺序无关）
 	app.initInbox()
 	app.initMCP()
 	app.initACP()
 	app.initCron()
-	app.initSecurity()
 	app.initMultiAgentTools()
 	app.initProactive()
 	app.startSessionCleanup()

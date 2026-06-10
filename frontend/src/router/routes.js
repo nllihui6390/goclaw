@@ -80,7 +80,7 @@ export const appRoutes = [
     path: '/security',
     name: 'Security',
     component: () => import('@/views/settings/Security.vue'),
-    meta: { title: '安全设置' }
+    meta: { title: '安全设置', menuLabel: '安全设置', icon: 'Lock', menuGroup: '设置' }
   },
   {
     path: '/debug',
