@@ -657,7 +657,6 @@ func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []t
 	reqBody := map[string]interface{}{
 		"model":       rtCfg.Model,
 		"messages":    messages,
-		"max_tokens":  2000,
 		"temperature": 0.7,
 	}
 
