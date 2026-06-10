@@ -106,6 +106,7 @@ export class HttpAdapter {
   // 供应商/模型
   getProviders() { return http.get('/providers').then(r => r.data) }
   testProvider(provider, model) { return http.post('/providers/test', { provider, model: model || '' }).then(r => r.data) }
+  testAllModels(provider) { return http.post('/providers/test-all', { provider }).then(r => r.data) }
 
   // 工具/Skills
   getTools() { return http.get('/tools').then(r => r.data) }

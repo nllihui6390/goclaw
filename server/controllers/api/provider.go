@@ -11,7 +11,7 @@ func HandleProviders(rw http.ResponseWriter, r *http.Request) {
 	writeJSON(rw, http.StatusOK, providers)
 }
 
-// HandleProviderTest 测试模型连接和多模态能力（POST）
+// HandleProviderTest 测试单个模型的多模态能力（POST）
 func HandleProviderTest(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
@@ -31,4 +31,25 @@ func HandleProviderTest(rw http.ResponseWriter, r *http.Request) {
 	}
 	result := providerSvc.TestProvider(req.Provider, req.Model)
 	writeJSON(rw, http.StatusOK, result)
+}
+
+// HandleProviderTestAll 测试供应商下所有模型的多模态能力（POST）
+func HandleProviderTestAll(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(rw, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Provider == "" {
+		writeError(rw, http.StatusBadRequest, "provider required")
+		return
+	}
+	results := providerSvc.TestAllModels(req.Provider)
+	writeJSON(rw, http.StatusOK, results)
 }

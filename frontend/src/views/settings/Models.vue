@@ -19,7 +19,8 @@ const defaultProvider = ref('')
 const defaultModel = ref('')
 const newProvider = ref({ name: '', type: 'openai', base_url: '', api_key: '', models: [] })
 const testingProvider = ref(false)
-const testResult = ref(null)
+const testResults = ref(null)
+const testingProviderName = ref('')
 
 const providerModelOptions = computed(() => {
   const p = config.value?.providers?.[defaultProvider.value]
@@ -186,26 +187,24 @@ async function deleteProvider(name) {
   }
 }
 
-async function testModel(providerName, model) {
+async function testAllModels(providerName) {
   testingProvider.value = true
-  testResult.value = null
+  testResults.value = null
+  testingProviderName.value = providerName
   testDialogVisible.value = true
   try {
-    const result = await api.testProvider(providerName, model || '')
-    testResult.value = result
-    if (!result.success) {
-      ElMessage.error('测试失败: ' + (result.error || '未知错误'))
-    } else if (result.image_tested) {
-      if (result.image_success) {
-        ElMessage.success('文字测试和图片测试均通过')
-      } else {
-        ElMessage.warning('文字测试通过，图片测试失败: ' + result.image_error)
-      }
+    const results = await api.testAllModels(providerName)
+    testResults.value = results
+    await loadConfig() // 刷新配置以反映 supports_image 更新
+    const successCount = results.filter(r => r.success).length
+    const failCount = results.filter(r => !r.success && r.error).length
+    if (failCount === 0) {
+      ElMessage.success(`全部 ${successCount} 个模型多模态测试通过`)
     } else {
-      ElMessage.success('文字测试通过')
+      ElMessage.warning(`${successCount} 个通过，${failCount} 个失败`)
     }
   } catch (e) {
-    testResult.value = { success: false, error: e.message }
+    testResults.value = [{ success: false, error: e.message }]
     ElMessage.error('测试失败: ' + e.message)
   }
   testingProvider.value = false
@@ -294,7 +293,7 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
         <div class="provider-actions">
           <el-button size="small" @click="openModelSettings(p.name, p)">模型设置</el-button>
           <el-button size="small" type="primary" @click="openProviderSettings(p.name, p)">设置</el-button>
-          <el-button size="small" type="warning" @click="testModel(p.name, p.models?.[0]?.name)" :loading="testingProvider">测试</el-button>
+          <el-button size="small" type="warning" @click="testAllModels(p.name)" :loading="testingProvider">测试</el-button>
           <el-button size="small" type="danger" link @click="deleteProvider(p.name)">删除</el-button>
         </div>
       </div>
@@ -377,50 +376,36 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
     </el-dialog>
 
     <!-- 测试对话框 -->
-    <el-dialog v-model="testDialogVisible" title="模型测试" width="480px" :close-on-click-modal="false">
-      <div v-if="!testResult" class="test-loading">
+    <el-dialog v-model="testDialogVisible" title="多模态测试" width="520px" :close-on-click-modal="false">
+      <div v-if="!testResults" class="test-loading">
         <el-icon class="is-loading"><Loading /></el-icon>
-        <p>正在测试模型连接...</p>
+        <p>正在测试所有模型的多模态能力...</p>
       </div>
-      <div v-else class="test-result">
-        <!-- 文字测试 -->
-        <div class="test-item" :class="testResult.success ? 'pass' : 'fail'">
-          <div class="test-item-header">
-            <el-icon v-if="testResult.success"><CircleCheck /></el-icon>
-            <el-icon v-else><CircleClose /></el-icon>
-            <span>文字测试</span>
-          </div>
-          <div class="test-item-body">
-            <span v-if="testResult.success" class="test-response">{{ testResult.response_text || '(空响应)' }}</span>
-            <span v-else class="test-error">{{ testResult.error }}</span>
-            <span class="test-latency">{{ testResult.latency_ms }}ms</span>
-          </div>
+      <div v-else class="test-results">
+        <div class="test-provider-header">
+          <span>供应商：{{ testingProviderName }}</span>
+          <span class="test-summary">{{ testResults.filter(r => r.success).length }}/{{ testResults.length }} 通过</span>
         </div>
-        <!-- 图片测试 -->
-        <div v-if="testResult.image_tested" class="test-item" :class="testResult.image_success ? 'pass' : 'fail'">
-          <div class="test-item-header">
-            <el-icon v-if="testResult.image_success"><CircleCheck /></el-icon>
-            <el-icon v-else><CircleClose /></el-icon>
-            <span>图片测试（多模态）</span>
-          </div>
-          <div class="test-item-body">
-            <span v-if="testResult.image_success" class="test-response">{{ testResult.response_text }}</span>
-            <span v-else class="test-error">{{ testResult.image_error }}</span>
-          </div>
-        </div>
-        <div v-else class="test-item skipped">
-          <div class="test-item-header">
-            <el-icon><InfoFilled /></el-icon>
-            <span>图片测试</span>
-          </div>
-          <div class="test-item-body">
-            <span class="test-skipped">该模型未启用图片支持，跳过测试</span>
+        <div class="test-model-list">
+          <div v-for="result in testResults" :key="result.model" class="test-model-item" :class="result.success ? 'pass' : 'fail'">
+            <div class="test-model-header">
+              <el-icon v-if="result.success" class="test-icon success"><CircleCheck /></el-icon>
+              <el-icon v-else class="test-icon error"><CircleClose /></el-icon>
+              <span class="test-model-name">{{ result.model }}</span>
+              <span class="test-latency">{{ result.latency_ms }}ms</span>
+            </div>
+            <div v-if="result.success" class="test-model-status success">
+              支持图片输入
+            </div>
+            <div v-else class="test-model-status error">
+              {{ result.error || '不支持图片输入' }}
+            </div>
           </div>
         </div>
       </div>
       <template #footer>
         <el-button @click="testDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="testModel(testResult?.provider, testResult?.model)" :loading="testingProvider" v-if="testResult?.success">重新测试</el-button>
+        <el-button type="primary" @click="testAllModels(testingProviderName)" :loading="testingProvider" v-if="testResults">重新测试</el-button>
       </template>
     </el-dialog>
   </div>
@@ -637,14 +622,38 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
   }
 }
 
-.test-result {
+.test-results {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.test-item {
-  padding: 14px;
+.test-provider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid $border-default;
+  font-size: $font-size-sm;
+  color: $text-primary;
+}
+
+.test-summary {
+  font-family: $font-display;
+  color: $accent-cyan;
+  font-weight: 600;
+}
+
+.test-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.test-model-item {
+  padding: 12px;
   border-radius: $radius-md;
   border: 1px solid $border-default;
 
@@ -656,46 +665,39 @@ const providerTypeMap = { openai: 'OpenAI', ollama: 'Ollama' }
     border-color: #f56c6c;
     background: rgba(245, 108, 108, 0.05);
   }
-  &.skipped {
-    border-color: $border-default;
-    opacity: 0.7;
-  }
 }
 
-.test-item-header {
+.test-model-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.test-icon {
+  font-size: 18px;
+  &.success { color: #67c23a; }
+  &.error { color: #f56c6c; }
+}
+
+.test-model-name {
   font-size: $font-size-sm;
   font-weight: 600;
   color: $text-primary;
-  margin-bottom: 8px;
-}
-
-.test-item-body {
-  font-size: $font-size-xs;
-  color: $text-secondary;
-}
-
-.test-response {
-  font-style: italic;
-  display: block;
-  margin-bottom: 4px;
-}
-
-.test-error {
-  color: #f56c6c;
-  display: block;
-  margin-bottom: 4px;
+  flex: 1;
 }
 
 .test-latency {
   font-family: $font-display;
+  font-size: $font-size-xs;
   color: $accent-cyan;
 }
 
-.test-skipped {
-  color: $text-muted;
+.test-model-status {
+  margin-top: 6px;
   font-size: $font-size-xs;
+  padding-left: 26px;
+
+  &.success { color: #67c23a; }
+  &.error { color: #f56c6c; }
 }
 </style>

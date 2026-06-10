@@ -189,6 +189,13 @@ func (a *AppService) TestProvider(provider, model string) string {
 	return string(data)
 }
 
+// TestAllModels 测试供应商下所有模型的多模态能力
+func (a *AppService) TestAllModels(provider string) string {
+	results := a.providerSvc.TestAllModels(provider)
+	data, _ := json.Marshal(results)
+	return string(data)
+}
+
 // ─────────── Tools ───────────
 
 func (a *AppService) GetTools() string {
