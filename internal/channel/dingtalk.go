@@ -218,6 +218,11 @@ func (d *DingTalkChannel) handleStreamFrame(data []byte) {
 	topic := frame.Headers["topic"]
 	log.Logger().Info("[DingTalk] Stream帧", "type", frame.Type, "topic", topic)
 
+	// 发送 ACK 响应（防止钉钉重试）
+	if frame.Headers["messageId"] != "" {
+		d.sendAck(frame.Headers["messageId"])
+	}
+
 	if topic != "/v1.0/im/bot/messages/get" {
 		return
 	}
@@ -229,6 +234,27 @@ func (d *DingTalkChannel) handleStreamFrame(data []byte) {
 	}
 
 	d.handleBotMessage(&msg)
+}
+
+// sendAck 发送 ACK 响应给钉钉
+func (d *DingTalkChannel) sendAck(messageID string) {
+	ack := map[string]interface{}{
+		"code":    200,
+		"headers": map[string]string{"messageId": messageID},
+		"message": "OK",
+		"data":    "",
+	}
+	jsonData, _ := json.Marshal(ack)
+
+	d.connMu.Lock()
+	conn := d.conn
+	d.connMu.Unlock()
+
+	if conn != nil {
+		if err := conn.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+			log.Logger().Warn("[DingTalk] 发送ACK失败", "err", err)
+		}
+	}
 }
 
 func (d *DingTalkChannel) handleBotMessage(msg *botMessageBody) {
