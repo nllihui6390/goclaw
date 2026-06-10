@@ -17,7 +17,8 @@ func HandleChannelQRCode(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := qrcodeSvc.FetchQRCode(channel)
+	params := r.URL.Query()
+	result, err := qrcodeSvc.FetchQRCode(channel, params)
 	if err != nil {
 		writeError(rw, http.StatusInternalServerError, err.Error())
 		return
@@ -45,7 +46,8 @@ func HandleChannelQRCodeStatus(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := qrcodeSvc.PollQRCodeStatus(channel, token)
+	params := r.URL.Query()
+	result, err := qrcodeSvc.PollQRCodeStatus(channel, token, params)
 	if err != nil {
 		writeError(rw, http.StatusInternalServerError, err.Error())
 		return

@@ -12,6 +12,7 @@ import (
 	"go-claw/internal/security"
 	glog "go-claw/pkg/log"
 	"go-claw/server/service"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -638,7 +639,26 @@ func (a *AppService) UploadChatFile(sessionID, filename, base64Data string) stri
 // ─────────── QR Code 扫码登录 ───────────
 
 func (a *AppService) GetChannelQRCode(channel string) string {
-	result, err := a.qrcodeSvc.FetchQRCode(channel)
+	result, err := a.qrcodeSvc.FetchQRCode(channel, nil)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
+func (a *AppService) GetChannelQRCodeWithParams(channel, paramsJSON string) string {
+	var params map[string]string
+	if paramsJSON != "" {
+		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+			return fmt.Sprintf(`{"error":"invalid params JSON: %s"}`, err.Error())
+		}
+	}
+	q := url.Values{}
+	for k, v := range params {
+		q.Set(k, v)
+	}
+	result, err := a.qrcodeSvc.FetchQRCode(channel, q)
 	if err != nil {
 		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
 	}
@@ -647,7 +667,26 @@ func (a *AppService) GetChannelQRCode(channel string) string {
 }
 
 func (a *AppService) GetChannelQRCodeStatus(channel, token string) string {
-	result, err := a.qrcodeSvc.PollQRCodeStatus(channel, token)
+	result, err := a.qrcodeSvc.PollQRCodeStatus(channel, token, nil)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
+func (a *AppService) GetChannelQRCodeStatusWithParams(channel, token, paramsJSON string) string {
+	var params map[string]string
+	if paramsJSON != "" {
+		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+			return fmt.Sprintf(`{"error":"invalid params JSON: %s"}`, err.Error())
+		}
+	}
+	q := url.Values{}
+	for k, v := range params {
+		q.Set(k, v)
+	}
+	result, err := a.qrcodeSvc.PollQRCodeStatus(channel, token, q)
 	if err != nil {
 		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
 	}

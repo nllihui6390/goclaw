@@ -192,6 +192,9 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		contentBlocks = channel.ContentBlocksFromText(finalResponse)
 	}
 
+	// assistant 角色不存储图片 base64 数据（会撑大 session 文件且 LLM 无法处理）
+	contentBlocks = channel.StripImageBlocks(contentBlocks)
+
 	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse), "blocks_count", len(contentBlocks))
 
 	// 存储记忆

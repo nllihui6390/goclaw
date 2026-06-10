@@ -219,6 +219,25 @@ func ContentBlocksFromText(text string) ContentBlocks {
 	return ContentBlocks{NewTextBlock(text)}
 }
 
+// StripImageBlocks 移除 ContentBlocks 中的 ImageBlock（用于 assistant/tool 角色的消息）
+// 自动生成的图片 base64 数据会占用大量 session 存储空间且不必要
+func StripImageBlocks(cb ContentBlocks) ContentBlocks {
+	if len(cb) == 0 {
+		return cb
+	}
+	filtered := make(ContentBlocks, 0, len(cb))
+	for _, block := range cb {
+		if block.Type() == ContentTypeImage {
+			continue
+		}
+		filtered = append(filtered, block)
+	}
+	if len(filtered) == 0 {
+		return ContentBlocksFromText("")
+	}
+	return filtered
+}
+
 // ParseFileMarkers 解析文本中的 [图片: filename (path)] 和 [文件: filename (path)] 标记，
 // 将它们转换为 ImageBlock/FileBlock，其余文本保留为 TextBlock。
 // 例如 "[图片: photo.png (file:///path/photo.png)]\n看看这个图片" 会变为：

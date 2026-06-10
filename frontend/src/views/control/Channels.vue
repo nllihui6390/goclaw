@@ -25,6 +25,14 @@ const channelDefs = {
     ] },
   lark: {
     icon: 'ChatDotSquare',
+    qrcode: true,
+    qrcodeConfig: {
+      successStatus: 'success',
+      successCredentialKey: 'app_id',
+      pollInterval: 2000,
+      // params: { domain: feishuDomain } — passed at fetch time
+      credentialMap: { app_id: 'app_id', app_secret: 'app_secret' },
+    },
     fields: [
       { key: 'app_id', label: 'App ID', type: 'text', placeholder: '飞书应用 ID' },
       { key: 'app_secret', label: 'App Secret', type: 'password', placeholder: '飞书应用密钥' },
@@ -33,6 +41,13 @@ const channelDefs = {
   },
   dingtalk: {
     icon: 'ChatLineSquare',
+    qrcode: true,
+    qrcodeConfig: {
+      successStatus: 'success',
+      successCredentialKey: 'client_id',
+      pollInterval: 5000,
+      credentialMap: { client_id: 'client_id', client_secret: 'client_secret' },
+    },
     fields: [
       { key: 'client_id', label: 'Client ID', type: 'text', placeholder: '钉钉应用 Client ID' },
       { key: 'client_secret', label: 'Client Secret', type: 'password', placeholder: '钉钉应用密钥' },
@@ -41,6 +56,13 @@ const channelDefs = {
   },
   wecom: {
     icon: 'ChatRound',
+    qrcode: true,
+    qrcodeConfig: {
+      successStatus: 'success',
+      successCredentialKey: 'bot_id',
+      pollInterval: 3000,
+      credentialMap: { bot_id: 'bot_id', secret: 'secret' },
+    },
     fields: [
       { key: 'bot_id', label: 'Bot ID', type: 'text', placeholder: '企业微信机器人 ID' },
       { key: 'secret', label: 'Secret', type: 'password', placeholder: '企业微信机器人密钥' },
@@ -50,6 +72,12 @@ const channelDefs = {
   wechat: {
     icon: 'ChatDotRound',
     qrcode: true,
+    qrcodeConfig: {
+      successStatus: 'confirmed',
+      successCredentialKey: 'bot_token',
+      pollInterval: 2000,
+      credentialMap: { bot_token: 'bot_token', base_url: 'base_url' },
+    },
     fields: [
       { key: 'base_url', label: 'Base URL', type: 'text', placeholder: '微信回调地址' },
       { key: 'bot_prefix', label: 'Bot 前缀', type: 'text', placeholder: '机器人命令前缀' },
@@ -132,7 +160,14 @@ async function fetchQRCode() {
   qrcodeStatus.value = ''
   qrcodeLoading.value = true
   try {
-    const data = await api.getChannelQRCode('wechat')
+    const chKey = editChannel.value?.key
+    const def = channelDefs[chKey]
+    const params = {}
+    // Lark 需要 domain 参数
+    if (chKey === 'lark') {
+      params.domain = editConfig.value.domain || 'feishu'
+    }
+    const data = await api.getChannelQRCode(chKey, params)
     if (data.error) { ElMessage.error('获取二维码失败: ' + data.error); return }
     if (!data.qrcode_img) { ElMessage.error('获取二维码失败: 未返回二维码图片'); return }
     qrcodeImg.value = data.qrcode_img
@@ -148,16 +183,29 @@ async function fetchQRCode() {
 
 function scheduleQrcodePoll() {
   stopQrcodePoll()
+  const chKey = editChannel.value?.key
+  const def = channelDefs[chKey]
+  const cfg = def?.qrcodeConfig || channelDefs.wechat.qrcodeConfig
+  const pollInterval = cfg.pollInterval || 2000
+
   qrcodePollTimer.value = setTimeout(async () => {
     try {
-      const result = await api.getChannelQRCodeStatus('wechat', qrcodePollToken.value)
+      const params = {}
+      if (chKey === 'lark') {
+        params.domain = editConfig.value.domain || 'feishu'
+      }
+      const result = await api.getChannelQRCodeStatus(chKey, qrcodePollToken.value, params)
       if (result.error) { scheduleQrcodePoll(); return }
       qrcodeStatus.value = result.status
-      if (result.status === 'confirmed' && result.credentials?.bot_token) {
+      if (result.status === cfg.successStatus && result.credentials?.[cfg.successCredentialKey]) {
         qrcodeImg.value = ''
         qrcodeStatus.value = ''
-        if (result.credentials.bot_token) editConfig.value.bot_token = result.credentials.bot_token
-        if (result.credentials.base_url) editConfig.value.base_url = result.credentials.base_url
+        // 自动填入凭据
+        if (cfg.credentialMap) {
+          for (const [field, key] of Object.entries(cfg.credentialMap)) {
+            if (result.credentials[key]) editConfig.value[field] = result.credentials[key]
+          }
+        }
         ElMessage.success('扫码登录成功，凭据已自动填入')
         stopQrcodePoll()
         return
@@ -170,7 +218,7 @@ function scheduleQrcodePoll() {
       }
     } catch {}
     scheduleQrcodePoll()
-  }, 2000)
+  }, pollInterval)
 }
 
 function stopQrcodePoll() {
@@ -181,10 +229,12 @@ function stopQrcodePoll() {
 }
 
 function getQrcodeStatusText() {
+  const chKey = editChannel.value?.key
   switch (qrcodeStatus.value) {
     case 'waiting': return '等待扫描...'
     case 'scanned': return '已扫描，请在手机上确认登录'
-    case 'confirmed': return '扫码成功！'
+    case 'confirmed':
+    case 'success': return '扫码成功！'
     case 'expired': return '二维码已过期'
     default: return ''
   }
@@ -259,11 +309,16 @@ function closeDialog() {
         </el-form-item>
 
         <el-form-item v-if="editChannel.qrcode" label="扫码登录">
+          <!-- 飞书需要选择区域 -->
+          <el-select v-if="editChannel.key === 'lark'" v-model="editConfig.domain" style="margin-bottom: 8px; width: 100%;">
+            <el-option label="飞书（中国）" value="feishu" />
+            <el-option label="Lark（国际）" value="lark" />
+          </el-select>
           <el-button type="primary" :loading="qrcodeLoading" @click="fetchQRCode">
             获取二维码
           </el-button>
           <div v-if="qrcodeImg" class="qrcode-block">
-            <img :src="'data:image/png;base64,' + qrcodeImg" alt="微信扫码登录" class="qrcode-img" />
+            <img :src="'data:image/png;base64,' + qrcodeImg" :alt="editChannel.name + ' QR Code'" class="qrcode-img" />
             <div class="qrcode-hint">{{ getQrcodeStatusText() }}</div>
           </div>
         </el-form-item>

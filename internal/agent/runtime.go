@@ -696,6 +696,11 @@ func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []t
 
 // buildMessageContent 将 ChatMessage 的 Blocks 转为 OpenAI vision 格式的 content 数组
 func (r *Runtime) buildMessageContent(msg ChatMessage) interface{} {
+	// 如果模型不支持图片，直接返回纯文本
+	if !r.config.SupportsImage {
+		return msg.Content
+	}
+
 	hasImage := false
 	for _, block := range msg.Blocks {
 		if block.Type() == channel.ContentTypeImage {
@@ -704,6 +709,13 @@ func (r *Runtime) buildMessageContent(msg ChatMessage) interface{} {
 		}
 	}
 	if !hasImage {
+		return msg.Content
+	}
+
+	// 多模态图片只允许在 user 消息中，assistant/system/tool 消息忽略图片
+	if msg.Role != "user" {
+		logger := glog.Logger()
+		logger.Debug("[Runtime] 非user角色的消息包含图片，跳过image block", "role", msg.Role)
 		return msg.Content
 	}
 

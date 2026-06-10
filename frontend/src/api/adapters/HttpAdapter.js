@@ -89,8 +89,8 @@ export class HttpAdapter {
   // 频道 (per-agent)
   getChannels(agent) { return http.get('/channels', { params: { agent } }).then(r => r.data) }
   updateChannel(agent, name, config) { return http.put(`/channels/${name}`, config, { params: { agent } }).then(r => r.data) }
-  getChannelQRCode(channel) { return http.get('/channels/qrcode', { params: { channel } }).then(r => r.data) }
-  getChannelQRCodeStatus(channel, token) { return http.get('/channels/qrcode/status', { params: { channel, token } }).then(r => r.data) }
+  getChannelQRCode(channel, params) { return http.get('/channels/qrcode', { params: { channel, ...params } }).then(r => r.data) }
+  getChannelQRCodeStatus(channel, token, params) { return http.get('/channels/qrcode/status', { params: { channel, token, ...params } }).then(r => r.data) }
 
   // 会话
   getSessions() { return http.get('/sessions').then(r => r.data) }

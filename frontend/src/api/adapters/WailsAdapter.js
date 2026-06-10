@@ -104,18 +104,32 @@ export class WailsAdapter {
     const json = await Call.ByName('main.AppService.UpdateChannel', agent || 'default', name, JSON.stringify(config))
     return JSON.parse(json)
   }
-  async getChannelQRCode(channel) {
+  async getChannelQRCode(channel, params) {
     try {
-      const json = await Call.ByName('main.AppService.GetChannelQRCode', channel)
+      const hasParams = params && Object.keys(params).length > 0
+      const method = hasParams
+        ? 'main.AppService.GetChannelQRCodeWithParams'
+        : 'main.AppService.GetChannelQRCode'
+      const args = hasParams
+        ? [channel, JSON.stringify(params)]
+        : [channel]
+      const json = await Call.ByName(method, ...args)
       return JSON.parse(json)
     } catch (e) {
       console.error('[WailsAdapter] getChannelQRCode error:', e)
       return { error: e.message }
     }
   }
-  async getChannelQRCodeStatus(channel, token) {
+  async getChannelQRCodeStatus(channel, token, params) {
     try {
-      const json = await Call.ByName('main.AppService.GetChannelQRCodeStatus', channel, token)
+      const hasParams = params && Object.keys(params).length > 0
+      const method = hasParams
+        ? 'main.AppService.GetChannelQRCodeStatusWithParams'
+        : 'main.AppService.GetChannelQRCodeStatus'
+      const args = hasParams
+        ? [channel, token, JSON.stringify(params)]
+        : [channel, token]
+      const json = await Call.ByName(method, ...args)
       return JSON.parse(json)
     } catch (e) {
       console.error('[WailsAdapter] getChannelQRCodeStatus error:', e)
