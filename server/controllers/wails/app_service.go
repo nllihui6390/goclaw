@@ -373,12 +373,14 @@ func (a *AppService) SaveCronJob(jobJSON string) string {
 	if err := json.Unmarshal([]byte(jobJSON), &job); err != nil {
 		return `{"error":"invalid json"}`
 	}
-	if err := a.cronSvc.Save(job); err != nil {
+	id, err := a.cronSvc.Save(job)
+	if err != nil {
 		return `{"error":"save failed"}`
 	}
+	job.ID = id
 	// 同步到调度器（cron.Manager），确保内存和文件一致
 	a.syncCronToManager(job)
-	return `{"status":"saved"}`
+	return fmt.Sprintf(`{"status":"saved","id":"%s"}`, id)
 }
 
 func (a *AppService) DeleteCronJob(id string) string {

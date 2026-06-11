@@ -91,8 +91,8 @@ func (s *CronService) List() []CronJob {
 	return jobs
 }
 
-// Save 保存定时任务
-func (s *CronService) Save(job CronJob) error {
+// Save 保存定时任务，返回生成的 ID（新任务自动生成 UUID）
+func (s *CronService) Save(job CronJob) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -118,14 +118,17 @@ func (s *CronService) Save(job CronJob) error {
 	}
 
 	data, _ = json.MarshalIndent(jobs, "", "  ")
-	return os.WriteFile(s.dataFile, data, 0644)
+	if err := os.WriteFile(s.dataFile, data, 0644); err != nil {
+		return "", err
+	}
+	return job.ID, nil
 }
 
-// SaveJSON 保存定时任务（JSON 字符串输入）
-func (s *CronService) SaveJSON(jobJSON string) error {
+// SaveJSON 保存定时任务（JSON 字符串输入），返回生成的 ID
+func (s *CronService) SaveJSON(jobJSON string) (string, error) {
 	var job CronJob
 	if err := json.Unmarshal([]byte(jobJSON), &job); err != nil {
-		return err
+		return "", err
 	}
 	return s.Save(job)
 }

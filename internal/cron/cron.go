@@ -145,9 +145,12 @@ func (m *Manager) saveToFile() {
 	}
 }
 
-// AddJob 添加任务
+// AddJob 添加任务（如果 ID 为空则自动生成）
 func (m *Manager) AddJob(job *Job) {
 	m.mu.Lock()
+	if job.ID == "" {
+		job.ID = utils.UUID()
+	}
 	job.NextRun = formatTimeSafe(m.parseSchedule(job.Schedule))
 	m.jobs[job.ID] = job
 	m.mu.Unlock()

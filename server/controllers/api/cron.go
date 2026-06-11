@@ -22,13 +22,15 @@ func HandleCronJobs(rw http.ResponseWriter, r *http.Request) {
 			writeError(rw, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		if err := cronSvc.Save(newJob); err != nil {
+		id, err := cronSvc.Save(newJob)
+		if err != nil {
 			writeError(rw, http.StatusInternalServerError, "save failed")
 			return
 		}
+		newJob.ID = id
 		// 同步到调度器（cron.Manager），确保内存和文件一致
 		syncCronToManager(newJob)
-		writeJSON(rw, http.StatusOK, map[string]string{"status": "created"})
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "created", "id": id})
 	default:
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -69,7 +71,7 @@ func HandleCronJobByID(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updatedJob.ID = id
-		if err := cronSvc.Save(updatedJob); err != nil {
+		if _, err := cronSvc.Save(updatedJob); err != nil {
 			writeError(rw, http.StatusInternalServerError, "update failed")
 			return
 		}
