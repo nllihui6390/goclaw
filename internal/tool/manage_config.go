@@ -60,6 +60,25 @@ func (t *ManageConfigTool) Parameters() map[string]interface{} {
 	}
 }
 
+// ConfigListResult 配置列表结果JSON结构
+type ConfigListResult struct {
+	Config map[string]interface{} `json:"config"`
+}
+
+// ConfigGetResult 配置获取结果JSON结构
+type ConfigGetResult struct {
+	Key   string      `json:"key"`
+	Value interface{} `json:"value"`
+}
+
+// ConfigSetResult 配置设置结果JSON结构
+type ConfigSetResult struct {
+	Status  string      `json:"status"`
+	Key     string      `json:"key"`
+	Value   interface{} `json:"value"`
+	Message string      `json:"message,omitempty"`
+}
+
 func (t *ManageConfigTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	action, ok := params["action"].(string)
 	if !ok || action == "" {
@@ -103,10 +122,16 @@ func (t *ManageConfigTool) listConfig(configPath string) (string, error) {
 		return "", fmt.Errorf("解析配置文件失败: %v", err)
 	}
 
-	result := "## 配置项列表\n\n"
-	result += formatConfigTree(config, 0)
+	result := ConfigListResult{
+		Config: config,
+	}
 
-	return result, nil
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func (t *ManageConfigTool) getConfig(configPath, path string) (string, error) {
@@ -125,13 +150,17 @@ func (t *ManageConfigTool) getConfig(configPath, path string) (string, error) {
 		return "", err
 	}
 
-	// 格式化输出
-	formatted, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("## 配置项: %s\n\n%v", path, value), nil
+	result := ConfigGetResult{
+		Key:   path,
+		Value: value,
 	}
 
-	return fmt.Sprintf("## 配置项: %s\n\n%s", path, string(formatted)), nil
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func (t *ManageConfigTool) setConfig(configPath, path, value string) (string, error) {
@@ -168,7 +197,19 @@ func (t *ManageConfigTool) setConfig(configPath, path, value string) (string, er
 		return "", fmt.Errorf("写入配置文件失败: %v", err)
 	}
 
-	return fmt.Sprintf("✅ 配置已修改\n路径: %s\n值: %v\n\n如需立即生效，请设置 GOCLAW_HOT_RELOAD=true 或重启服务", path, parsedValue), nil
+	result := ConfigSetResult{
+		Status:  "success",
+		Key:     path,
+		Value:   parsedValue,
+		Message: "配置已修改，如需立即生效请设置 GOCLAW_HOT_RELOAD=true 或重启服务",
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func getNestedValue(config map[string]interface{}, path string) (interface{}, error) {
@@ -240,25 +281,6 @@ func setNestedValue(config map[string]interface{}, path string, value interface{
 	obj[lastKey] = value
 
 	return nil
-}
-
-func formatConfigTree(config map[string]interface{}, depth int) string {
-	var sb strings.Builder
-	prefix := strings.Repeat("  ", depth)
-
-	for key, value := range config {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			sb.WriteString(fmt.Sprintf("%s- %s:\n", prefix, key))
-			sb.WriteString(formatConfigTree(v, depth+1))
-		case []interface{}:
-			sb.WriteString(fmt.Sprintf("%s- %s: [数组, %d 项]\n", prefix, key, len(v)))
-		default:
-			sb.WriteString(fmt.Sprintf("%s- %s: %v\n", prefix, key, v))
-		}
-	}
-
-	return sb.String()
 }
 
 func isNumeric(s string) bool {

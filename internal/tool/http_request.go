@@ -68,6 +68,14 @@ func (t *HTTPRequestTool) Parameters() map[string]interface{} {
 	}
 }
 
+// HTTPRequestResult HTTP请求结果JSON结构
+type HTTPRequestResult struct {
+	StatusCode    int               `json:"status_code"`
+	Headers       map[string]string `json:"headers"`
+	Body          string            `json:"body"`
+	ContentLength int               `json:"content_length"`
+}
+
 func (t *HTTPRequestTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	urlStr, ok := params["url"].(string)
 	if !ok || urlStr == "" {
@@ -129,22 +137,38 @@ func (t *HTTPRequestTool) Execute(ctx context.Context, params map[string]interfa
 
 	// 截断过长内容
 	content := string(body)
+	truncated := false
 	if len(content) > 50000 {
-		content = content[:50000] + "\n... [内容过长已截断]"
+		content = content[:50000]
+		truncated = true
 	}
 
-	result := fmt.Sprintf("状态码: %d\n响应头: %s\n\n%s", resp.StatusCode, formatHeaders(resp.Header), content)
-	return result, nil
-}
-
-func formatHeaders(h http.Header) string {
-	var parts []string
-	for k, v := range h {
+	// 构建响应头
+	headers := make(map[string]string)
+	for k, v := range resp.Header {
 		if len(v) > 0 {
-			parts = append(parts, fmt.Sprintf("%s=%s", k, v[0]))
+			headers[k] = v[0]
 		}
 	}
-	return strings.Join(parts, "; ")
+
+	result := HTTPRequestResult{
+		StatusCode:    resp.StatusCode,
+		Headers:       headers,
+		Body:          content,
+		ContentLength: len(body),
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	output := string(jsonBytes)
+	if truncated {
+		output += "\n// 注: 响应体已截断至50000字符"
+	}
+
+	return output, nil
 }
 
 func init() {

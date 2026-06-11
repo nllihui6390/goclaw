@@ -2,12 +2,53 @@ package tool
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// SystemInfo represents the complete system information
+type SystemInfo struct {
+	OS       string      `json:"os,omitempty"`
+	Hostname string      `json:"hostname,omitempty"`
+	Arch     string      `json:"arch,omitempty"`
+	GoVersion string     `json:"go_version,omitempty"`
+	CPU      *CPUInfo    `json:"cpu,omitempty"`
+	Memory   *MemoryInfo `json:"memory,omitempty"`
+	Disk     []DiskInfo  `json:"disk,omitempty"`
+	Uptime   string      `json:"uptime,omitempty"`
+	Process  *ProcessInfo `json:"process,omitempty"`
+}
+
+// CPUInfo contains CPU information
+type CPUInfo struct {
+	Cores     int    `json:"cores"`
+	ModelName string `json:"model_name,omitempty"`
+}
+
+// MemoryInfo contains memory information
+type MemoryInfo struct {
+	AllocMB      float64 `json:"alloc_mb"`
+	TotalAllocMB float64 `json:"total_alloc_mb"`
+	SysMB        float64 `json:"sys_mb"`
+	NumGC        uint32  `json:"num_gc"`
+	MemTotal     string  `json:"mem_total,omitempty"`
+	MemAvailable string  `json:"mem_available,omitempty"`
+}
+
+// DiskInfo contains disk information
+type DiskInfo struct {
+	Device string `json:"device,omitempty"`
+	Path   string `json:"path,omitempty"`
+}
+
+// ProcessInfo contains process information
+type ProcessInfo struct {
+	PID         int `json:"pid"`
+	Goroutines  int `json:"goroutines"`
+}
 
 // SystemInfoTool 系统信息工具
 type SystemInfoTool struct{}
@@ -52,106 +93,112 @@ func (t *SystemInfoTool) Execute(ctx context.Context, params map[string]interfac
 		category = strings.ToLower(cat)
 	}
 
-	var sb strings.Builder
-	sb.WriteString("## 系统信息\n\n")
+	var result interface{}
 
 	switch category {
 	case "cpu":
-		sb.WriteString(cpuInfo())
+		result = map[string]interface{}{
+			"cpu": getCPUInfo(),
+		}
 	case "memory":
-		sb.WriteString(memoryInfo())
+		result = map[string]interface{}{
+			"memory": getMemoryInfo(),
+		}
 	case "disk":
-		sb.WriteString(diskInfo())
+		result = map[string]interface{}{
+			"disk": getDiskInfo(),
+		}
 	case "process":
-		sb.WriteString(processInfo())
+		result = map[string]interface{}{
+			"process": getProcessInfo(),
+		}
 	default:
-		sb.WriteString(basicInfo())
-		sb.WriteString("\n")
-		sb.WriteString(cpuInfo())
-		sb.WriteString("\n")
-		sb.WriteString(memoryInfo())
-		sb.WriteString("\n")
-		sb.WriteString(diskInfo())
+		result = getAllInfo()
 	}
 
-	return sb.String(), nil
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonBytes), nil
 }
 
-func basicInfo() string {
-	var sb strings.Builder
-	sb.WriteString("### 基本信息\n")
-	sb.WriteString(fmt.Sprintf("- 操作系统: %s\n", runtime.GOOS))
-	sb.WriteString(fmt.Sprintf("- 架构: %s\n", runtime.GOARCH))
-	sb.WriteString(fmt.Sprintf("- Go 版本: %s\n", runtime.Version()))
-	sb.WriteString(fmt.Sprintf("- CPU 核数: %d\n", runtime.NumCPU()))
-	sb.WriteString(fmt.Sprintf("- 当前时间: %s\n", time.Now().Format("2006-01-02 15:04:05")))
+func getAllInfo() *SystemInfo {
+	info := &SystemInfo{
+		OS:        runtime.GOOS,
+		Arch:      runtime.GOARCH,
+		GoVersion: runtime.Version(),
+		Uptime:    time.Now().Format("2006-01-02 15:04:05"),
+	}
 
 	hostname, err := os.Hostname()
 	if err == nil {
-		sb.WriteString(fmt.Sprintf("- 主机名: %s\n", hostname))
+		info.Hostname = hostname
 	}
 
-	return sb.String()
+	info.CPU = getCPUInfo()
+	info.Memory = getMemoryInfo()
+	info.Disk = getDiskInfo()
+
+	return info
 }
 
-func cpuInfo() string {
-	var sb strings.Builder
-	sb.WriteString("### CPU 信息\n")
-	sb.WriteString(fmt.Sprintf("- 逻辑核数: %d\n", runtime.NumCPU()))
+func getCPUInfo() *CPUInfo {
+	cpu := &CPUInfo{
+		Cores: runtime.NumCPU(),
+	}
 
-	// 通过 exec 获取更详细的 CPU 信息
+	// 通过读取 /proc/cpuinfo 获取更详细的 CPU 信息
 	if runtime.GOOS == "linux" {
 		if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
 			lines := strings.Split(string(data), "\n")
-			modelName := ""
 			for _, line := range lines {
 				if strings.HasPrefix(line, "model name") {
 					parts := strings.Split(line, ":")
 					if len(parts) >= 2 {
-						modelName = strings.TrimSpace(parts[1])
+						cpu.ModelName = strings.TrimSpace(parts[1])
 					}
 				}
-			}
-			if modelName != "" {
-				sb.WriteString(fmt.Sprintf("- CPU 型号: %s\n", modelName))
 			}
 		}
 	}
 
-	return sb.String()
+	return cpu
 }
 
-func memoryInfo() string {
-	var sb strings.Builder
-	sb.WriteString("### 内存信息\n")
-
+func getMemoryInfo() *MemoryInfo {
 	// Go runtime 内存统计
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	sb.WriteString(fmt.Sprintf("- Go 进程已分配: %.2f MB\n", float64(m.Alloc)/1024/1024))
-	sb.WriteString(fmt.Sprintf("- Go 进程总分配: %.2f MB\n", float64(m.TotalAlloc)/1024/1024))
-	sb.WriteString(fmt.Sprintf("- Go 进程系统占用: %.2f MB\n", float64(m.Sys)/1024/1024))
-	sb.WriteString(fmt.Sprintf("- GC 次数: %d\n", m.NumGC))
+	mem := &MemoryInfo{
+		AllocMB:      float64(m.Alloc) / 1024 / 1024,
+		TotalAllocMB: float64(m.TotalAlloc) / 1024 / 1024,
+		SysMB:        float64(m.Sys) / 1024 / 1024,
+		NumGC:        m.NumGC,
+	}
 
 	// 系统物理内存
 	if runtime.GOOS == "linux" {
 		if data, err := os.ReadFile("/proc/meminfo"); err == nil {
 			lines := strings.Split(string(data), "\n")
 			for _, line := range lines {
-				if strings.HasPrefix(line, "MemTotal:") || strings.HasPrefix(line, "MemAvailable:") {
-					sb.WriteString("- " + strings.TrimSpace(line) + "\n")
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "MemTotal:") {
+					mem.MemTotal = line
+				} else if strings.HasPrefix(line, "MemAvailable:") {
+					mem.MemAvailable = line
 				}
 			}
 		}
 	}
 
-	return sb.String()
+	return mem
 }
 
-func diskInfo() string {
-	var sb strings.Builder
-	sb.WriteString("### 磁盘信息\n")
+func getDiskInfo() []DiskInfo {
+	var disks []DiskInfo
 
 	if runtime.GOOS == "linux" {
 		// 读取 /proc/mounts 获取挂载点
@@ -164,27 +211,29 @@ func diskInfo() string {
 					path := parts[1]
 					// 只关注真实磁盘
 					if strings.HasPrefix(device, "/dev/") && !strings.Contains(path, "snap") {
-						sb.WriteString(fmt.Sprintf("- %s → %s\n", device, path))
+						disks = append(disks, DiskInfo{
+							Device: device,
+							Path:   path,
+						})
 					}
 				}
 			}
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf("- 工作目录: %s\n", mustGetwd()))
+		// 非 Linux 系统返回工作目录
+		disks = append(disks, DiskInfo{
+			Path: mustGetwd(),
+		})
 	}
 
-	return sb.String()
+	return disks
 }
 
-func processInfo() string {
-	var sb strings.Builder
-	sb.WriteString("### 进程信息\n")
-	sb.WriteString(fmt.Sprintf("- Go 进程 Goroutine 数: %d\n", runtime.NumGoroutine()))
-
-	// 当前进程信息
-	sb.WriteString(fmt.Sprintf("- 进程 PID: %d\n", os.Getpid()))
-
-	return sb.String()
+func getProcessInfo() *ProcessInfo {
+	return &ProcessInfo{
+		PID:        os.Getpid(),
+		Goroutines: runtime.NumGoroutine(),
+	}
 }
 
 func mustGetwd() string {

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"go-claw/internal/cron"
 	"go-claw/pkg/utils"
@@ -151,27 +152,11 @@ func (t *CronStatusTool) listJobs(mgr *cron.Manager) (string, error) {
 		return "当前没有配置任何定时任务。使用 cron_status(action=\"add\", ...) 新增任务。", nil
 	}
 
-	result := "## 定时任务列表\n\n"
-	result += "| ID | 名称 | 调度 | 类型 | 启用 | 下次执行 | 上次执行 |\n"
-	result += "|----|------|------|------|------|----------|----------|\n"
-	for _, job := range jobs {
-		enabled := "✅"
-		if !job.Enabled {
-			enabled = "❌"
-		}
-		nextRun := cron.ParseTime(job.NextRun).Format("2006-01-02 15:04")
-		lastRun := "-"
-		if !cron.ParseTime(job.LastRun).IsZero() {
-			lastRun = cron.ParseTime(job.LastRun).Format("2006-01-02 15:04")
-		}
-		agentInfo := ""
-		if job.Type == cron.JobTypeAgent && job.AgentName != "" {
-			agentInfo = " → " + job.AgentName
-		}
-		result += fmt.Sprintf("| %s | %s | %s | %s%s | %s | %s | %s |\n",
-			job.ID, job.Name, job.Schedule, job.Type, agentInfo, enabled, nextRun, lastRun)
+	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化任务列表失败: %w", err)
 	}
-	return result, nil
+	return string(data), nil
 }
 
 func (t *CronStatusTool) getJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {
@@ -185,24 +170,11 @@ func (t *CronStatusTool) getJob(mgr *cron.Manager, params map[string]interface{}
 		return err.Error(), nil
 	}
 
-	result := fmt.Sprintf("## 任务详情: %s\n\n", job.ID)
-	result += fmt.Sprintf("- **名称**: %s\n", job.Name)
-	result += fmt.Sprintf("- **调度**: %s\n", job.Schedule)
-	result += fmt.Sprintf("- **类型**: %s\n", job.Type)
-	if job.Type == cron.JobTypeAgent {
-		result += fmt.Sprintf("- **Agent**: %s\n", job.AgentName)
+	data, err := json.MarshalIndent(job, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化任务详情失败: %w", err)
 	}
-	result += fmt.Sprintf("- **内容**: %s\n", truncStr(job.Content, 100))
-	result += fmt.Sprintf("- **会话**: %s\n", job.SessionID)
-	result += fmt.Sprintf("- **启用**: %v\n", job.Enabled)
-	if job.ActiveStart != "" {
-		result += fmt.Sprintf("- **活跃时段**: %s - %s\n", job.ActiveStart, job.ActiveEnd)
-	}
-	result += fmt.Sprintf("- **下次执行**: %s\n", cron.ParseTime(job.NextRun).Format("2006-01-02 15:04"))
-	if !cron.ParseTime(job.LastRun).IsZero() {
-		result += fmt.Sprintf("- **上次执行**: %s\n", cron.ParseTime(job.LastRun).Format("2006-01-02 15:04"))
-	}
-	return result, nil
+	return string(data), nil
 }
 
 func (t *CronStatusTool) addJob(mgr *cron.Manager, params map[string]interface{}) (string, error) {

@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,6 +63,15 @@ func (t *OCRImageTool) Parameters() map[string]interface{} {
 		},
 		"required": []string{"path"},
 	}
+}
+
+// OCRResult OCR识别结果JSON结构
+type OCRResult struct {
+	Source     string  `json:"source"`
+	Language   string  `json:"language"`
+	Text       string  `json:"text"`
+	Confidence float64 `json:"confidence"`
+	Truncated  bool    `json:"truncated,omitempty"`
 }
 
 func (t *OCRImageTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
@@ -140,11 +150,26 @@ func (t *OCRImageTool) ocrWithTesseract(imageData []byte, language, source strin
 		return "", fmt.Errorf("读取识别结果失败: %v", err)
 	}
 
-	result := fmt.Sprintf("## OCR 识别结果\n\n来源: %s\n语言: %s\n\n%s", source, language, string(content))
-	if len(result) > 30000 {
-		result = result[:30000] + "\n... [内容过长已截断]"
+	text := string(content)
+	truncated := false
+	if len(text) > 30000 {
+		text = text[:30000]
+		truncated = true
 	}
-	return result, nil
+
+	result := OCRResult{
+		Source:     source,
+		Language:   language,
+		Text:       strings.TrimSpace(text),
+		Confidence: 0.85, // Tesseract不提供置信度，使用默认值
+		Truncated:  truncated,
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+	return string(jsonBytes), nil
 }
 
 func (t *OCRImageTool) ocrWithPython(imageData []byte, language, source string) (string, error) {
@@ -171,11 +196,26 @@ print(text)
 		return "", fmt.Errorf("Python OCR 失败: %v\n%s", err, string(output))
 	}
 
-	result := fmt.Sprintf("## OCR 识别结果\n\n来源: %s\n语言: %s\n\n%s", source, language, string(output))
-	if len(result) > 30000 {
-		result = result[:30000] + "\n... [内容过长已截断]"
+	text := string(output)
+	truncated := false
+	if len(text) > 30000 {
+		text = text[:30000]
+		truncated = true
 	}
-	return result, nil
+
+	result := OCRResult{
+		Source:     source,
+		Language:   language,
+		Text:       strings.TrimSpace(text),
+		Confidence: 0.85,
+		Truncated:  truncated,
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+	return string(jsonBytes), nil
 }
 
 func init() {

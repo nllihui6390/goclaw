@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,6 +52,15 @@ func (t *URLSummaryTool) Parameters() map[string]interface{} {
 	}
 }
 
+// URLSummaryResult URL摘要结果JSON结构
+type URLSummaryResult struct {
+	Title         string `json:"title"`
+	URL           string `json:"url"`
+	Summary       string `json:"summary"`
+	ContentLength int    `json:"content_length"`
+	Truncated     bool   `json:"truncated,omitempty"`
+}
+
 func (t *URLSummaryTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	urlStr, ok := params["url"].(string)
 	if !ok || urlStr == "" {
@@ -94,11 +104,26 @@ func (t *URLSummaryTool) Execute(ctx context.Context, params map[string]interfac
 	// 清理
 	content = cleanText(content)
 
+	truncated := false
 	if len(content) > maxLength {
-		content = content[:maxLength] + "\n... [内容过长已截断]"
+		content = content[:maxLength]
+		truncated = true
 	}
 
-	return fmt.Sprintf("## %s\n\n来源: %s\n\n%s", title, urlStr, content), nil
+	result := URLSummaryResult{
+		Title:         title,
+		URL:           urlStr,
+		Summary:       content,
+		ContentLength: len(content),
+		Truncated:     truncated,
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func extractMainContent(html string) string {

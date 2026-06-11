@@ -10,9 +10,9 @@ config.json
 data.json
 CLAUDE.md
 go-claw
-clawdata/*
-skills/*
-output/*
+clawdata
+output
 docs
 .task
 bin
+go-claw-server

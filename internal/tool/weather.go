@@ -10,6 +10,28 @@ import (
 	"time"
 )
 
+// WeatherResult 天气查询结果（JSON格式）
+type WeatherResult struct {
+	Location    string        `json:"location"`
+	Temperature string        `json:"temperature"`
+	FeelsLike   string        `json:"feels_like"`
+	Weather     string        `json:"weather"`
+	WindDir     string        `json:"wind_dir"`
+	WindSpeed   string        `json:"wind_speed"`
+	Humidity    string        `json:"humidity"`
+	Pressure    string        `json:"pressure"`
+	Visibility  string        `json:"visibility"`
+	Forecast    []DayForecast `json:"forecast,omitempty"`
+}
+
+// DayForecast 每日天气预报
+type DayForecast struct {
+	Date    string `json:"date"`
+	MinTemp string `json:"min_temp"`
+	MaxTemp string `json:"max_temp"`
+	Weather string `json:"weather"`
+}
+
 // WeatherTool 天气查询工具（真实API版本）
 type WeatherTool struct {
 	apiKey     string // API密钥
@@ -79,16 +101,21 @@ func (t *WeatherTool) Execute(ctx context.Context, params map[string]interface{}
 	}
 
 	// 调用真实API获取天气
-	weather, err := t.fetchWeather(ctx, city)
+	result, err := t.fetchWeather(ctx, city)
 	if err != nil {
 		return "", fmt.Errorf("天气查询失败: %w", err)
 	}
 
-	return weather, nil
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("JSON序列化失败: %w", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 // fetchWeather 调用真实天气API
-func (t *WeatherTool) fetchWeather(ctx context.Context, city string) (string, error) {
+func (t *WeatherTool) fetchWeather(ctx context.Context, city string) (*WeatherResult, error) {
 	// 首先尝试配置的API
 	switch t.apiType {
 	case "openweather":
@@ -113,36 +140,36 @@ func (t *WeatherTool) fetchWeather(ctx context.Context, city string) (string, er
 }
 
 // fetchWttr 使用 wttr.in 获取天气（免费，无需API key）
-func (t *WeatherTool) fetchWttr(ctx context.Context, city string) (string, error) {
+func (t *WeatherTool) fetchWttr(ctx context.Context, city string) (*WeatherResult, error) {
 	// wttr.in 支持中文城市名，format=j1 返回JSON
 	url := fmt.Sprintf("https://wttr.in/%s?format=j1", url.QueryEscape(city))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// 设置中文语言
 	req.Header.Set("Accept-Language", "zh-CN")
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("wttr.in请求失败: %w", err)
+		return nil, fmt.Errorf("wttr.in请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var data struct {
 		CurrentCondition []struct {
-			TempC        string `json:"temp_C"`
-			FeelsLikeC   string `json:"FeelsLikeC"`
-			Humidity     string `json:"humidity"`
+			TempC          string `json:"temp_C"`
+			FeelsLikeC     string `json:"FeelsLikeC"`
+			Humidity       string `json:"humidity"`
 			WindDir16Point string `json:"winddir16Point"`
-			WindSpeedKmph string `json:"windspeedKmph"`
-			WeatherDesc  []struct {
+			WindSpeedKmph  string `json:"windspeedKmph"`
+			WeatherDesc    []struct {
 				Value string `json:"value"`
 			} `json:"weatherDesc"`
 		} `json:"current_condition"`
@@ -162,11 +189,11 @@ func (t *WeatherTool) fetchWttr(ctx context.Context, city string) (string, error
 	}
 
 	if err := json.Unmarshal(body, &data); err != nil {
-		return "", fmt.Errorf("wttr.in响应解析失败: %w", err)
+		return nil, fmt.Errorf("wttr.in响应解析失败: %w", err)
 	}
 
 	if len(data.CurrentCondition) == 0 {
-		return "", fmt.Errorf("未找到天气数据")
+		return nil, fmt.Errorf("未找到天气数据")
 	}
 
 	current := data.CurrentCondition[0]
@@ -180,30 +207,40 @@ func (t *WeatherTool) fetchWttr(ctx context.Context, city string) (string, error
 		weatherDesc = current.WeatherDesc[0].Value
 	}
 
-	result := fmt.Sprintf(`📍 %s
-🌡️ 温度: %s°C (体感: %s°C)
-☁️ 天气: %s
-💨 风向: %s, %s km/h
-💧 湿度: %s%%`, location, current.TempC, current.FeelsLikeC, weatherDesc, current.WindDir16Point, current.WindSpeedKmph, current.Humidity)
+	result := &WeatherResult{
+		Location:    location,
+		Temperature: current.TempC + "°C",
+		FeelsLike:   current.FeelsLikeC + "°C",
+		Weather:     weatherDesc,
+		WindDir:     current.WindDir16Point,
+		WindSpeed:   current.WindSpeedKmph + " km/h",
+		Humidity:    current.Humidity + "%",
+	}
 
 	// 添加未来2天预报
 	if len(data.Weather) >= 3 {
-		result += "\n\n📅 未来天气:\n"
+		forecasts := make([]DayForecast, 0)
 		for i := 1; i < 3 && i < len(data.Weather); i++ {
 			w := data.Weather[i]
 			desc := "未知"
 			if len(w.WeatherDesc) > 0 {
 				desc = w.WeatherDesc[0].Value
 			}
-			result += fmt.Sprintf("- %s: %s°C~%s°C, %s\n", w.Date, w.MinTempC, w.MaxTempC, desc)
+			forecasts = append(forecasts, DayForecast{
+				Date:    w.Date,
+				MinTemp: w.MinTempC + "°C",
+				MaxTemp: w.MaxTempC + "°C",
+				Weather: desc,
+			})
 		}
+		result.Forecast = forecasts
 	}
 
 	return result, nil
 }
 
 // fetchHefeng 和风天气API（推荐，对中国城市支持好）
-func (t *WeatherTool) fetchHefeng(ctx context.Context, city string) (string, error) {
+func (t *WeatherTool) fetchHefeng(ctx context.Context, city string) (*WeatherResult, error) {
 	// 和风天气API端点
 	// 注意：需要注册获取免费API Key: https://dev.qweather.com/
 	// 免费版每天1000次调用，足够测试使用
@@ -220,12 +257,12 @@ func (t *WeatherTool) fetchHefeng(ctx context.Context, city string) (string, err
 
 	cityReq, err := http.NewRequestWithContext(ctx, "GET", cityURL, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	cityResp, err := t.httpClient.Do(cityReq)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer cityResp.Body.Close()
 
@@ -241,11 +278,11 @@ func (t *WeatherTool) fetchHefeng(ctx context.Context, city string) (string, err
 
 	body, _ := io.ReadAll(cityResp.Body)
 	if err := json.Unmarshal(body, &cityData); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if cityData.Code != "200" || len(cityData.Location) == 0 {
-		return "", fmt.Errorf("未找到城市: %s", city)
+		return nil, fmt.Errorf("未找到城市: %s", city)
 	}
 
 	cityID := cityData.Location[0].ID
@@ -259,7 +296,7 @@ func (t *WeatherTool) fetchHefeng(ctx context.Context, city string) (string, err
 	weatherReq, _ := http.NewRequestWithContext(ctx, "GET", weatherURL, nil)
 	weatherResp, err := t.httpClient.Do(weatherReq)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer weatherResp.Body.Close()
 
@@ -279,40 +316,36 @@ func (t *WeatherTool) fetchHefeng(ctx context.Context, city string) (string, err
 
 	body, _ = io.ReadAll(weatherResp.Body)
 	if err := json.Unmarshal(body, &weatherData); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if weatherData.Code != "200" {
-		return "", fmt.Errorf("获取天气失败: %s", weatherData.Code)
+		return nil, fmt.Errorf("获取天气失败: %s", weatherData.Code)
 	}
 
-	// 格式化输出
+	// 构建结果
 	location := cityName
 	if province != "" && province != cityName {
 		location = province + " " + cityName
 	}
 
-	return fmt.Sprintf(`📍 %s
-🌡️ 温度: %s°C (体感温度: %s°C)
-☁️ 天气: %s
-💨 风向: %s, %s级
-💧 湿度: %s%%
-🔆 气压: %s hPa
-👁️ 能见度: %s km`,
-		location,
-		weatherData.Now.Temp,
-		weatherData.Now.FeelsLike,
-		weatherData.Now.Text,
-		weatherData.Now.WindDir,
-		weatherData.Now.WindScale,
-		weatherData.Now.Humidity,
-		weatherData.Now.Pressure,
-		weatherData.Now.Vis,
-	), nil
+	result := &WeatherResult{
+		Location:    location,
+		Temperature: weatherData.Now.Temp + "°C",
+		FeelsLike:   weatherData.Now.FeelsLike + "°C",
+		Weather:     weatherData.Now.Text,
+		WindDir:     weatherData.Now.WindDir,
+		WindSpeed:   weatherData.Now.WindScale + "级",
+		Humidity:    weatherData.Now.Humidity + "%",
+		Pressure:    weatherData.Now.Pressure + " hPa",
+		Visibility:  weatherData.Now.Vis + " km",
+	}
+
+	return result, nil
 }
 
 // fetchOpenWeather OpenWeatherMap API
-func (t *WeatherTool) fetchOpenWeather(ctx context.Context, city string) (string, error) {
+func (t *WeatherTool) fetchOpenWeather(ctx context.Context, city string) (*WeatherResult, error) {
 	// OpenWeatherMap API (需要注册)
 	// https://openweathermap.org/api
 
@@ -331,12 +364,12 @@ func (t *WeatherTool) fetchOpenWeather(ctx context.Context, city string) (string
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -364,15 +397,15 @@ func (t *WeatherTool) fetchOpenWeather(ctx context.Context, city string) (string
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if err := json.Unmarshal(body, &data); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if data.Name == "" {
-		return "", fmt.Errorf("未找到城市: %s", city)
+		return nil, fmt.Errorf("未找到城市: %s", city)
 	}
 
 	// 风向度数转文字
@@ -381,29 +414,23 @@ func (t *WeatherTool) fetchOpenWeather(ctx context.Context, city string) (string
 	// 能见度转换为km
 	visibility := float64(data.Visibility) / 1000
 
-	return fmt.Sprintf(`📍 %s, %s
-🌡️ 温度: %.1f°C (体感温度: %.1f°C)
-☁️ 天气: %s - %s
-💨 风速: %.1f m/s, %s
-💧 湿度: %d%%
-🔆 气压: %d hPa
-👁️ 能见度: %.1f km`,
-		data.Name,
-		data.Sys.Country,
-		data.Main.Temp,
-		data.Main.FeelsLike,
-		data.Weather[0].Main,
-		data.Weather[0].Description,
-		data.Wind.Speed,
-		windDir,
-		data.Main.Humidity,
-		data.Main.Pressure,
-		visibility,
-	), nil
+	result := &WeatherResult{
+		Location:    fmt.Sprintf("%s, %s", data.Name, data.Sys.Country),
+		Temperature: fmt.Sprintf("%.1f°C", data.Main.Temp),
+		FeelsLike:   fmt.Sprintf("%.1f°C", data.Main.FeelsLike),
+		Weather:     fmt.Sprintf("%s - %s", data.Weather[0].Main, data.Weather[0].Description),
+		WindDir:     windDir,
+		WindSpeed:   fmt.Sprintf("%.1f m/s", data.Wind.Speed),
+		Humidity:    fmt.Sprintf("%d%%", data.Main.Humidity),
+		Pressure:    fmt.Sprintf("%d hPa", data.Main.Pressure),
+		Visibility:  fmt.Sprintf("%.1f km", visibility),
+	}
+
+	return result, nil
 }
 
 // fetchSeniverse 心知天气API（中文友好）
-func (t *WeatherTool) fetchSeniverse(ctx context.Context, city string) (string, error) {
+func (t *WeatherTool) fetchSeniverse(ctx context.Context, city string) (*WeatherResult, error) {
 	// 心知天气API (需要注册)
 	// https://www.seniverse.com/
 
@@ -417,12 +444,12 @@ func (t *WeatherTool) fetchSeniverse(ctx context.Context, city string) (string, 
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -448,37 +475,32 @@ func (t *WeatherTool) fetchSeniverse(ctx context.Context, city string) (string, 
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if err := json.Unmarshal(body, &data); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if len(data.Results) == 0 {
-		return "", fmt.Errorf("未找到城市: %s", city)
+		return nil, fmt.Errorf("未找到城市: %s", city)
 	}
 
-	result := data.Results[0]
+	r := data.Results[0]
 
-	return fmt.Sprintf(`📍 %s (%s)
-🌡️ 温度: %s°C (体感温度: %s°C)
-☁️ 天气: %s
-💨 风向: %s, %s级
-💧 湿度: %s%%
-🔆 气压: %s hPa
-👁️ 能见度: %s km`,
-		result.Location.Name,
-		result.Location.Path,
-		result.Now.Temperature,
-		result.Now.FeelsLike,
-		result.Now.Text,
-		result.Now.WindDir,
-		result.Now.WindScale,
-		result.Now.Humidity,
-		result.Now.Pressure,
-		result.Now.Visibility,
-	), nil
+	result := &WeatherResult{
+		Location:    fmt.Sprintf("%s (%s)", r.Location.Name, r.Location.Path),
+		Temperature: r.Now.Temperature + "°C",
+		FeelsLike:   r.Now.FeelsLike + "°C",
+		Weather:     r.Now.Text,
+		WindDir:     r.Now.WindDir,
+		WindSpeed:   r.Now.WindScale + "级",
+		Humidity:    r.Now.Humidity + "%",
+		Pressure:    r.Now.Pressure + " hPa",
+		Visibility:  r.Now.Visibility + " km",
+	}
+
+	return result, nil
 }
 
 // getWindDirection 根据角度获取风向

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -55,6 +56,14 @@ func (t *ReadPDFTool) Parameters() map[string]interface{} {
 	}
 }
 
+// PDFResult PDF读取结果JSON结构
+type PDFResult struct {
+	Filename string `json:"filename"`
+	Pages    int    `json:"pages"`
+	Content  string `json:"content"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
 func (t *ReadPDFTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
 	if !ok || path == "" {
@@ -95,6 +104,7 @@ func (t *ReadPDFTool) extractWithPdftotext(path, pages string) (string, error) {
 	args := []string{"-layout", path, tmpFile}
 
 	// 处理页码范围
+	pageCount := 0
 	if pages != "" {
 		if strings.Contains(pages, "-") {
 			parts := strings.Split(pages, "-")
@@ -115,17 +125,38 @@ func (t *ReadPDFTool) extractWithPdftotext(path, pages string) (string, error) {
 	}
 
 	if len(content) == 0 {
-		return "PDF 内容为空或无法提取文本", nil
+		result := PDFResult{
+			Filename: filepath.Base(path),
+			Pages:    0,
+			Content:  "",
+		}
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+		return string(jsonBytes), nil
 	}
 
-	result := fmt.Sprintf("## PDF 内容: %s\n\n", filepath.Base(path))
-	result += string(content)
+	// 估算页数（简单方法：统计换页符或按平均字数估算）
+	pageCount = countPages(string(content))
 
-	if len(result) > 50000 {
-		result = result[:50000] + "\n... [内容过长已截断]"
+	text := string(content)
+	truncated := false
+	if len(text) > 50000 {
+		text = text[:50000]
+		truncated = true
 	}
 
-	return result, nil
+	result := PDFResult{
+		Filename:  filepath.Base(path),
+		Pages:     pageCount,
+		Content:   text,
+		Truncated: truncated,
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func (t *ReadPDFTool) hasPythonPDF() bool {
@@ -183,14 +214,40 @@ with open(path, 'rb') as f:
 		return "", fmt.Errorf("Python PDF 提取失败: %v\n%s", err, string(output))
 	}
 
-	result := fmt.Sprintf("## PDF 内容: %s\n\n", filepath.Base(path))
-	result += string(output)
-
-	if len(result) > 50000 {
-		result = result[:50000] + "\n... [内容过长已截断]"
+	text := string(output)
+	truncated := false
+	if len(text) > 50000 {
+		text = text[:50000]
+		truncated = true
 	}
 
-	return result, nil
+	// 简单估算页数
+	pageCount := countPages(text)
+
+	result := PDFResult{
+		Filename:  filepath.Base(path),
+		Pages:     pageCount,
+		Content:   text,
+		Truncated: truncated,
+	}
+
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
+}
+
+// countPages 简单估算PDF页数
+func countPages(content string) int {
+	// 通过 "--- 第 N 页 ---" 标记来计数
+	count := strings.Count(content, "--- 第 ")
+	if count > 0 {
+		return count
+	}
+	// 如果没有标记，按换页符估算
+	return strings.Count(content, "\x0c") + 1
 }
 
 func init() {

@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,6 +63,16 @@ func (t *RunCodeTool) Parameters() map[string]interface{} {
 	}
 }
 
+// RunCodeResult 代码执行结果JSON结构
+type RunCodeResult struct {
+	Language string `json:"language"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exit_code"`
+	Success  bool   `json:"success"`
+	Error    string `json:"error,omitempty"`
+}
+
 func (t *RunCodeTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	language, ok := params["language"].(string)
 	if !ok || language == "" {
@@ -93,10 +104,12 @@ func (t *RunCodeTool) Execute(ctx context.Context, params map[string]interface{}
 		}
 		fileExt = ".py"
 		wrapper = code
+		language = "python"
 	case "javascript", "js", "node":
 		cmdName = "node"
 		fileExt = ".js"
 		wrapper = code
+		language = "javascript"
 	default:
 		return "", fmt.Errorf("不支持的语言: %s (支持: python, javascript)", language)
 	}
@@ -133,31 +146,36 @@ func (t *RunCodeTool) Execute(ctx context.Context, params map[string]interface{}
 
 	// 截断过长输出
 	if len(output) > 20000 {
-		output = output[:20000] + "\n... [输出过长已截断]"
+		output = output[:20000]
 	}
 	if len(errOutput) > 5000 {
-		errOutput = errOutput[:5000] + "\n... [错误输出过长已截断]"
+		errOutput = errOutput[:5000]
 	}
 
-	result := fmt.Sprintf("## 执行结果 (%s)\n\n", language)
-	if output != "" {
-		result += "**输出:**\n" + output + "\n"
+	result := RunCodeResult{
+		Language: language,
+		Stdout:   output,
+		Stderr:   errOutput,
+		Success:  err == nil,
 	}
-	if errOutput != "" {
-		result += "**错误:**\n" + errOutput + "\n"
-	}
+
 	if err != nil {
 		if ctxExec.Err() == context.DeadlineExceeded {
-			result += "\n⚠️ 执行超时（" + fmt.Sprintf("%d秒", timeout) + "）"
+			result.Error = fmt.Sprintf("执行超时（%d秒）", timeout)
 		} else {
-			result += "\n⚠️ 执行失败: " + err.Error()
+			result.Error = err.Error()
 		}
-	}
-	if output == "" && errOutput == "" {
-		result += "（无输出）"
+		result.ExitCode = 1
+	} else {
+		result.ExitCode = 0
 	}
 
-	return result, nil
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("序列化结果失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func containsDangerousCode(code string) bool {

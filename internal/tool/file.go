@@ -2,11 +2,13 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go-claw/internal/channel"
 	"go-claw/internal/media"
@@ -71,7 +73,14 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]interface{}
 		return "", fmt.Errorf("写入文件失败: %v", err)
 	}
 
-	return fmt.Sprintf("成功写入文件 %s (%d 字节)", path, len(content)), nil
+	// 返回 JSON 格式
+	result := map[string]interface{}{
+		"status": "success",
+		"path":   path,
+		"bytes":  len(content),
+	}
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return string(data), nil
 }
 
 // ReadFileTool 读文件工具
@@ -154,7 +163,14 @@ func (t *ReadFileTool) Execute(_ context.Context, params map[string]interface{})
 		result.WriteString(fmt.Sprintf("%d\t%s\n", i+1, lines[i]))
 	}
 
-	return result.String(), nil
+	// 返回 JSON 格式
+	jsonResult := map[string]interface{}{
+		"path":    path,
+		"content": result.String(),
+		"lines":   end - offset,
+	}
+	jsonData, _ := json.MarshalIndent(jsonResult, "", "  ")
+	return string(jsonData), nil
 }
 
 // EditFileTool 编辑文件工具（精确字符串替换）
@@ -238,7 +254,16 @@ func (t *EditFileTool) Execute(_ context.Context, params map[string]interface{})
 		return "", fmt.Errorf("写入文件失败: %v", err)
 	}
 
-	return fmt.Sprintf("成功编辑 %s (替换 1 处)", path), nil
+	// 返回 JSON 格式
+	result := map[string]interface{}{
+		"status":      "success",
+		"path":        path,
+		"old":         truncate(oldStr, 100),
+		"new":         truncate(newStr, 100),
+		"replacements": 1,
+	}
+	jsonData, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonData), nil
 }
 
 // isSensitivePath 检查是否为敏感路径
@@ -328,12 +353,6 @@ func (t *AppendFileTool) Execute(_ context.Context, params map[string]interface{
 		}
 	}
 
-	// 检查文件是否存在，获取原大小
-	originalSize := 0
-	if data, err := os.ReadFile(path); err == nil {
-		originalSize = len(data)
-	}
-
 	// 追加写入
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -345,7 +364,14 @@ func (t *AppendFileTool) Execute(_ context.Context, params map[string]interface{
 		return "", fmt.Errorf("追加写入失败: %v", err)
 	}
 
-	return fmt.Sprintf("成功追加 %d 字节到 %s (原大小: %d)", len(content), path, originalSize), nil
+	// 返回 JSON 格式
+	result := map[string]interface{}{
+		"status":        "success",
+		"path":          path,
+		"bytes_appended": len(content),
+	}
+	jsonData, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonData), nil
 }
 
 // SendFileTool 发送文件给用户工具
@@ -384,11 +410,52 @@ func (t *SendFileTool) Parameters() map[string]interface{} {
 }
 
 func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
-	blocks, err := t.ExecuteStructured(ctx, params)
-	if err != nil {
-		return "", err
+	path, ok := params["path"].(string)
+	if !ok || path == "" {
+		return "", fmt.Errorf("缺少 path 参数")
 	}
-	return channel.TextOnlyContent(blocks), nil
+
+	filename := filepath.Base(path)
+	if fn, ok := params["filename"].(string); ok && fn != "" {
+		filename = fn
+	}
+
+	// 判断是 URL 还是本地文件
+	isURL := strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
+
+	if !isURL {
+		// 本地文件：安全检查
+		if isSensitivePath(path) {
+			return "", fmt.Errorf("禁止发送敏感文件: %s", path)
+		}
+
+		_, err := os.Stat(path)
+		if err != nil {
+			return "", fmt.Errorf("文件不存在: %v", err)
+		}
+		// 更新 filename 为实际文件名（如果用户没有指定）
+		if fn, ok := params["filename"].(string); !ok || fn == "" {
+			filename = filepath.Base(path)
+		}
+	}
+
+	// 获取 session_id（如果有）
+	sessionID := ""
+	if sid := ctx.Value("session_id"); sid != nil {
+		if s, ok := sid.(string); ok {
+			sessionID = s
+		}
+	}
+
+	// 返回 JSON 格式
+	result := map[string]interface{}{
+		"status":     "success",
+		"path":       path,
+		"session_id": sessionID,
+		"filename":   filename,
+	}
+	jsonData, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonData), nil
 }
 
 // ExecuteStructured 结构化返回（实现 StructuredTool 接口）
@@ -509,20 +576,20 @@ func (t *ListFilesTool) Name() string {
 
 func (t *ListFilesTool) Description() string {
 	return `列出目录下的文件和子目录，支持递归遍历。
-比 exec ls/dir 更安全可控，支持过滤和深度限制。
+	比 exec ls/dir 更安全可控，支持过滤和深度限制。
 
-调用格式：
-- list_files(path=".")  # 列出当前目录
-- list_files(path="/home/user", recursive=true)  # 递归列出
-- list_files(path=".", pattern="*.go")  # 过滤文件类型
-- list_files(path=".", depth=2)  # 限制递归深度
+	调用格式：
+	- list_files(path=".")  # 列出当前目录
+	- list_files(path="/home/user", recursive=true)  # 递归列出
+	- list_files(path=".", pattern="*.go")  # 过滤文件类型
+	- list_files(path=".", depth=2)  # 限制递归深度
 
-参数说明：
-- path: 目录路径（必填）
-- recursive: 是否递归，默认 false
-- pattern: 文件名匹配模式（如 *.go）
-- depth: 递归深度限制，默认无限制
-- show_hidden: 是否显示隐藏文件，默认 false`
+	参数说明：
+	- path: 目录路径（必填）
+	- recursive: 是否递归，默认 false
+	- pattern: 文件名匹配模式（如 *.go）
+	- depth: 递归深度限制，默认无限制
+	- show_hidden: 是否显示隐藏文件，默认 false`
 }
 
 func (t *ListFilesTool) Parameters() map[string]interface{} {
@@ -552,6 +619,14 @@ func (t *ListFilesTool) Parameters() map[string]interface{} {
 		},
 		"required": []string{"path"},
 	}
+}
+
+// listFileInfo 目录文件信息
+type listFileInfo struct {
+	Path     string
+	IsDir    bool
+	Size     int64
+	Modified time.Time
 }
 
 func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
@@ -620,10 +695,15 @@ func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface
 				}
 			}
 			fi, _ := d.Info()
+			modTime := time.Time{}
+			if fi != nil {
+				modTime = fi.ModTime()
+			}
 			files = append(files, listFileInfo{
-				Path:  p,
-				IsDir: d.IsDir(),
-				Size:  fi.Size(),
+				Path:     p,
+				IsDir:    d.IsDir(),
+				Size:     fi.Size(),
+				Modified: modTime,
 			})
 			return nil
 		})
@@ -643,55 +723,49 @@ func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface
 				}
 			}
 			fi, _ := entry.Info()
+			modTime := time.Time{}
+			if fi != nil {
+				modTime = fi.ModTime()
+			}
 			files = append(files, listFileInfo{
-				Path:  filepath.Join(path, entry.Name()),
-				IsDir: entry.IsDir(),
-				Size:  fi.Size(),
+				Path:     filepath.Join(path, entry.Name()),
+				IsDir:    entry.IsDir(),
+				Size:     fi.Size(),
+				Modified: modTime,
 			})
 		}
 	}
 
-	if len(files) == 0 {
-		return fmt.Sprintf("目录 %s 为空", path), nil
+	// 构建 JSON 结果
+	type fileEntry struct {
+		Name     string `json:"name"`
+		Size     int64   `json:"size"`
+		Modified string  `json:"modified"`
+		IsDir    bool    `json:"is_dir,omitempty"`
 	}
 
-	// 格式化输出
-	result := fmt.Sprintf("## 目录列表: %s\n\n", path)
-	result += "| 类型 | 大小 | 路径 |\n"
-	result += "|------|------|------|\n"
-
-	dirCount := 0
-	fileCount := 0
-	totalSize := int64(0)
-
+	var fileEntries []fileEntry
 	for _, f := range files {
-		typeStr := "📄"
-		if f.IsDir {
-			typeStr = "📁"
-			dirCount++
-		} else {
-			fileCount++
-			totalSize += f.Size
-		}
-
 		displayPath := f.Path
 		if rel, err := filepath.Rel(path, f.Path); err == nil {
 			displayPath = rel
 		}
-
-		result += fmt.Sprintf("| %s | %s | %s |\n", typeStr, formatFileSize(f.Size), displayPath)
+		fileEntries = append(fileEntries, fileEntry{
+			Name:     displayPath,
+			Size:     f.Size,
+			Modified: f.Modified.Format("2006-01-02T15:04:05"),
+			IsDir:    f.IsDir,
+		})
 	}
 
-	result += fmt.Sprintf("\n**统计**: %d 个目录, %d 个文件, 总大小 %s", dirCount, fileCount, formatFileSize(totalSize))
+	result := map[string]interface{}{
+		"path":  path,
+		"files": fileEntries,
+		"total": len(fileEntries),
+	}
 
-	return result, nil
-}
-
-// listFileInfo 目录文件信息
-type listFileInfo struct {
-	Path  string
-	IsDir bool
-	Size  int64
+	jsonData, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonData), nil
 }
 
 func isHiddenFile(name string) bool {

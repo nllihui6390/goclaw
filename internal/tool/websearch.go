@@ -11,6 +11,20 @@ import (
 	"time"
 )
 
+// searchResult 搜索结果条目
+type searchResult struct {
+	Title   string `json:"title"`
+	Snippet string `json:"snippet"`
+	URL     string `json:"url"`
+}
+
+// searchOutput 搜索结果输出结构
+type searchOutput struct {
+	Query   string         `json:"query"`
+	Total   int            `json:"total"`
+	Results []searchResult `json:"results"`
+}
+
 // WebSearchTool 网页搜索工具
 type WebSearchTool struct{}
 
@@ -108,14 +122,12 @@ func searchBing(query string, count int, apiKey string) (string, error) {
 	}
 
 	if len(result.WebPages.Value) == 0 {
-		return "未找到相关搜索结果", nil
+		output := searchOutput{Query: query, Total: 0, Results: []searchResult{}}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		return string(data), nil
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## 搜索结果: %s\n\n", query))
-	sb.WriteString("| # | 标题 | 摘要 | 链接 |\n")
-	sb.WriteString("|---|------|------|------|\n")
-
+	var results []searchResult
 	for i, item := range result.WebPages.Value {
 		if i >= count {
 			break
@@ -124,9 +136,15 @@ func searchBing(query string, count int, apiKey string) (string, error) {
 		if len(snippet) > 120 {
 			snippet = snippet[:120] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("| %d | %s | %s | %s |\n", i+1, item.Name, snippet, item.URL))
+		results = append(results, searchResult{Title: item.Name, Snippet: snippet, URL: item.URL})
 	}
-	return sb.String(), nil
+
+	output := searchOutput{Query: query, Total: len(results), Results: results}
+	data, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("JSON序列化失败: %v", err)
+	}
+	return string(data), nil
 }
 
 func searchSogou(query string, count int) (string, error) {
@@ -151,36 +169,40 @@ func searchSogou(query string, count int) (string, error) {
 	}
 
 	// 从 HTML 中提取搜索结果
-	results := extractSogouResults(string(body), count)
+	sogouResults := extractSogouResults(string(body), count)
 
-	if len(results) == 0 {
-		return "未找到相关搜索结果，建议配置 Bing API Key 获取更精确的结果", nil
+	if len(sogouResults) == 0 {
+		output := searchOutput{Query: query, Total: 0, Results: []searchResult{}}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		return string(data), nil
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## 搜索结果: %s\n\n", query))
-	sb.WriteString("| # | 标题 | 摘要 | 链接 |\n")
-	sb.WriteString("|---|------|------|------|\n")
-
-	for i, r := range results {
+	var results []searchResult
+	for _, r := range sogouResults {
 		snippet := r.Snippet
 		if len(snippet) > 120 {
 			snippet = snippet[:120] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("| %d | %s | %s | %s |\n", i+1, r.Title, snippet, r.URL))
+		results = append(results, searchResult{Title: r.Title, Snippet: snippet, URL: r.URL})
 	}
-	return sb.String(), nil
+
+	output := searchOutput{Query: query, Total: len(results), Results: results}
+	data, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("JSON序列化失败: %v", err)
+	}
+	return string(data), nil
 }
 
-// sogouResult 搜狗搜索结果
-type sogouResult struct {
+// sogouResultItem 搜狗搜索结果（内部提取用）
+type sogouResultItem struct {
 	Title   string
 	Snippet string
 	URL     string
 }
 
-func extractSogouResults(html string, max int) []sogouResult {
-	var results []sogouResult
+func extractSogouResults(html string, max int) []sogouResultItem {
+	var results []sogouResultItem
 	// 从搜狗 HTML 提取结果块
 	blocks := extractBetweenAll(html, `<div class="vrwrap">`, `</div>`)
 	for i, block := range blocks {
@@ -193,7 +215,7 @@ func extractSogouResults(html string, max int) []sogouResult {
 		if title == "" && snippet == "" {
 			continue
 		}
-		results = append(results, sogouResult{Title: title, Snippet: snippet, URL: link})
+		results = append(results, sogouResultItem{Title: title, Snippet: snippet, URL: link})
 	}
 	return results
 }
@@ -206,9 +228,9 @@ type bingResponse struct {
 }
 
 type bingWebPage struct {
-	Name     string `json:"name"`
-	Snippet  string `json:"snippet"`
-	URL      string `json:"url"`
+	Name    string `json:"name"`
+	Snippet string `json:"snippet"`
+	URL     string `json:"url"`
 }
 
 // HTML 提取辅助函数

@@ -148,19 +148,25 @@ func (t *DatabaseQueryTool) executeSelect(ctx context.Context, db *sql.DB, query
 		results = append(results, row)
 	}
 
-	if len(results) == 0 {
-		return "查询结果: 0 条记录", nil
-	}
-
-	// 格式化输出
-	output := fmt.Sprintf("查询结果: %d 条记录\n\n", len(results))
-	output += formatTable(columns, results)
-
+	// 限制显示条数
+	displayResults := results
 	if len(results) > 100 {
-		output = fmt.Sprintf("查询结果: %d 条记录（仅显示前100条）\n\n", len(results)) + formatTable(columns, results[:100])
+		displayResults = results[:100]
 	}
 
-	return output, nil
+	// 构建 JSON 输出
+	selectResult := map[string]interface{}{
+		"columns":   columns,
+		"rows":      displayResults,
+		"row_count": len(results),
+	}
+
+	jsonBytes, err := json.MarshalIndent(selectResult, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("JSON 序列化失败: %v", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func (t *DatabaseQueryTool) executeWrite(ctx context.Context, db *sql.DB, query string, params []interface{}, queryUpper string) (string, error) {
@@ -172,7 +178,17 @@ func (t *DatabaseQueryTool) executeWrite(ctx context.Context, db *sql.DB, query 
 
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Sprintf("执行成功"), nil
+		// 无法获取影响行数时仍返回 JSON
+		writeResult := map[string]interface{}{
+			"operation":     "unknown",
+			"affected_rows": 0,
+			"status":        "success",
+		}
+		jsonBytes, jsonErr := json.MarshalIndent(writeResult, "", "  ")
+		if jsonErr != nil {
+			return "", fmt.Errorf("JSON 序列化失败: %v", jsonErr)
+		}
+		return string(jsonBytes), nil
 	}
 
 	// 安全限制
@@ -180,66 +196,28 @@ func (t *DatabaseQueryTool) executeWrite(ctx context.Context, db *sql.DB, query 
 		return "", fmt.Errorf("操作影响了 %d 条记录，超过安全限制（最大100条）", affected)
 	}
 
-	opType := "操作"
+	opType := "unknown"
 	if strings.HasPrefix(queryUpper, "INSERT") {
-		opType = "插入"
+		opType = "insert"
 	} else if strings.HasPrefix(queryUpper, "UPDATE") {
-		opType = "更新"
+		opType = "update"
 	} else if strings.HasPrefix(queryUpper, "DELETE") {
-		opType = "删除"
+		opType = "delete"
 	}
 
-	return fmt.Sprintf("✅ %s成功，影响 %d 条记录", opType, affected), nil
-}
-
-func formatTable(columns []string, rows []map[string]interface{}) string {
-	var sb strings.Builder
-
-	// 表头
-	sb.WriteString("| ")
-	for _, col := range columns {
-		sb.WriteString(col + " | ")
-	}
-	sb.WriteString("\n")
-
-	// 分隔线
-	sb.WriteString("|")
-	for range columns {
-		sb.WriteString("---|")
-	}
-	sb.WriteString("\n")
-
-	// 数据行
-	for _, row := range rows {
-		sb.WriteString("| ")
-		for _, col := range columns {
-			val := row[col]
-			strVal := formatValue(val)
-			if len(strVal) > 50 {
-				strVal = strVal[:50] + "..."
-			}
-			sb.WriteString(strVal + " | ")
-		}
-		sb.WriteString("\n")
+	// 构建 JSON 输出
+	writeResult := map[string]interface{}{
+		"operation":     opType,
+		"affected_rows": affected,
+		"status":        "success",
 	}
 
-	return sb.String()
-}
+	jsonBytes, err := json.MarshalIndent(writeResult, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("JSON 序列化失败: %v", err)
+	}
 
-func formatValue(val interface{}) string {
-	if val == nil {
-		return "NULL"
-	}
-	switch v := val.(type) {
-	case string:
-		return v
-	case int, int64, float64:
-		return fmt.Sprintf("%v", v)
-	case bool:
-		return fmt.Sprintf("%v", v)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
+	return string(jsonBytes), nil
 }
 
 func init() {

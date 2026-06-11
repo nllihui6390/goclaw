@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -21,7 +22,7 @@ func (t *TimeTool) Name() string {
 }
 
 func (t *TimeTool) Description() string {
-	return "获取当前日期和时间。返回格式化的日期时间字符串，包含时区信息。"
+	return "获取当前日期和时间。返回JSON格式的时间信息，包含日期时间、时区、Unix时间戳、星期、夏令时状态。"
 }
 
 func (t *TimeTool) Parameters() map[string]interface{} {
@@ -33,6 +34,28 @@ func (t *TimeTool) Parameters() map[string]interface{} {
 				"description": "时间格式，可选：'full'(完整)、'date'(仅日期)、'time'(仅时间)，默认 'full'",
 			},
 		},
+	}
+}
+
+// weekdayChinese 返回中文星期名
+func weekdayChinese(w time.Weekday) string {
+	switch w {
+	case time.Sunday:
+		return "星期日"
+	case time.Monday:
+		return "星期一"
+	case time.Tuesday:
+		return "星期二"
+	case time.Wednesday:
+		return "星期三"
+	case time.Thursday:
+		return "星期四"
+	case time.Friday:
+		return "星期五"
+	case time.Saturday:
+		return "星期六"
+	default:
+		return ""
 	}
 }
 
@@ -51,16 +74,38 @@ func (t *TimeTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	switch format {
 	case "date":
-		return fmt.Sprintf("当前日期: %s\n时区: %s", now.Format("2006-01-02"), tzName), nil
+		result := map[string]interface{}{
+			"date":    now.Format("2006-01-02"),
+			"timezone": tzName,
+		}
+		jsonBytes, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("JSON序列化失败: %v", err)
+		}
+		return string(jsonBytes), nil
 	case "time":
-		return fmt.Sprintf("当前时间: %s\n时区: %s", now.Format("15:04:05"), tzName), nil
+		result := map[string]interface{}{
+			"time":    now.Format("15:04:05"),
+			"timezone": tzName,
+		}
+		jsonBytes, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("JSON序列化失败: %v", err)
+		}
+		return string(jsonBytes), nil
 	default:
-		return fmt.Sprintf("当前时间: %s\n日期: %s\n时间: %s\n时区: %s\nUnix时间戳: %d",
-			now.Format("2006-01-02 15:04:05"),
-			now.Format("2006-01-02"),
-			now.Format("15:04:05"),
-			tzName,
-			now.Unix()), nil
+		result := map[string]interface{}{
+			"datetime":       now.Format("2006-01-02 15:04:05"),
+			"timezone":       tzName,
+			"unix_timestamp": now.Unix(),
+			"weekday":        weekdayChinese(now.Weekday()),
+			"is_dst":         now.IsDST(),
+		}
+		jsonBytes, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("JSON序列化失败: %v", err)
+		}
+		return string(jsonBytes), nil
 	}
 }
 
@@ -76,7 +121,7 @@ func (t *SetTimezoneTool) Name() string {
 }
 
 func (t *SetTimezoneTool) Description() string {
-	return "设置用户时区，影响时间显示和定时任务执行。传入时区名称如 'Asia/Shanghai'、'America/New_York'。"
+	return "设置用户时区，影响时间显示和定时任务执行。传入时区名称如 'Asia/Shanghai'、'America/New_York'。返回JSON格式包含时区、当前时间和状态。"
 }
 
 func (t *SetTimezoneTool) Parameters() map[string]interface{} {
@@ -104,7 +149,17 @@ func (t *SetTimezoneTool) Execute(ctx context.Context, params map[string]interfa
 	}
 
 	now := time.Now().In(loc)
-	return fmt.Sprintf("时区已设置为: %s\n当前时间: %s", tz, now.Format("2006-01-02 15:04:05")), nil
+
+	result := map[string]interface{}{
+		"timezone":        tz,
+		"current_datetime": now.Format("2006-01-02 15:04:05"),
+		"status":          "success",
+	}
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("JSON序列化失败: %v", err)
+	}
+	return string(jsonBytes), nil
 }
 
 func init() {

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os/exec"
@@ -57,6 +58,40 @@ func (t *NetworkCheckTool) Parameters() map[string]interface{} {
 	}
 }
 
+// PingResult ping测试结果
+type PingResult struct {
+	Target    string   `json:"target"`
+	Latencies []string `json:"latencies"`
+	Output    string   `json:"output"`
+	Success   bool     `json:"success"`
+	Error     string   `json:"error,omitempty"`
+}
+
+// DNSResult DNS解析结果
+type DNSResult struct {
+	Target  string   `json:"target"`
+	IPs     []string `json:"ips,omitempty"`
+	Domains []string `json:"domains,omitempty"`
+	Reverse bool     `json:"reverse"`
+}
+
+// PortResult 端口检测结果
+type PortResult struct {
+	Host    string `json:"host"`
+	Port    string `json:"port"`
+	Open    bool   `json:"open"`
+	Error   string `json:"error,omitempty"`
+}
+
+// HTTPResult HTTP连通测试结果
+type HTTPResult struct {
+	URL        string `json:"url"`
+	StatusCode string `json:"status_code,omitempty"`
+	Duration   string `json:"duration"`
+	Success    bool   `json:"success"`
+	Error      string `json:"error,omitempty"`
+}
+
 func (t *NetworkCheckTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	action, ok := params["action"].(string)
 	if !ok || action == "" {
@@ -98,24 +133,29 @@ func (t *NetworkCheckTool) ping(target string, timeout int) (string, error) {
 	cmd = exec.Command("ping", "-c", count, "-W", fmt.Sprintf("%d", timeout), target)
 	output, err := cmd.CombinedOutput()
 
-	result := fmt.Sprintf("## Ping 测试\n\n目标: %s\n\n%s", target, string(output))
+	result := PingResult{
+		Target: target,
+		Output: string(output),
+	}
 
 	// 解析延迟
 	re := regexp.MustCompile(`time=([0-9.]+)\s*ms`)
 	matches := re.FindAllStringSubmatch(string(output), -1)
 	if len(matches) > 0 {
-		var latencies []string
 		for _, m := range matches {
-			latencies = append(latencies, m[1])
+			result.Latencies = append(result.Latencies, m[1])
 		}
-		result += fmt.Sprintf("\n延迟: %s ms", strings.Join(latencies, ", "))
 	}
 
 	if err != nil {
-		result += fmt.Sprintf("\n⚠️ %v", err)
+		result.Success = false
+		result.Error = err.Error()
+	} else {
+		result.Success = true
 	}
 
-	return result, nil
+	jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonBytes), nil
 }
 
 func (t *NetworkCheckTool) dnsLookup(target string, timeout int) (string, error) {
@@ -131,18 +171,22 @@ func (t *NetworkCheckTool) dnsLookup(target string, timeout int) (string, error)
 		if err2 != nil {
 			return "", fmt.Errorf("DNS 解析失败: %v", err)
 		}
-		result := fmt.Sprintf("## DNS 反向解析\n\nIP: %s\n域名:\n", target)
-		for _, name := range names {
-			result += fmt.Sprintf("- %s\n", name)
+		result := DNSResult{
+			Target:  target,
+			Domains: names,
+			Reverse: true,
 		}
-		return result, nil
+		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+		return string(jsonBytes), nil
 	}
 
-	result := fmt.Sprintf("## DNS 解析\n\n域名: %s\nIP 地址:\n", target)
-	for _, ip := range ips {
-		result += fmt.Sprintf("- %s\n", ip)
+	result := DNSResult{
+		Target: target,
+		IPs:    ips,
+		Reverse: false,
 	}
-	return result, nil
+	jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonBytes), nil
 }
 
 func (t *NetworkCheckTool) portCheck(target string, timeout int) (string, error) {
@@ -155,12 +199,20 @@ func (t *NetworkCheckTool) portCheck(target string, timeout int) (string, error)
 	}
 
 	conn, err := net.DialTimeout("tcp", host+":"+port, time.Duration(timeout)*time.Second)
-	if err != nil {
-		return fmt.Sprintf("## 端口检测\n\n目标: %s:%s\n状态: ❌ 无法连接\n错误: %v", host, port, err), nil
+	result := PortResult{
+		Host: host,
+		Port: port,
+		Open: err == nil,
 	}
-	defer conn.Close()
+	if err != nil {
+		result.Error = err.Error()
+	}
+	if conn != nil {
+		conn.Close()
+	}
 
-	return fmt.Sprintf("## 端口检测\n\n目标: %s:%s\n状态: ✅ 端口开放", host, port), nil
+	jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonBytes), nil
 }
 
 func (t *NetworkCheckTool) httpCheck(target string, timeout int) (string, error) {
@@ -176,17 +228,21 @@ func (t *NetworkCheckTool) httpCheck(target string, timeout int) (string, error)
 
 	elapsed := time.Since(start)
 
-	result := fmt.Sprintf("## HTTP 连通测试\n\n目标: %s\n耗时: %v\n", target, elapsed)
-
-	if err != nil {
-		result += fmt.Sprintf("状态: ❌ 连接失败\n错误: %v", err)
-		return result, nil
+	result := HTTPResult{
+		URL:      target,
+		Duration: elapsed.String(),
 	}
 
-	statusCode := strings.TrimSpace(string(output))
-	result += fmt.Sprintf("HTTP 状态码: %s", statusCode)
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+	} else {
+		result.StatusCode = strings.TrimSpace(string(output))
+		result.Success = true
+	}
 
-	return result, nil
+	jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+	return string(jsonBytes), nil
 }
 
 func init() {
