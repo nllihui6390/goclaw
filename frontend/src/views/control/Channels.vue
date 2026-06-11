@@ -30,7 +30,6 @@ const channelDefs = {
       successStatus: 'success',
       successCredentialKey: 'app_id',
       pollInterval: 2000,
-      // params: { domain: feishuDomain } — passed at fetch time
       credentialMap: { app_id: 'app_id', app_secret: 'app_secret' },
     },
     fields: [
@@ -161,13 +160,7 @@ async function fetchQRCode() {
   qrcodeLoading.value = true
   try {
     const chKey = editChannel.value?.key
-    const def = channelDefs[chKey]
-    const params = {}
-    // Lark 需要 domain 参数
-    if (chKey === 'lark') {
-      params.domain = editConfig.value.domain || 'feishu'
-    }
-    const data = await api.getChannelQRCode(chKey, params)
+    const data = await api.getChannelQRCode(chKey)
     if (data.error) { ElMessage.error('获取二维码失败: ' + data.error); return }
     if (!data.qrcode_img) { ElMessage.error('获取二维码失败: 未返回二维码图片'); return }
     qrcodeImg.value = data.qrcode_img
@@ -190,11 +183,7 @@ function scheduleQrcodePoll() {
 
   qrcodePollTimer.value = setTimeout(async () => {
     try {
-      const params = {}
-      if (chKey === 'lark') {
-        params.domain = editConfig.value.domain || 'feishu'
-      }
-      const result = await api.getChannelQRCodeStatus(chKey, qrcodePollToken.value, params)
+      const result = await api.getChannelQRCodeStatus(chKey, qrcodePollToken.value)
       if (result.error) { scheduleQrcodePoll(); return }
       qrcodeStatus.value = result.status
       if (result.status === cfg.successStatus && result.credentials?.[cfg.successCredentialKey]) {
@@ -309,11 +298,6 @@ function closeDialog() {
         </el-form-item>
 
         <el-form-item v-if="editChannel.qrcode" label="扫码登录">
-          <!-- 飞书需要选择区域 -->
-          <el-select v-if="editChannel.key === 'lark'" v-model="editConfig.domain" style="margin-bottom: 8px; width: 100%;">
-            <el-option label="飞书（中国）" value="feishu" />
-            <el-option label="Lark（国际）" value="lark" />
-          </el-select>
           <el-button type="primary" :loading="qrcodeLoading" @click="fetchQRCode">
             获取二维码
           </el-button>
