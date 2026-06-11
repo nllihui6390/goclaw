@@ -50,6 +50,7 @@ func NewQRCodeService(config *ConfigService) *QRCodeService {
 	svc.handlers["wechat"] = &WeChatQRHandler{config: config}
 	svc.handlers["dingtalk"] = &DingTalkQRHandler{}
 	svc.handlers["feishu"] = &FeishuQRHandler{Domain: "feishu"}
+	svc.handlers["lark"] = &FeishuQRHandler{Domain: "feishu"} // 飞书渠道名为 lark
 	svc.handlers["wecom"] = &WeComQRHandler{}
 	return svc
 }
