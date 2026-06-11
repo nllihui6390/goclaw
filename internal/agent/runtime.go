@@ -74,14 +74,14 @@ func (r *Runtime) getRuntimeConfig() *runtimeConfig {
 
 // ChatMessage 对话消息
 type ChatMessage struct {
-	Role         string                  `json:"role"`
-	Content      string                  `json:"content"`
-	Blocks       channel.ContentBlocks   `json:"-"`       // 结构化内容块（多模态：图片/文件等）
-	ToolCalls    []ToolCall              `json:"tool_calls,omitempty"`
-	ToolCallID   string                  `json:"tool_call_id,omitempty"`
-	Name         string                  `json:"name,omitempty"` // tool 角色消息的工具名称
-	FinishReason string                  `json:"-"`              // LLM 返回的 finish_reason
-	ReasoningContent string                  `json:"-"`              // DeepSeek 等模型的 reasoning_content（推理/思考过程）
+	Role             string                `json:"role"`
+	Content          string                `json:"content"`
+	Blocks           channel.ContentBlocks `json:"-"` // 结构化内容块（多模态：图片/文件等）
+	ToolCalls        []ToolCall            `json:"tool_calls,omitempty"`
+	ToolCallID       string                `json:"tool_call_id,omitempty"`
+	Name             string                `json:"name,omitempty"` // tool 角色消息的工具名称
+	FinishReason     string                `json:"-"`              // LLM 返回的 finish_reason
+	ReasoningContent string                `json:"-"`              // DeepSeek 等模型的 reasoning_content（推理/思考过程）
 }
 
 // ToolCall 工具调用
@@ -633,10 +633,10 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
-				Role      string     `json:"role"`
-				Content   string     `json:"content"`
-					ReasoningContent string     `json:"reasoning_content"` // DeepSeek 推理内容
-				ToolCalls []ToolCall `json:"tool_calls"`
+				Role             string     `json:"role"`
+				Content          string     `json:"content"`
+				ReasoningContent string     `json:"reasoning_content"` // DeepSeek 推理内容
+				ToolCalls        []ToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -652,11 +652,11 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 	}
 
 	msg := &ChatMessage{
-		Role:         llmResp.Choices[0].Message.Role,
-		Content:      llmResp.Choices[0].Message.Content,
+		Role:             llmResp.Choices[0].Message.Role,
+		Content:          llmResp.Choices[0].Message.Content,
 		ReasoningContent: llmResp.Choices[0].Message.ReasoningContent,
-		ToolCalls:    llmResp.Choices[0].Message.ToolCalls,
-		FinishReason: llmResp.Choices[0].FinishReason,
+		ToolCalls:        llmResp.Choices[0].Message.ToolCalls,
+		FinishReason:     llmResp.Choices[0].FinishReason,
 	}
 
 	logger.Info("[Runtime] OpenAI响应解析",
@@ -1153,6 +1153,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	}
 	// 提示大模型工作区目录
 	systemContent += "\n\n## 当前Agent工作区目录\n\n你的工作区目录是: " + r.workspaceDir + "，请使用这个目录进行文件读写操作。"
+	systemContent += "\n ## 人设文件\n AGENTS.md、HEARTBEAT.md、MEMORY.md、PROFILE.md、SOUL.md都存放在当前Agent工作区目录下"
 
 	// 首次引导：检测 BOOTSTRAP.md
 	if r.config.WorkspaceLoader != nil && r.config.WorkspaceLoader.IsBootstrapNeeded() {
