@@ -14,12 +14,8 @@ export class HttpAdapter {
   // 对话（SSE 流式）
   // yield { type: 'text', content } 或 { type: 'file', info: {...} }
   async *sendMessage(sessionId, content, agent) {
-    // HTTP 模式下，gateway 会拼接 "webhook:" + session 作为完整 sessionID
     // 如果 sessionId 已含频道前缀（如 "webhook:xxx"），需剥离前缀避免重复拼接
     let chatSession = sessionId
-    // if (sessionId.startsWith('webhook:')) {
-    //   chatSession = sessionId.slice(8) // 去掉 "webhook:" 前缀
-    // }
     const resp = await fetch('/api/v1/chat', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session: chatSession, content, agent, stream: true })

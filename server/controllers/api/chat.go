@@ -151,13 +151,17 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 		rw.Header().Set("Content-Type", "text/event-stream")
 		rw.Header().Set("Cache-Control", "no-cache")
 		rw.Header().Set("Connection", "keep-alive")
+		rw.Header().Set("X-Accel-Buffering", "no") // 禁用 Nginx 缓冲
 		rw.WriteHeader(http.StatusOK)
 		flusher := rw.(http.Flusher)
 
 		fmt.Fprintf(rw, "event: start\ndata: {\"session\":\"%s\",\"id\":\"%s\"}\n\n", session, msgID)
 		flusher.Flush()
 
-		timeout := time.After(120 * time.Second)
+		// 定时发送 keepalive 注释，防止中间代理超时（每 15 秒）
+		keepaliveTicker := time.NewTicker(15 * time.Second)
+		defer keepaliveTicker.Stop()
+
 		for {
 			select {
 			case chunk, ok := <-streamCh:
@@ -214,11 +218,12 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 					fmt.Fprintf(rw, "event: tool_error\ndata: %s\n\n", errorData)
 					flusher.Flush()
 				}
-			case <-timeout:
-				fmt.Fprintf(rw, "event: error\ndata: {\"error\":\"timeout\"}\n\n")
+			case <-keepaliveTicker.C:
+				// SSE 注释作为心跳，保持连接活跃（不触发前端 event handler）
+				fmt.Fprintf(rw, ": keepalive\n\n")
 				flusher.Flush()
-				return
 			case <-r.Context().Done():
+				// 客户端断开连接（关闭浏览器、网络中断）
 				return
 			}
 		}
