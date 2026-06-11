@@ -98,6 +98,9 @@ func (a *AppService) GetChannelQRCode(channel string) string {
 func (a *AppService) GetChannelQRCodeStatus(channel, token string) string {
 	return a.inner.GetChannelQRCodeStatus(channel, token)
 }
+func (a *AppService) GetChannelQRCodeWithParams(channel, paramsJSON string) string {
+	return a.inner.GetChannelQRCodeWithParams(channel, paramsJSON)
+}
 
 // 桌面端下载文件（打开本地文件或 URL）
 func (a *AppService) DownloadFile(path, filename string) string {
