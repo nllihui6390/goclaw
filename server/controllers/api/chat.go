@@ -135,6 +135,10 @@ func isAgentConsoleEnabled(agentName string) bool {
 }
 
 func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agentName string, stream bool, rw http.ResponseWriter, r *http.Request) {
+	// 渠道配置关闭流式输出时，强制走阻塞模式
+	if stream && !ch.GetDisplay().StreamOutput {
+		stream = false
+	}
 	if stream {
 		streamCh, fileCh, cleanup := ch.PrepareStream(session)
 		defer cleanup()
@@ -181,6 +185,33 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 						"blocks": fileEvt.Content,
 					})
 					fmt.Fprintf(rw, "event: content\ndata: %s\n\n", contentData)
+					flusher.Flush()
+				case channel.ToolEventThinking:
+					thinkData, _ := json.Marshal(map[string]interface{}{
+						"thinking": fileEvt.Thinking,
+					})
+					fmt.Fprintf(rw, "event: thinking\ndata: %s\n\n", thinkData)
+					flusher.Flush()
+				case channel.ToolEventCalling:
+					callData, _ := json.Marshal(map[string]interface{}{
+						"tool_name": fileEvt.ToolName,
+						"args":      fileEvt.Args,
+					})
+					fmt.Fprintf(rw, "event: tool_call\ndata: %s\n\n", callData)
+					flusher.Flush()
+				case channel.ToolEventResult:
+					resultData, _ := json.Marshal(map[string]interface{}{
+						"tool_name": fileEvt.ToolName,
+						"result":    fileEvt.Result,
+					})
+					fmt.Fprintf(rw, "event: tool_result\ndata: %s\n\n", resultData)
+					flusher.Flush()
+				case channel.ToolEventError:
+					errorData, _ := json.Marshal(map[string]interface{}{
+						"tool_name": fileEvt.ToolName,
+						"error":     fileEvt.Error,
+					})
+					fmt.Fprintf(rw, "event: tool_error\ndata: %s\n\n", errorData)
 					flusher.Flush()
 				}
 			case <-timeout:

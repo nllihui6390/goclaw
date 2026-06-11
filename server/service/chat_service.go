@@ -58,7 +58,7 @@ func (c *ChatService) CreateSession(agentName string) string {
 	return string(data)
 }
 
-// SendMessage 发送消息并返回完整响应（ContentBlocks JSON 格式）
+// SendMessage 发送消息并返回完整响应（包含 ContentBlocks + Metadata）
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	c.mu.RLock()
 	ag := c.agents["default"]
@@ -86,13 +86,19 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 		c.sessionIndex.RecordSession(sessionID, "console", sessionID, agentName, content)
 	}
 
-	// 从 session 获取完整的 ContentBlocks（包含图片、文件等媒体内容）
+	// 从 session 获取完整响应（ContentBlocks + Metadata）
 	msgs, exists := ag.GetSessionMessages(sessionID)
 	if exists {
 		// 找到最后一条 assistant 消息
 		for i := len(msgs) - 1; i >= 0; i-- {
 			if msgs[i].Role == "assistant" {
-				data, err := json.Marshal(msgs[i].Content)
+				result := map[string]interface{}{
+					"content": msgs[i].Content,
+				}
+				if msgs[i].Metadata != nil {
+					result["metadata"] = msgs[i].Metadata
+				}
+				data, err := json.Marshal(result)
 				if err == nil {
 					return string(data)
 				}
@@ -101,8 +107,8 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 		}
 	}
 
-	// 降级：返回纯文本（不应该到达这里）
-	return "[]"
+	// 降级：返回空内容
+	return "{}"
 }
 
 // GetChatHistory 获取会话历史
@@ -121,10 +127,14 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 			result := make([]map[string]interface{}, 0, len(msgs))
 			for _, m := range msgs {
 				if m.Role == "user" || m.Role == "assistant" {
-					result = append(result, map[string]interface{}{
+					entry := map[string]interface{}{
 						"role":    m.Role,
 						"content": m.Content,
-					})
+					}
+					if m.Metadata != nil {
+						entry["metadata"] = m.Metadata
+					}
+					result = append(result, entry)
 				}
 			}
 			return result
@@ -140,10 +150,14 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 						if len(m.Content) > 0 {
 							json.Unmarshal(m.Content, &content)
 						}
-						result = append(result, map[string]interface{}{
+						entry := map[string]interface{}{
 							"role":    m.Role,
 							"content": content,
-						})
+						}
+						if m.Metadata != nil {
+							entry["metadata"] = m.Metadata
+						}
+						result = append(result, entry)
 					}
 				}
 				if len(result) > 0 {

@@ -615,37 +615,12 @@ func (l *LarkChannel) SendToolEvent(event ToolEvent) error {
 		return nil
 	}
 
-	var content string
-	switch event.Type {
-	case "thinking":
-		if event.Thinking != "" {
-			thinking := event.Thinking
-			if len(thinking) > 200 {
-				thinking = thinking[:200] + "..."
-			}
-			content = fmt.Sprintf("💭 思考: %s", thinking)
-		}
-	case "calling":
-		content = fmt.Sprintf("🔧 调用工具: %s", event.ToolName)
-		if event.Args != "" {
-			args := event.Args
-			if len(args) > 200 {
-				args = args[:200] + "..."
-			}
-			content += fmt.Sprintf("\n参数: %s", args)
-		}
-	case "result":
-		result := event.Result
-		if len(result) > 500 {
-			result = result[:500] + "...(已截断)"
-		}
-		content = fmt.Sprintf("✅ %s 结果: %s", event.ToolName, result)
-	case "error":
-		content = fmt.Sprintf("❌ %s 错误: %s", event.ToolName, event.Error)
-	default:
-		return nil
-	}
-
+	renderer := Renderer{Style: RenderStyle{
+		ShowToolDetails: true,
+		SupportsMarkdown: true,
+		UseEmoji:        true,
+	}}
+	content := renderer.RenderToolEvent(event)
 	if content == "" {
 		return nil
 	}

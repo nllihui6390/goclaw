@@ -734,17 +734,21 @@ func GetDefaultChannelsConfig() ChannelsConfig {
 		},
 		Lark: LarkConfig{
 			Enabled: false,
+			StreamOutput:     true,
 		},
 		DingTalk: DingTalkConfig{
 			Enabled: false,
+			StreamOutput:     true,
 		},
 		WeCom: WeComConfig{
 			Enabled: false,
+			StreamOutput:     true,
 		},
 		WeChat: WeChatConfig{
 			Enabled:      false,
 			BotTokenFile: "clawdata/wechat_bot_token",
 			MediaDir:     "clawdata/media/wechat",
+			StreamOutput:     true,
 		},
 	}
 }

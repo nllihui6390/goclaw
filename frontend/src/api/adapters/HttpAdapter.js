@@ -54,6 +54,14 @@ export class HttpAdapter {
             yield { type: 'file', info: obj }
           } else if (eventLine === 'event: content') {
             yield { type: 'content', blocks: obj.blocks }
+          } else if (eventLine === 'event: thinking') {
+            yield { type: 'thinking', content: obj.thinking }
+          } else if (eventLine === 'event: tool_call') {
+            yield { type: 'tool_call', tool_name: obj.tool_name, args: obj.args }
+          } else if (eventLine === 'event: tool_result') {
+            yield { type: 'tool_result', tool_name: obj.tool_name, result: obj.result }
+          } else if (eventLine === 'event: tool_error') {
+            yield { type: 'tool_error', tool_name: obj.tool_name, error: obj.error }
           } else if (obj.content) {
             yield { type: 'text', content: obj.content }
           }

@@ -48,11 +48,23 @@ async function loadHistory() {
   try {
     const history = await api.getChatHistory(sessionId.value, agentStore.selectedAgent)
     messages.value = (history && history.length > 0)
-      ? history.map(m => ({
-          role: m.role,
-          content: m.content,
-          files: undefined
-        }))
+      ? history.map(m => {
+          const meta = m.metadata || {}
+          return {
+            role: m.role,
+            content: m.content,
+            thinking: meta.thinking ? [meta.thinking] : [],
+            tool_calls: (meta.tool_calls || []).map(tc => ({
+              name: tc.name,
+              args: tc.args,
+              result: tc.result,
+              error: tc.error,
+              status: tc.status || 'success',
+              expanded: false,
+            })),
+            files: undefined
+          }
+        })
       : []
     await nextTick()
     scrollBottom()
@@ -135,25 +147,79 @@ async function send() {
       let fullContent = ''
       let files = []
       let contentBlocks = []
+      let thinking = []
+      let toolCalls = []
+      let currentToolName = ''
+
+      // 辅助函数：确保有 assistant 消息
+      const ensureAssistantMsg = () => {
+        if (messages.value[messages.value.length - 1].role !== 'assistant') {
+          messages.value.push({
+            role: 'assistant',
+            content: '',
+            files: [],
+            thinking: [],
+            tool_calls: []
+          })
+        }
+      }
+
+      // 辅助函数：查找正在调用的工具
+      const findCallingTool = (name) => {
+        const lastMsg = messages.value[messages.value.length - 1]
+        return lastMsg.tool_calls?.find(tc => tc.name === name && tc.status === 'calling')
+      }
+
       for await (const event of api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent)) {
         if (event.type === 'file') {
           files.push(event.info)
-          if (messages.value[messages.value.length - 1].role !== 'assistant') {
-            messages.value.push({ role: 'assistant', content: '', files: [...files] })
-          } else {
-            messages.value[messages.value.length - 1].files = [...files]
-          }
+          ensureAssistantMsg()
+          messages.value[messages.value.length - 1].files = [...files]
         } else if (event.type === 'content') {
           if (event.blocks && Array.isArray(event.blocks)) {
             contentBlocks.push(...event.blocks)
             files = []
             const finalContent = [...contentBlocks, { type: 'text', text: fullContent }]
-            if (messages.value[messages.value.length - 1].role !== 'assistant') {
-              messages.value.push({ role: 'assistant', content: finalContent, files: [] })
-            } else {
-              messages.value[messages.value.length - 1].content = finalContent
-              messages.value[messages.value.length - 1].files = []
-            }
+            ensureAssistantMsg()
+            messages.value[messages.value.length - 1].content = finalContent
+            messages.value[messages.value.length - 1].files = []
+          }
+        } else if (event.type === 'thinking') {
+          // 处理思考内容
+          thinking.push(event.content)
+          ensureAssistantMsg()
+          messages.value[messages.value.length - 1].thinking = [...thinking]
+        } else if (event.type === 'tool_call') {
+          // 处理工具调用开始
+          currentToolName = event.tool_name
+          const toolCall = {
+            name: event.tool_name,
+            args: event.args,
+            status: 'calling',
+            expanded: false
+          }
+          toolCalls.push(toolCall)
+          ensureAssistantMsg()
+          messages.value[messages.value.length - 1].tool_calls = [...toolCalls]
+        } else if (event.type === 'tool_result') {
+          // 处理工具调用结果
+          const tc = findCallingTool(event.tool_name)
+          if (tc) {
+            tc.result = event.result
+            tc.status = 'success'
+            // 触发响应式更新
+            ensureAssistantMsg()
+            messages.value[messages.value.length - 1].tool_calls = [...messages.value[messages.value.length - 1].tool_calls]
+          }
+        } else if (event.type === 'tool_error') {
+          // 处理工具调用错误
+          const tc = findCallingTool(event.tool_name)
+          if (tc) {
+            tc.error = event.error
+            tc.status = 'error'
+            // 触发响应式更新
+            ensureAssistantMsg()
+            messages.value[messages.value.length - 1].tool_calls = [...messages.value[messages.value.length - 1].tool_calls]
           }
         } else if (event.type === 'text') {
           fullContent += event.content
@@ -161,22 +227,37 @@ async function send() {
             ? [...contentBlocks, { type: 'text', text: fullContent }]
             : fullContent
           const finalFiles = contentBlocks.length > 0 ? [] : [...files]
-          if (messages.value[messages.value.length - 1].role !== 'assistant') {
-            messages.value.push({ role: 'assistant', content: finalContent, files: finalFiles })
-          } else {
-            messages.value[messages.value.length - 1].content = finalContent
-            messages.value[messages.value.length - 1].files = finalFiles
-          }
+          ensureAssistantMsg()
+          messages.value[messages.value.length - 1].content = finalContent
+          messages.value[messages.value.length - 1].files = finalFiles
         }
         await nextTick()
         scrollBottom()
       }
     } else {
       const rawContent = await api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent)
-      let content
+      let content, thinking = [], toolCalls = []
       try {
         const parsed = JSON.parse(rawContent)
-        if (Array.isArray(parsed)) {
+        if (parsed && typeof parsed === 'object' && parsed.content !== undefined) {
+          // 新格式：{content: [...], metadata: {thinking: "...", tool_calls: [...]}}
+          content = Array.isArray(parsed.content) ? parsed.content : rawContent
+          if (parsed.metadata) {
+            if (parsed.metadata.thinking) {
+              thinking = [parsed.metadata.thinking]
+            }
+            if (parsed.metadata.tool_calls) {
+              toolCalls = parsed.metadata.tool_calls.map(tc => ({
+                name: tc.name,
+                args: tc.args,
+                result: tc.result,
+                error: tc.error,
+                status: tc.status || 'success',
+                expanded: false,
+              }))
+            }
+          }
+        } else if (Array.isArray(parsed)) {
           content = parsed
         } else {
           content = rawContent
@@ -184,7 +265,7 @@ async function send() {
       } catch {
         content = rawContent
       }
-      messages.value.push({ role: 'assistant', content })
+      messages.value.push({ role: 'assistant', content, thinking, tool_calls: toolCalls })
       await nextTick()
       scrollBottom()
     }
@@ -277,6 +358,8 @@ async function confirmNewChat() {
         :role="msg.role"
         :content="msg.content"
         :files="msg.files"
+        :thinking="msg.thinking"
+        :tool_calls="msg.tool_calls"
       />
 
       <!-- Loading indicator -->

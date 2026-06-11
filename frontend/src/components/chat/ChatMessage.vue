@@ -10,7 +10,9 @@ const api = inject('api')
 const props = defineProps({
   role: String,
   content: [Array, String],
-  files: Array
+  files: Array,
+  thinking: Array,      // 思考内容数组
+  tool_calls: Array     // 工具调用数组
 })
 
 const isWails = !!(
@@ -23,6 +25,19 @@ const isWails = !!(
 )
 
 const blobUrls = ref({})
+const thinkingExpanded = ref(false)
+
+function formatJSON(str) {
+  if (!str) return ''
+  try {
+    // 尝试解析为 JSON 并格式化
+    const obj = JSON.parse(str)
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    // 如果不是 JSON，直接返回原字符串
+    return str
+  }
+}
 
 function isLocalPath(url) {
   if (!url) return false
@@ -320,6 +335,43 @@ async function saveImageAs() {
     <!-- Bubble -->
     <div class="chat-bubble">
       <template v-if="role === 'assistant'">
+        <!-- Thinking content (collapsible) -->
+        <div v-if="thinking && thinking.length" class="collapsible-block thinking-block">
+          <div class="collapsible-header" @click="thinkingExpanded = !thinkingExpanded">
+            <span class="collapse-icon">{{ thinkingExpanded ? '▼' : '▶' }}</span>
+            <span class="thinking-label">💭 思考过程</span>
+          </div>
+          <div v-show="thinkingExpanded" class="collapsible-content thinking-content">
+            <div v-for="(t, i) in thinking" :key="i" class="thinking-text">{{ t }}</div>
+          </div>
+        </div>
+
+        <!-- Tool calls (collapsible) -->
+        <div v-if="tool_calls && tool_calls.length" class="tool-calls-container">
+          <div v-for="(tc, i) in tool_calls" :key="i" class="collapsible-block tool-call-block">
+            <div class="collapsible-header" @click="tc.expanded = !tc.expanded">
+              <span class="collapse-icon">{{ tc.expanded ? '▼' : '▶' }}</span>
+              <span class="tool-icon">{{ tc.status === 'error' ? '❌' : '✅' }}</span>
+              <span class="tool-name">{{ tc.name }}</span>
+              <span class="tool-status" :class="tc.status">{{ tc.status === 'error' ? '失败' : tc.status === 'calling' ? '调用中...' : '成功' }}</span>
+            </div>
+            <div v-show="tc.expanded" class="collapsible-content tool-call-content">
+              <div v-if="tc.args" class="tool-section">
+                <strong>参数：</strong>
+                <pre class="tool-code">{{ formatJSON(tc.args) }}</pre>
+              </div>
+              <div v-if="tc.result" class="tool-section">
+                <strong>结果：</strong>
+                <pre class="tool-code">{{ tc.result }}</pre>
+              </div>
+              <div v-if="tc.error" class="tool-section error">
+                <strong>错误：</strong>
+                <pre class="tool-code">{{ tc.error }}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Files -->
         <div v-if="sseFiles.length" class="files-container">
           <template v-for="(f, i) in sseFiles" :key="'sse-' + i">
@@ -475,6 +527,139 @@ async function saveImageAs() {
   word-break: break-word;
   color: $text-primary;
   line-height: 1.6;
+}
+
+// ──── Collapsible blocks (thinking & tool calls) ────
+.collapsible-block {
+  margin-bottom: 12px;
+  border: 1px solid $border-subtle;
+  border-radius: $radius-md;
+  overflow: hidden;
+}
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: rgba(0, 212, 255, 0.05);
+  transition: background 0.15s;
+  user-select: none;
+
+  &:hover {
+    background: rgba(0, 212, 255, 0.1);
+  }
+
+  .collapse-icon {
+    font-size: 10px;
+    color: $text-muted;
+    width: 12px;
+    flex-shrink: 0;
+  }
+
+  .thinking-label {
+    font-size: $font-size-sm;
+    color: $accent-cyan;
+    font-weight: 500;
+  }
+
+  .tool-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .tool-name {
+    font-size: $font-size-sm;
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  .tool-status {
+    font-size: $font-size-xs;
+    padding: 2px 8px;
+    border-radius: $radius-sm;
+    margin-left: auto;
+
+    &.success {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+
+    &.error {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+
+    &.calling {
+      background: rgba(255, 159, 67, 0.15);
+      color: $accent-amber;
+    }
+  }
+}
+
+.collapsible-content {
+  padding: 12px;
+  border-top: 1px solid $border-subtle;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.thinking-content {
+  .thinking-text {
+    font-size: $font-size-sm;
+    color: $text-secondary;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    margin-bottom: 8px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+}
+
+.tool-calls-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tool-call-content {
+  .tool-section {
+    margin-bottom: 10px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    strong {
+      font-size: $font-size-sm;
+      color: $text-secondary;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    &.error strong {
+      color: #ef4444;
+    }
+  }
+
+  .tool-code {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: $font-size-xs;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid $border-subtle;
+    border-radius: $radius-sm;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: $text-primary;
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 0;
+  }
 }
 
 .files-container {

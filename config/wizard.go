@@ -91,12 +91,6 @@ func LoadConfigWithDefaults() (*Config, error) {
 
 // GetDefaultRootConfig 返回默认根配置（统一入口）
 func GetDefaultRootConfig() *Config {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		apiKey = "your-openai-api-key-here"
-		println("警告: 请设置 OPENAI_API_KEY 环境变量")
-	}
-
 	return &Config{
 		Gateway: GatewayConfig{
 			DefaultProvider: "openai",
@@ -110,7 +104,7 @@ func GetDefaultRootConfig() *Config {
 			"openai": {
 				Type:    "openai",
 				BaseURL: "https://api.openai.com/v1",
-				APIKey:  apiKey,
+				APIKey:  "",
 				Models: []ModelConfig{
 					{Name: "gpt-3.5-turbo", Description: "GPT-3.5 快速模型"},
 					{Name: "gpt-4", Description: "GPT-4 标准模型"},

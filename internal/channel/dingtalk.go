@@ -610,8 +610,34 @@ func (d *DingTalkChannel) SendProactive(ctx context.Context, userID, content str
 		map[string]string{"x-acs-dingtalk-access-token": token})
 }
 
+// SendToolEvent 发送工具执行事件（通过 sessionWebhook 推送格式化消息）
 func (d *DingTalkChannel) SendToolEvent(event ToolEvent) error {
-	return nil
+	if !d.display.ShouldShowToolEvent(event.Type) {
+		return nil
+	}
+
+	if event.To == "" {
+		return nil
+	}
+
+	d.sessionWebhooksMu.RLock()
+	sess, ok := d.sessionWebhooks[event.To]
+	d.sessionWebhooksMu.RUnlock()
+
+	if !ok || sess.webhook == "" {
+		return nil
+	}
+
+	renderer := Renderer{Style: RenderStyle{
+		ShowToolDetails: true,
+		UseEmoji:        true,
+	}}
+	content := renderer.RenderToolEvent(event)
+	if content == "" {
+		return nil
+	}
+
+	return d.sendViaWebhook(context.Background(), sess.webhook, content)
 }
 
 // ─────────────────── Helpers ───────────────────

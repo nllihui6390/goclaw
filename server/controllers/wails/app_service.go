@@ -65,6 +65,12 @@ func (a *AppService) initServices() {
 	gw := global.GetGateway()
 	if gw != nil {
 		a.channelSvc.SetGateway(gw)
+		// 注入删除会话回调：删除时同时清除所有 Agent 内存中的会话
+		a.sessionSvc.SetDeleteSessionFromAgents(func(sessionID string) {
+			for _, ag := range gw.GetAgents() {
+				ag.DeleteSession(sessionID)
+			}
+		})
 	}
 	si := global.GetSessionIndex()
 	if si != nil {

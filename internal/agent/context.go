@@ -14,10 +14,11 @@ import (
 
 // Message 历史消息
 type Message struct {
-	Role       string             // "user", "assistant", "system", "tool"
-	Content    channel.ContentBlocks // 从 string 改为 ContentBlocks
-	ToolCallID string             // 工具调用ID（tool角色消息专用）
-	Name       string             // 工具名称（tool角色消息专用）
+	Role       string                 // "user", "assistant", "system", "tool"
+	Content    channel.ContentBlocks  // 从 string 改为 ContentBlocks
+	ToolCallID string                 // 工具调用ID（tool角色消息专用）
+	Name       string                 // 工具名称（tool角色消息专用）
+	Metadata   map[string]interface{} // 扩展字段（thinking、tool_calls、result等）
 	Timestamp  time.Time
 }
 
@@ -94,6 +95,13 @@ func (s *Session) AddTextMessage(role, text string) {
 	s.AddMessage(role, channel.ContentBlocksFromText(text))
 }
 
+// Persist 触发持久化（公开方法，用于在修改 Messages 后手动触发）
+func (s *Session) Persist() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.persistLocked()
+}
+
 func (s *Session) persistLocked() {
 	if s.store == nil {
 		return
@@ -106,6 +114,7 @@ func (s *Session) persistLocked() {
 			Content:    json.RawMessage(contentJSON),
 			ToolCallID: m.ToolCallID,
 			Name:       m.Name,
+			Metadata:   m.Metadata,
 			Timestamp:  m.Timestamp.Format(time.RFC3339),
 		})
 	}
@@ -169,6 +178,7 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 					Content:    content,
 					ToolCallID: m.ToolCallID,
 					Name:       m.Name,
+					Metadata:   m.Metadata,
 					Timestamp:  parseRFC3339(m.Timestamp),
 				})
 			}

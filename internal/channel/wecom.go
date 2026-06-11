@@ -985,6 +985,10 @@ func extractFileContent(content string) string {
 
 // SendToolEvent 发送工具事件（流式中间帧）
 func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
+	if !w.display.ShouldShowToolEvent(event.Type) {
+		return nil
+	}
+
 	if event.To == "" {
 		return nil
 	}
@@ -1009,18 +1013,17 @@ func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
 
 	streamID := session.streamID
 
-	var content string
-	switch event.Type {
-	case ToolEventThinking:
-		content = "💭 思考中..."
-	case ToolEventCalling:
-		content = fmt.Sprintf("🔧 调用工具: %s", event.ToolName)
-	case ToolEventResult:
-		// 工具结果不发送中间帧，避免过长
+	// 工具结果不发送中间帧，避免过长
+	if event.Type == ToolEventResult {
 		return nil
-	case ToolEventError:
-		content = fmt.Sprintf("❌ %s: %s", event.ToolName, event.Error)
-	default:
+	}
+
+	renderer := Renderer{Style: RenderStyle{
+		ShowToolDetails: false, // 企微流式中间帧不展示详情
+		UseEmoji:        true,
+	}}
+	content := renderer.RenderToolEvent(event)
+	if content == "" {
 		return nil
 	}
 

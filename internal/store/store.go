@@ -21,11 +21,12 @@ type SessionData struct {
 // Content 使用 json.RawMessage 避免导入 channel 包导致循环依赖
 // 实际的 ContentBlocks 序列化/反序列化在 agent 包中处理
 type SessionMessage struct {
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	ToolCallID string          `json:"tool_call_id,omitempty"` // 工具调用ID（tool角色消息专用）
-	Name       string          `json:"name,omitempty"`         // 工具名称（tool角色消息专用）
-	Timestamp  string          `json:"timestamp"`
+	Role       string                 `json:"role"`
+	Content    json.RawMessage        `json:"content"`
+	ToolCallID string                 `json:"tool_call_id,omitempty"` // 工具调用ID（tool角色消息专用）
+	Name       string                 `json:"name,omitempty"`         // 工具名称（tool角色消息专用）
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`     // 扩展字段（thinking、tool_calls、result等）
+	Timestamp  string                 `json:"timestamp"`
 }
 
 // MemoryEntry 记忆条目 (copy to avoid import cycle)

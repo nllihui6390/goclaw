@@ -164,10 +164,48 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）
 	// 收集内容块（用于追加到最终响应，确保 session 持久化）
 	contentBlocks := channel.ContentBlocks{}
+	// 收集工具执行过程（用于 Metadata 持久化，供前端折叠显示）
+	var thinkingParts []string
+	type toolExecRecord struct {
+		Name   string `json:"name"`
+		Args   string `json:"args"`
+		Result string `json:"result,omitempty"`
+		Error  string `json:"error,omitempty"`
+		Status string `json:"status"` // "success" or "error"
+	}
+	var toolExecRecords []toolExecRecord
+	var currentToolArgs string
+
 	wrappedHandler := func(event ToolEvent) {
 		// 收集内容块事件
 		if event.Type == "content" && len(event.Content) > 0 {
 			contentBlocks = append(contentBlocks, event.Content...)
+		}
+		// 收集思考内容
+		if event.Type == "thinking" && event.Thinking != "" {
+			thinkingParts = append(thinkingParts, event.Thinking)
+		}
+		// 收集工具调用开始
+		if event.Type == "calling" {
+			currentToolArgs = event.Args
+		}
+		// 收集工具执行结果
+		if event.Type == "result" {
+			toolExecRecords = append(toolExecRecords, toolExecRecord{
+				Name:   event.ToolName,
+				Args:   currentToolArgs,
+				Result: event.Result,
+				Status: "success",
+			})
+		}
+		// 收集工具执行错误
+		if event.Type == "error" {
+			toolExecRecords = append(toolExecRecords, toolExecRecord{
+				Name:   event.ToolName,
+				Args:   currentToolArgs,
+				Error:  event.Error,
+				Status: "error",
+			})
 		}
 		// 调用原始 handler
 		if handler != nil {
@@ -232,6 +270,24 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	}
 
 	session.AddMessage("assistant", contentBlocks)
+
+	// 将工具执行过程保存到 Metadata（供前端折叠显示）
+	if len(thinkingParts) > 0 || len(toolExecRecords) > 0 {
+		lastIdx := len(session.Messages) - 1
+		if lastIdx >= 0 && session.Messages[lastIdx].Role == "assistant" {
+			metadata := map[string]interface{}{}
+			if len(thinkingParts) > 0 {
+				metadata["thinking"] = strings.Join(thinkingParts, "\n\n")
+			}
+			if len(toolExecRecords) > 0 {
+				metadata["tool_calls"] = toolExecRecords
+			}
+			session.Messages[lastIdx].Metadata = metadata
+			// 触发持久化
+			session.Persist()
+		}
+	}
+
 	logger.Info("[Agent] 消息处理完成", "session", sessionID)
 
 	// 自动记忆提取：对话后提取关键信息存入长期记忆
@@ -330,6 +386,7 @@ func (a *Agent) GetSessionMessages(sessionID string) ([]SessionMessage, bool) {
 		msgs = append(msgs, SessionMessage{
 			Role:      m.Role,
 			Content:   m.Content,
+			Metadata:  m.Metadata,
 			Timestamp: m.Timestamp,
 		})
 	}
@@ -381,6 +438,7 @@ func GetUserFromCtx(ctx context.Context) string {
 type SessionMessage struct {
 	Role      string
 	Content   channel.ContentBlocks
+	Metadata  map[string]interface{} // 扩展字段（thinking、tool_calls 等）
 	Timestamp time.Time
 }
 

@@ -81,6 +81,7 @@ type ChatMessage struct {
 	ToolCallID   string                  `json:"tool_call_id,omitempty"`
 	Name         string                  `json:"name,omitempty"` // tool 角色消息的工具名称
 	FinishReason string                  `json:"-"`              // LLM 返回的 finish_reason
+	ReasoningContent string                  `json:"-"`              // DeepSeek 等模型的 reasoning_content（推理/思考过程）
 }
 
 // ToolCall 工具调用
@@ -132,6 +133,12 @@ func shouldForceContinue(resp *ChatMessage) bool {
 	}
 
 	visible := strings.TrimSpace(stripThinkTags(resp.Content))
+
+	// 如果 content 为空但 reasoning_content 已有充分推理内容，说明模型已完成推理，
+	// 不应强制继续（DeepSeek 等模型会把推理放在 reasoning_content 中）
+	if visible == "" && len([]rune(resp.ReasoningContent)) >= 100 {
+		return false
+	}
 
 	if resp.FinishReason == "length" {
 		return true
@@ -289,11 +296,17 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			"tool_calls_count", len(resp.ToolCalls))
 
 		// 输出思考内容
-		if handler != nil && resp.Content != "" && len(resp.ToolCalls) > 0 {
-			handler(ToolEvent{
-				Type:     "thinking",
-				Thinking: resp.Content,
-			})
+		if handler != nil && len(resp.ToolCalls) > 0 {
+			thinkingContent := resp.ReasoningContent
+			if thinkingContent == "" {
+				thinkingContent = resp.Content
+			}
+			if thinkingContent != "" {
+				handler(ToolEvent{
+					Type:     "thinking",
+					Thinking: thinkingContent,
+				})
+			}
 		}
 
 		if len(resp.ToolCalls) == 0 {
@@ -316,6 +329,10 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 
 			if visible == "" {
 				visible = resp.Content
+			}
+			// DeepSeek 等模型：content 为空时，降级使用 reasoning_content 作为回复
+			if visible == "" && resp.ReasoningContent != "" {
+				visible = stripThinkTags(resp.ReasoningContent)
 			}
 			logger.Info("[Runtime] return final", "len", len(visible))
 			return visible, nil
@@ -437,10 +454,15 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 				return "", err
 			}
 			if len(resp.ToolCalls) > 0 {
-				// 输出思考内容
-				if handler != nil && resp.Content != "" {
-					// 思考内容回调
-					handler(ToolEvent{Type: "thinking", Thinking: resp.Content})
+				// 输出思考内容（优先使用 reasoning_content，降级使用 content）
+				if handler != nil {
+					thinkingContent := resp.ReasoningContent
+					if thinkingContent == "" {
+						thinkingContent = resp.Content
+					}
+					if thinkingContent != "" {
+						handler(ToolEvent{Type: "thinking", Thinking: thinkingContent})
+					}
 				}
 				// 需要工具调用，走阻塞路径
 				assistantMsg := ChatMessage{
@@ -613,6 +635,7 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 			Message      struct {
 				Role      string     `json:"role"`
 				Content   string     `json:"content"`
+					ReasoningContent string     `json:"reasoning_content"` // DeepSeek 推理内容
 				ToolCalls []ToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -631,6 +654,7 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 	msg := &ChatMessage{
 		Role:         llmResp.Choices[0].Message.Role,
 		Content:      llmResp.Choices[0].Message.Content,
+		ReasoningContent: llmResp.Choices[0].Message.ReasoningContent,
 		ToolCalls:    llmResp.Choices[0].Message.ToolCalls,
 		FinishReason: llmResp.Choices[0].FinishReason,
 	}

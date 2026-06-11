@@ -160,17 +160,20 @@ func (w *ConsoleChannel) SendProactive(ctx context.Context, userID, content stri
 	return fmt.Errorf("[Console] 无法主动发送消息给 %s（无活跃 SSE 连接）", userID)
 }
 
-// SendToolEvent 发送工具执行事件（文件/内容块经 SSE 实时推送）
+// SendToolEvent 发送工具执行事件（所有事件类型经 SSE 实时推送）
 func (w *ConsoleChannel) SendToolEvent(event ToolEvent) error {
-	if event.Type == ToolEventFile || event.Type == ToolEventContent {
-		w.mu.RLock()
-		ch := w.fileEvents[event.To]
-		w.mu.RUnlock()
-		if ch != nil {
-			select {
-			case ch <- event:
-			default:
-			}
+	// 根据显示配置过滤事件
+	if !w.display.ShouldShowToolEvent(event.Type) {
+		return nil
+	}
+
+	w.mu.RLock()
+	ch := w.fileEvents[event.To]
+	w.mu.RUnlock()
+	if ch != nil {
+		select {
+		case ch <- event:
+		default:
 		}
 	}
 	return nil

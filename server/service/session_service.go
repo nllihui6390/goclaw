@@ -26,6 +26,8 @@ type SessionService struct {
 	agents       AgentsProvider
 	config       *ConfigService
 	sessionIndex *store.SessionIndex
+	// deleteSessionFromAgents 从所有 Agent 内存中删除会话的回调（由外部注入）
+	deleteSessionFromAgents func(sessionID string)
 }
 
 // AgentsProvider 获取 Agent 实例的接口
@@ -41,6 +43,11 @@ func NewSessionService(agents AgentsProvider, config *ConfigService) *SessionSer
 // SetSessionIndex 注入会话索引
 func (s *SessionService) SetSessionIndex(idx *store.SessionIndex) {
 	s.sessionIndex = idx
+}
+
+// SetDeleteSessionFromAgents 注入从 Agent 内存删除会话的回调
+func (s *SessionService) SetDeleteSessionFromAgents(fn func(sessionID string)) {
+	s.deleteSessionFromAgents = fn
 }
 
 // List 列出所有会话（优先从 SessionIndex 读取，降级扫描磁盘）
@@ -146,11 +153,16 @@ func (s *SessionService) List() []SessionInfo {
 	return sessions
 }
 
-// Delete 删除会话（磁盘文件 + 索引条目）
+// Delete 删除会话（磁盘文件 + 索引条目 + Agent 内存）
 func (s *SessionService) Delete(sessionID string) error {
 	// 删除索引条目
 	if s.sessionIndex != nil {
 		s.sessionIndex.Delete(sessionID)
+	}
+
+	// 清除所有 Agent 内存中的会话
+	if s.deleteSessionFromAgents != nil {
+		s.deleteSessionFromAgents(sessionID)
 	}
 
 	// 删除磁盘文件
