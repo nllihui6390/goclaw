@@ -219,16 +219,41 @@ func ContentBlocksFromText(text string) ContentBlocks {
 	return ContentBlocks{NewTextBlock(text)}
 }
 
-// StripImageBlocks 移除 ContentBlocks 中的 ImageBlock（用于 assistant/tool 角色的消息）
-// 自动生成的图片 base64 数据会占用大量 session 存储空间且不必要
+// MergeTextBlocks 合并所有连续的 TextBlock 为一个
+// 工具结果和 LLM 响应分别存储为独立 TextBlock，合并后更整洁
+func MergeTextBlocks(cb ContentBlocks) ContentBlocks {
+	if len(cb) == 0 {
+		return cb
+	}
+	merged := make(ContentBlocks, 0, len(cb))
+	for _, block := range cb {
+		if t, ok := block.(*TextBlock); ok {
+			// 如果最后一个也是 TextBlock，合并文本
+			if len(merged) > 0 {
+				if last, ok := merged[len(merged)-1].(*TextBlock); ok {
+					last.Text += t.Text
+					continue
+				}
+			}
+		}
+		merged = append(merged, block)
+	}
+	return merged
+}
+
+// StripImageBlocks 移除 base64 类型的 ImageBlock（用于 assistant/tool 角色的消息）
+// 只移除 base64 数据（会撑大 session 文件），保留 URL 类型的图片（路径引用）
 func StripImageBlocks(cb ContentBlocks) ContentBlocks {
 	if len(cb) == 0 {
 		return cb
 	}
 	filtered := make(ContentBlocks, 0, len(cb))
 	for _, block := range cb {
-		if block.Type() == ContentTypeImage {
-			continue
+		if img, ok := block.(*ImageBlock); ok {
+			// 只移除 base64 类型的图片，保留 URL 类型
+			if img.Source.Type == "base64" {
+				continue
+			}
 		}
 		filtered = append(filtered, block)
 	}

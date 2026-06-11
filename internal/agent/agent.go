@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go-claw/internal/channel"
@@ -142,6 +143,13 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 
 	// 构建发送给 LLM 的消息（原始消息 + 记忆上下文）
 	llmMessage := userMessage
+	if len(relevantMemories) > 0 {
+		memoryContext := "相关记忆:\n" + strings.Join(relevantMemories, "\n")
+		llmMessage = memoryContext + "\n\n用户问题: " + userMessage
+		logger.Debug("[Agent] 消息已增强，加入记忆上下文", "memory_count", len(relevantMemories))
+	}
+
+	// 会话历史只保存原始用户消息，不保存增强后的记忆上下文
 	if len(blocks) > 0 {
 		// 有结构化内容块时，将其与文本消息合并保存
 		userBlocks := channel.ParseFileMarkers(userMessage)
@@ -172,9 +180,10 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		"max_iterations", a.config.MaxIterations,
 		"blocks_count", len(blocks))
 
-	// 如果有图片等多模态 blocks，将其文本内容作为增强消息传入
+	// 如果有记忆上下文或多模态 blocks，将增强后的消息传入 Runtime
+	// ExecuteWithEnhancedMessage 会临时替换会话中最后一条 user 消息，构建完 LLM 请求后恢复
 	var enhancedMsg string
-	if len(blocks) > 0 {
+	if llmMessage != userMessage || len(blocks) > 0 {
 		enhancedMsg = llmMessage
 	}
 
@@ -194,6 +203,8 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 
 	// assistant 角色不存储图片 base64 数据（会撑大 session 文件且 LLM 无法处理）
 	contentBlocks = channel.StripImageBlocks(contentBlocks)
+	// 合并所有连续的 TextBlock 为一个（工具结果 + LLM 响应合并）
+	contentBlocks = channel.MergeTextBlocks(contentBlocks)
 
 	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse), "blocks_count", len(contentBlocks))
 
