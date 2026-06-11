@@ -276,6 +276,9 @@ onUnmounted(() => {
           <span class="title-symbol">▸</span>
           <h3>工具安全守卫</h3>
         </div>
+        <el-button type="primary" @click="saveSecurityConfig" :loading="loading">
+          保存配置
+        </el-button>
       </div>
 
       <p class="config-desc">启用后，Agent 执行敏感操作前会触发审批流程，需用户手动确认方可继续。</p>
@@ -359,12 +362,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="save-row">
-        <el-button type="primary" @click="saveSecurityConfig" :loading="loading">
-          保存配置
-        </el-button>
-      </div>
-    </div>
+          </div>
   </div>
 </template>
 
@@ -881,8 +879,4 @@ onUnmounted(() => {
   }
 }
 
-.save-row {
-  display: flex;
-  justify-content: flex-end;
-}
 </style>
