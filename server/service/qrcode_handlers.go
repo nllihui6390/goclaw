@@ -230,8 +230,8 @@ func (h *FeishuQRHandler) baseURL() string {
 
 func (h *FeishuQRHandler) FetchQRCode(params url.Values) (*QRCodeResult, error) {
 	// Support domain override from params
-	if d := params.Get("domain"); d == "lark" {
-		h.Domain = "lark"
+	if d := params.Get("domain"); d == "lark" || d == "feishu" {
+		h.Domain = d
 	}
 	endpoint := h.baseURL() + "/oauth/v1/app/registration"
 
