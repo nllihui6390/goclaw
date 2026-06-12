@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go-claw/config"
 )
 
 // DefaultMediaDir 默认媒体存储目录（可通过 SetDataDir 动态设置）
-var DefaultMediaDir = "./clawdata/media"
+var DefaultMediaDir = config.DefaultDataDir + "/media"
 
 // SetDataDir 设置数据根目录（由 bootstrap 调用）
 func SetDataDir(dataDir string) {

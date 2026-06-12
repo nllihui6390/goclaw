@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	mu sync.RWMutex // 保护并发读写
-
+	mu         sync.RWMutex // 保护并发读写
+	G_DATA_DIR string       // 数据目录（相对路径）
 	// 核心共享实例
 	G_APP         *bootstrap.App      // App 实例（用于重启等操作）
 	G_GATEWAY     *gateway.Gateway    // Gateway（含 agents, channels, router）
@@ -21,6 +21,23 @@ var (
 	G_SESSION_IDX *store.SessionIndex // 会话索引
 	G_START_TIME  time.Time           // 启动时间
 )
+
+// SetDataDir 设置数据目录
+func SetDataDir(dir string) {
+	mu.Lock()
+	defer mu.Unlock()
+	G_DATA_DIR = dir
+}
+
+// GetDataDir 获取数据目录
+func GetDataDir() string {
+	mu.RLock()
+	defer mu.RUnlock()
+	if G_DATA_DIR == "" {
+		return "clawdata" // 默认值
+	}
+	return G_DATA_DIR
+}
 
 // SetConfig 设置配置
 func SetConfig(cfg *config.Config) {

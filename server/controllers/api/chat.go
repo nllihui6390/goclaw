@@ -130,7 +130,7 @@ func isAgentConsoleEnabled(agentName string) bool {
 	if cfg == nil {
 		return true
 	}
-	workspaceDir := filepath.Join(cfg.Gateway.DataDir, cfg.Gateway.Workspace)
+	workspaceDir := filepath.Join(global.GetDataDir(), cfg.Gateway.Workspace)
 	return config.IsAgentChannelEnabled(workspaceDir, agentName, "console")
 }
 

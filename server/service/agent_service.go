@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"go-claw/config"
+	"go-claw/global"
 	"go-claw/internal/workspace"
 )
 
@@ -142,7 +143,7 @@ func (s *AgentService) Create(name string, agentConfig map[string]interface{}) e
 			"lark":     map[string]interface{}{"enabled": false},
 			"dingtalk": map[string]interface{}{"enabled": false},
 			"wecom":    map[string]interface{}{"enabled": false},
-			"wechat":   map[string]interface{}{"enabled": false, "bot_token_file": "clawdata/wechat_bot_token", "media_dir": "clawdata/media/wechat"},
+			"wechat":   map[string]interface{}{"enabled": false, "bot_token_file": global.GetDataDir() + "/wechat_bot_token", "media_dir": global.GetDataDir() + "/media/wechat"},
 		}
 	}
 

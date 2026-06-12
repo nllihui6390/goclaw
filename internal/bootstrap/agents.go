@@ -20,7 +20,7 @@ import (
 func (app *App) SyncAgents(newCfg *config.Config) {
 	app.logger.Info("开始同步 Agent 配置")
 	// workspace 目录
-	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
+	workspaceDir := filepath.Join(app.DataDir, newCfg.Gateway.Workspace)
 	// 获取当前已注册的 agent 名称
 	currentAgents := app.Gateway.GetAgents()
 	currentNames := make(map[string]bool)
@@ -62,7 +62,7 @@ func (app *App) SyncAgents(newCfg *config.Config) {
 func (app *App) DeleteAgent(name string) error {
 	app.Gateway.UnregisterAgent(name)
 	// 删除 agent 工作空间目录
-	workspaceDir := filepath.Join(app.Config.Gateway.DataDir, app.Config.Gateway.Workspace)
+	workspaceDir := filepath.Join(app.DataDir, app.Config.Gateway.Workspace)
 	agentWorkspaceDir := filepath.Join(workspaceDir, name)
 	os.RemoveAll(agentWorkspaceDir)
 	slog.Info("已移除 Agent", "name", name)
@@ -71,7 +71,7 @@ func (app *App) DeleteAgent(name string) error {
 
 // 热加载单个 Agent 配置（热加载）
 func (app *App) ReloadAgent(agentName string) error {
-	workspaceDir := filepath.Join(app.Config.Gateway.DataDir, app.Config.Gateway.Workspace)
+	workspaceDir := filepath.Join(app.DataDir, app.Config.Gateway.Workspace)
 	// 注销 agent
 	app.Gateway.UnregisterAgent(agentName)
 	// 重新创建或更新 agent

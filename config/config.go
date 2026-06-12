@@ -109,7 +109,6 @@ type GatewayConfig struct {
 	DefaultModel    string `json:"default_model"`    // 默认模型
 	DefaultAgent    string `json:"default_agent"`    // 默认 Agent
 	SessionTTL      int    `json:"session_ttl"`      // 会话超时分钟数
-	DataDir         string `json:"data_dir"`         // 数据根目录
 	Workspace       string `json:"workspace"`        // 工作空间名称
 }
 
@@ -458,10 +457,10 @@ func (c *Config) GetProviderConfig(providerName string) *ProviderConfig {
 }
 
 // ResolveDataPaths 解析数据目录路径
-func (c *Config) ResolveDataPaths() (workspaceDir, sessionsDir, skillsDir string) {
-	dataDir := c.Gateway.DataDir
+// dataDir 参数从全局变量传入（避免循环导入）
+func (c *Config) ResolveDataPaths(dataDir string) (workspaceDir, sessionsDir, skillsDir string) {
 	if dataDir == "" {
-		dataDir = "clawdata"
+		dataDir = DefaultDataDir
 	}
 	workspace := c.Gateway.Workspace
 	if workspace == "" {
@@ -746,8 +745,8 @@ func GetDefaultChannelsConfig() ChannelsConfig {
 		},
 		WeChat: WeChatConfig{
 			Enabled:      false,
-			BotTokenFile: "clawdata/wechat_bot_token",
-			MediaDir:     "clawdata/media/wechat",
+			BotTokenFile: DefaultDataDir + "/wechat_bot_token",
+			MediaDir:     DefaultDataDir + "/media/wechat",
 			StreamOutput:     true,
 		},
 	}

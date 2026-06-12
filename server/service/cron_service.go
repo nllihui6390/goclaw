@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/global"
 	"go-claw/internal/agent"
 	"go-claw/internal/store"
 	"go-claw/pkg/utils"
@@ -51,7 +52,7 @@ type CronService struct {
 // NewCronService 创建定时任务服务
 func NewCronService(config *ConfigService) *CronService {
 	return &CronService{
-		dataFile: "clawdata/cron_jobs.json",
+		dataFile: global.GetDataDir() + "/cron_jobs.json",
 		config:   config,
 	}
 }

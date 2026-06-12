@@ -19,11 +19,11 @@ import (
 var desktopAssets embed.FS
 
 func main() {
-	app, err := bootstrap.NewApp()
+	global.SetDataDir("clawdata") // 默认数据目录（相对路径）
+	app, err := bootstrap.NewApp(global.GetDataDir())
 	if err != nil {
 		log.Fatal("初始化失败:", err)
 	}
-
 	// 写入全局变量
 	global.SetApp(app)
 	global.SetGateway(app.Gateway)

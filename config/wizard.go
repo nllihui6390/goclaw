@@ -3,15 +3,17 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/joho/godotenv"
 )
 
+// DefaultDataDir 默认数据目录（不再保存到 config.json，由全局变量控制）
+const DefaultDataDir = "clawdata"
+
 // WriteInitialConfigs 写入初始 Agent 配置文件（首次启动时调用）
 func WriteInitialConfigs(workspaceDir string) error {
 	defaultAgent := GetDefaultAgentConfig("default", "", "")
-	agentPath := filepath.Join(workspaceDir, "default", "agent.json")
+	agentPath := workspaceDir + "/default/agent.json"
 
 	if err := SaveAgentConfig(workspaceDir, "default", defaultAgent); err != nil {
 		return fmt.Errorf("保存 Agent 配置失败: %w", err)
@@ -25,8 +27,13 @@ func WriteInitialConfigs(workspaceDir string) error {
 }
 
 // LoadConfigWithDefaults 加载配置，处理首次运行、迁移、默认值生成
+// dataDir 参数从全局变量传入（避免循环导入）
 // 返回加载后的配置和可能的错误
-func LoadConfigWithDefaults() (*Config, error) {
+func LoadConfigWithDefaults(dataDir string) (*Config, error) {
+	if dataDir == "" {
+		dataDir = DefaultDataDir
+	}
+
 	// 记录加载 .env 前的环境变量，用于区分 .env 来源
 	preEnv := os.Environ()
 
@@ -52,7 +59,7 @@ func LoadConfigWithDefaults() (*Config, error) {
 				fmt.Println("默认配置已保存至 config.json")
 			}
 			// 写入默认 Agent 配置
-			workspaceDir := cfg.Gateway.DataDir + "/" + cfg.Gateway.Workspace
+			workspaceDir := dataDir + "/" + cfg.Gateway.Workspace
 			if writeErr := WriteInitialConfigs(workspaceDir); writeErr != nil {
 				fmt.Printf("写入 Agent 配置失败: %v\n", writeErr)
 			}
@@ -67,7 +74,7 @@ func LoadConfigWithDefaults() (*Config, error) {
 			} else if migrated {
 				cfg = newCfg
 				// 迁移后保存根配置和 agent 配置
-				workspaceDir := cfg.Gateway.DataDir + "/" + cfg.Gateway.Workspace
+				workspaceDir := dataDir + "/" + cfg.Gateway.Workspace
 				os.MkdirAll(workspaceDir+"/default", 0755)
 				SaveConfig("config.json", cfg)
 				for _, agentCfg := range agentConfigs {
@@ -81,10 +88,10 @@ func LoadConfigWithDefaults() (*Config, error) {
 		}
 	} else {
 		// 检查是否需要从旧格式迁移
-		newCfg, agentConfigs, migrated, _ := DetectAndMigrate("config.json", cfg.Gateway.DataDir+"/"+cfg.Gateway.Workspace)
+		newCfg, agentConfigs, migrated, _ := DetectAndMigrate("config.json", dataDir+"/"+cfg.Gateway.Workspace)
 		if migrated {
 			cfg = newCfg
-			workspaceDir := cfg.Gateway.DataDir + "/" + cfg.Gateway.Workspace
+			workspaceDir := dataDir + "/" + cfg.Gateway.Workspace
 			os.MkdirAll(workspaceDir, 0755)
 			SaveConfig("config.json", cfg)
 			for _, agentCfg := range agentConfigs {
@@ -96,7 +103,7 @@ func LoadConfigWithDefaults() (*Config, error) {
 	}
 
 	// 加载环境变量配置文件（优先级高于 .env）
-	envVarsPath := GetEnvVarFilePath(cfg.Gateway.DataDir)
+	envVarsPath := GetEnvVarFilePath(dataDir)
 	if err := LoadAndApply(envVarsPath); err != nil {
 		fmt.Printf("加载环境变量配置失败: %v\n", err)
 	}
@@ -112,7 +119,6 @@ func GetDefaultRootConfig() *Config {
 			DefaultModel:    "gpt-3.5-turbo",
 			DefaultAgent:    "default",
 			SessionTTL:      0,
-			DataDir:         "clawdata",
 			Workspace:       "workspaces",
 		},
 		Providers: map[string]ProviderConfig{

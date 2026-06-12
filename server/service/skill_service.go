@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/global"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -95,15 +97,7 @@ func NewSkillService(config *ConfigService) *SkillService {
 
 // dataDir 获取数据根目录
 func (s *SkillService) dataDir() string {
-	cfg := s.config.Get()
-	gateway, _ := cfg["gateway"].(map[string]interface{})
-	dataDir := "clawdata"
-	if gateway != nil {
-		if v, ok := gateway["data_dir"].(string); ok && v != "" {
-			dataDir = v
-		}
-	}
-	return dataDir
+	return global.GetDataDir()
 }
 
 // skillDir 获取技能存放目录

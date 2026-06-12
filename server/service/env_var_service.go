@@ -20,13 +20,7 @@ type EnvVarService struct {
 
 // NewEnvVarService 创建环境变量管理服务
 func NewEnvVarService(config *ConfigService) *EnvVarService {
-	dataDir := "clawdata"
-	gateway, _ := config.Get()["gateway"].(map[string]interface{})
-	if gateway != nil {
-		if v, ok := gateway["data_dir"].(string); ok && v != "" {
-			dataDir = v
-		}
-	}
+	dataDir := global.GetDataDir()
 
 	s := &EnvVarService{
 		dataFile: config.GetEnvVarFilePath(dataDir),

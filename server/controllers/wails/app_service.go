@@ -610,7 +610,7 @@ func (a *AppService) UploadChatFile(sessionID, filename, base64Data string) stri
 	}
 
 	// 创建上传目录
-	uploadDir := filepath.Join("clawdata", "uploads", sessionID)
+	uploadDir := filepath.Join(global.GetDataDir(), "uploads", sessionID)
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		return `{"error":"创建目录失败"}`
 	}

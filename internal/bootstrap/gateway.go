@@ -8,10 +8,11 @@ import (
 )
 
 // initGateway 创建 Gateway 和数据目录
+// DataDir 由 NewApp 参数传入，不依赖 global 包
 func (app *App) initGateway() {
 	app.Gateway = gateway.NewGateway()
 
-	app.DataDir = app.Config.Gateway.DataDir
+	// DataDir 已在 NewApp 中设置（来自全局变量参数）
 	if app.DataDir == "" {
 		app.DataDir = "clawdata"
 	}

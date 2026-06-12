@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"go-claw/config"
+	"go-claw/global"
 )
 
 // ConfigService 配置管理服务
@@ -98,15 +99,10 @@ func (s *ConfigService) AddWatcher(w func()) {
 
 // WorkspaceBase 从配置获取工作空间根目录
 func (s *ConfigService) WorkspaceBase() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	gateway, _ := s.config["gateway"].(map[string]interface{})
-	dataDir := "clawdata"
+	dataDir := global.GetDataDir()
 	workspace := "workspaces"
+	gateway, _ := s.config["gateway"].(map[string]interface{})
 	if gateway != nil {
-		if v, ok := gateway["data_dir"].(string); ok && v != "" {
-			dataDir = v
-		}
 		if v, ok := gateway["workspace"].(string); ok && v != "" {
 			workspace = v
 		}

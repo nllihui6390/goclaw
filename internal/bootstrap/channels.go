@@ -168,7 +168,7 @@ func (app *App) registerBotChannelsForAgent(agentName string, channels config.Ch
 
 // SyncChannels 根据新配置同步渠道（热加载时调用）
 func (app *App) SyncChannels(newCfg *config.Config) {
-	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
+	workspaceDir := filepath.Join(app.DataDir, newCfg.Gateway.Workspace)
 
 	// 1. Console 渠道（全局共享，按全量 agent 配置决定注册/注销）
 	app.syncGlobalConsoleChannel(workspaceDir, newCfg)
@@ -209,7 +209,7 @@ func containsColon(s string) bool {
 // SyncSingleChannel 精准同步单个渠道（注销旧的 + 注册新的）
 // 仅针对变更的渠道操作，不影响其他渠道
 func (app *App) SyncSingleChannel(newCfg *config.Config, agentName, channelName string) {
-	workspaceDir := filepath.Join(newCfg.Gateway.DataDir, newCfg.Gateway.Workspace)
+	workspaceDir := filepath.Join(app.DataDir, newCfg.Gateway.Workspace)
 	channelKey := agentName + ":" + channelName
 
 	// Console 渠道：per-agent 配置，全局单实例；仅当所有 agent 均禁用时才注销

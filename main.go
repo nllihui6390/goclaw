@@ -17,9 +17,10 @@ import (
 // runServer 启动 go-claw 完整服务
 // 初始化前端嵌入、go-claw 核心、Chat API、管理后台 HTTP 服务器
 func runServer() {
+	// 初始化前端嵌入资源
 	initFrontend()
-
-	app, err := bootstrap.NewApp()
+	global.SetDataDir("clawdata") // 默认数据目录（相对路径）
+	app, err := bootstrap.NewApp(global.GetDataDir())
 	if err != nil {
 		glog.Logger().Error("初始化失败", "err", err)
 		return

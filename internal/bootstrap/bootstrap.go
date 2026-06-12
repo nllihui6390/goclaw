@@ -34,11 +34,13 @@ type App struct {
 }
 
 // NewApp 创建并初始化应用程序
-func NewApp() (*App, error) {
+// dataDir 参数从全局变量传入（避免循环导入）
+func NewApp(dataDir string) (*App, error) {
+	// 初始化 App 结构体，但不启动任何子系统
 	app := &App{}
 
-	// 1. 配置加载
-	cfg, err := config.LoadConfigWithDefaults()
+	// 1. 配置加载（dataDir 从全局变量传入）
+	cfg, err := config.LoadConfigWithDefaults(dataDir)
 	if err != nil {
 		return nil, err
 	}

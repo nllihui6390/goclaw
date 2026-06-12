@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"go-claw/config"
 	"go-claw/pkg/log"
 )
 
@@ -59,7 +60,7 @@ func NewWeChatChannel(botToken, botPrefix, baseURL, mediaDir, tokenFile string, 
 		baseURL = wechatDefaultBaseURL
 	}
 	if tokenFile == "" {
-		tokenFile = "clawdata/wechat_bot_token"
+		tokenFile = config.DefaultDataDir + "/wechat_bot_token"
 	}
 	return &WeChatChannel{
 		BotChannelBase: NewBotChannelBase("wechat", "", display),

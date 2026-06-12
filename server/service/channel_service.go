@@ -96,10 +96,10 @@ var defaultChannelConfig = map[string]map[string]interface{}{
 	"wechat": {
 		"enabled":            false,
 		"bot_token":          "",
-		"bot_token_file":     "clawdata/wechat_bot_token",
+		"bot_token_file":     global.GetDataDir() + "/wechat_bot_token",
 		"bot_prefix":         "",
 		"base_url":           "",
-		"media_dir":          "clawdata/media/wechat",
+		"media_dir":          global.GetDataDir() + "/media/wechat",
 		"show_tool_messages": false,
 		"show_thinking":      false,
 		"stream_output":      true,

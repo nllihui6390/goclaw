@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go-claw/global"
 	"go-claw/internal/channel"
 	"go-claw/internal/media"
 )
@@ -25,7 +26,7 @@ func HandleAgentFiles(rw http.ResponseWriter, r *http.Request) {
 		fileName = parts[1]
 	}
 
-	agentDir := filepath.Join("clawdata", "workspaces", agentName)
+	agentDir := filepath.Join(global.GetDataDir(), "workspaces", agentName)
 	if _, err := os.Stat(agentDir); os.IsNotExist(err) {
 		writeError(rw, http.StatusNotFound, "agent workspace not found")
 		return
@@ -270,7 +271,7 @@ func isSafePreviewPath(path string) bool {
 
 	// 检查路径穿越
 	// 允许的目录：media 目录、clawdata 目录、当前工作目录下的文件
-	allowedDirs := []string{"media", "clawdata"}
+	allowedDirs := []string{"media", global.GetDataDir()}
 	for _, dir := range allowedDirs {
 		allowedAbs, err := filepath.Abs(dir)
 		if err != nil {
@@ -319,7 +320,7 @@ func HandleChatFileUpload(rw http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	// 创建上传目录
-	uploadDir := filepath.Join("clawdata", "uploads", sessionID)
+	uploadDir := filepath.Join(global.GetDataDir(), "uploads", sessionID)
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		writeError(rw, http.StatusInternalServerError, "创建目录失败")
 		return
@@ -378,7 +379,7 @@ func HandleChatFileUploadBase64(sessionID, filename, base64Data string) string {
 	}
 
 	// 创建上传目录
-	uploadDir := filepath.Join("clawdata", "uploads", sessionID)
+	uploadDir := filepath.Join(global.GetDataDir(), "uploads", sessionID)
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		return `{"error":"创建目录失败"}`
 	}
