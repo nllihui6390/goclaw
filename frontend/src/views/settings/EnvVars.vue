@@ -182,11 +182,6 @@ async function reloadEnvVars() {
           </div>
           <div class="var-key-info">
             <span class="var-key-name">{{ v.key }}</span>
-            <el-tag v-if="isProviderKey(v.key)" type="warning" size="small">供应商</el-tag>
-            <el-tag v-if="isSensitiveKey(v.key)" type="danger" size="small">敏感</el-tag>
-            <el-tag v-if="v.source" :type="sourceTagMap[v.source]?.type || 'info'" size="small">
-              {{ sourceTagMap[v.source]?.text || v.source }}
-            </el-tag>
           </div>
           <el-switch
             v-model="v.enabled"
@@ -196,7 +191,13 @@ async function reloadEnvVars() {
             @change="toggleEnabled(v)"
           />
         </div>
-
+        <div class="var-tags">
+          <el-tag v-if="isProviderKey(v.key)" type="warning" size="small">供应商</el-tag>
+          <el-tag v-if="isSensitiveKey(v.key)" type="danger" size="small">敏感</el-tag>
+          <el-tag v-if="v.source" :type="sourceTagMap[v.source]?.type || 'info'" size="small">
+            {{ sourceTagMap[v.source]?.text || v.source }}
+          </el-tag>
+        </div>
         <div class="var-details">
           <div class="detail-row">
             <span class="detail-label">值</span>
@@ -338,6 +339,11 @@ async function reloadEnvVars() {
   display: flex;
   align-items: center;
   gap: 14px;
+  margin-bottom: 16px;
+}
+.var-tags {
+  display: flex;
+  gap: 8px;
   margin-bottom: 16px;
 }
 
