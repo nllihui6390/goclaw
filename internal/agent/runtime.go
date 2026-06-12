@@ -1344,23 +1344,33 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	}
 
 	// Token 预算管理 100k token
-	maxContextTokens := 100000
+	maxContextTokens := 200000
 	if r.config.MaxTokens > 0 {
 		maxContextTokens = r.config.MaxTokens
 	}
-	maxMessages := maxContextTokens / 5000
+	// 每条消息平均约 2000 token（更合理的估算）
+	maxMessages := maxContextTokens / 2000
+	// 最少保留 50 条消息，避免过早截断
+	if maxMessages < 50 {
+		maxMessages = 50
+	}
 
 	// 上下文压缩：接近阈值时压缩旧消息
+	// 默认在 maxMessages 的 70% 时触发压缩，且至少要有 30 条消息才考虑压缩
 	compactRatio := r.config.CompactThresholdRatio
 	if compactRatio == 0 {
 		compactRatio = 0.8
 	}
 	reserveRatio := r.config.ReserveThresholdRatio
 	if reserveRatio == 0 {
-		reserveRatio = 0.15
+		reserveRatio = 0.2
 	}
 
 	compactThreshold := int(float64(maxMessages) * compactRatio)
+	// 最少 30 条消息才触发压缩，避免频繁压缩
+	if compactThreshold < 30 {
+		compactThreshold = 30
+	}
 	reserveCount := int(float64(maxMessages) * reserveRatio)
 
 	if len(messages) > compactThreshold && session.CompressedSummary == "" && reserveCount > 0 {
