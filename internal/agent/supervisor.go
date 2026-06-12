@@ -12,15 +12,15 @@ import (
 
 // SupervisorConfig 监督者配置
 type SupervisorConfig struct {
-	Name         string
-	SystemPrompt string
-	Model        string
-	APIKey       string
-	BaseURL      string
+	Name          string
+	SystemPrompt  string
+	Model         string
+	APIKey        string
+	BaseURL       string
 	MaxIterations int
-	Memory       memory.Memory
-	Store        store.Store
-	SubAgents    map[string]*Agent // 子Agent
+	Memory        memory.Memory
+	Store         store.Store
+	SubAgents     map[string]*Agent // 子Agent
 }
 
 // SupervisorAgent 监督者Agent（接收用户消息 → 分发给子 agent → 汇总返回）
@@ -35,8 +35,8 @@ type SupervisorAgent struct {
 // NewSupervisorAgent 创建监督者
 func NewSupervisorAgent(cfg *SupervisorConfig) *SupervisorAgent {
 	s := &SupervisorAgent{
-		config:     cfg,
-		runtime:    NewRuntime(&Config{
+		config: cfg,
+		runtime: NewRuntime(&AgentConfig{
 			Model:   cfg.Model,
 			APIKey:  cfg.APIKey,
 			BaseURL: cfg.BaseURL,

@@ -19,38 +19,38 @@ import (
 // WorkspaceLoader 工作空间加载器接口
 type WorkspaceLoader interface {
 	LoadSystemPrompt() string
-	IsBootstrapNeeded() bool        // 检查是否需要首次引导
-	MarkBootstrapCompleted() error  // 标记引导完成
-	GetBootstrapGuidance() string   // 获取引导提示词
-	LoadDailyMemory() string        // 加载今日记忆
+	IsBootstrapNeeded() bool                // 检查是否需要首次引导
+	MarkBootstrapCompleted() error          // 标记引导完成
+	GetBootstrapGuidance() string           // 获取引导提示词
+	LoadDailyMemory() string                // 加载今日记忆
 	AppendDailyMemory(content string) error // 追加到今日记忆
 }
 
 // Config Agent配置
-type Config struct {
-	Name            string
-	SystemPrompt    string
-	Model           string
-	APIKey          string
-	BaseURL         string
-	ProviderType    string            // 供应商类型: openai, ollama, anthropic, azure
-	Tools           []tool.Tool
-	MaxIterations   int
-	MaxTokens       int               // 最大上下文 Token 数，0=不限（默认32000）
-	Memory          memory.Memory
-	Store           store.Store
-	WorkspaceLoader WorkspaceLoader   // 工作空间人设文件加载器
-	WorkspaceDir    string            // 工作空间目录路径（用于缓存文件）
-	SkillRegistry   *skill.Registry   // 技能注册中心（用于系统提示词注入）
-	CompactThresholdRatio float64     // 压缩触发比例，0=不压缩（默认0.8）
-	ReserveThresholdRatio float64     // 压缩后保留比例（默认0.15）
-	ToolResultMaxBytes     int        // 工具结果最大字节数，0=不限（默认20000）
-	ToolResultExemptTools  []string   // 裁剪豁免工具名列表
-	ToolResultExemptExts   []string   // 裁剪豁免文件扩展名列表
-	SupportsImage          bool       // 模型是否支持图片输入
-	SupportsVideo          bool       // 模型是否支持视频输入
-	ToolGuard              *security.ToolGuard // 工具安全守卫
-	InboxStore             *inbox.Store        // Inbox 事件通知存储
+type AgentConfig struct {
+	Name                  string
+	SystemPrompt          string
+	Model                 string
+	APIKey                string
+	BaseURL               string
+	ProviderType          string // 供应商类型: openai, ollama, anthropic, azure
+	Tools                 []tool.Tool
+	MaxIterations         int
+	MaxTokens             int // 最大上下文 Token 数，0=不限（默认32000）
+	Memory                memory.Memory
+	Store                 store.Store
+	WorkspaceLoader       WorkspaceLoader     // 工作空间人设文件加载器
+	WorkspaceDir          string              // 工作空间目录路径（用于缓存文件）
+	SkillRegistry         *skill.Registry     // 技能注册中心（用于系统提示词注入）
+	CompactThresholdRatio float64             // 压缩触发比例，0=不压缩（默认0.8）
+	ReserveThresholdRatio float64             // 压缩后保留比例（默认0.15）
+	ToolResultMaxBytes    int                 // 工具结果最大字节数，0=不限（默认20000）
+	ToolResultExemptTools []string            // 裁剪豁免工具名列表
+	ToolResultExemptExts  []string            // 裁剪豁免文件扩展名列表
+	SupportsImage         bool                // 模型是否支持图片输入
+	SupportsVideo         bool                // 模型是否支持视频输入
+	ToolGuard             *security.ToolGuard // 工具安全守卫
+	InboxStore            *inbox.Store        // Inbox 事件通知存储
 	// ConfigProvider 动态配置提供器：每次调用 LLM 时获取最新 model/apiKey/baseURL/providerType
 	// 优先使用此函数，降级使用 Model/APIKey/BaseURL/ProviderType 字段
 	ConfigProvider func() (model, apiKey, baseURL, providerType string)
@@ -58,14 +58,14 @@ type Config struct {
 
 // Agent AI智能体
 type Agent struct {
-	config     *Config
+	config     *AgentConfig
 	runtime    *Runtime
 	sessionMgr *SessionManager
 	memory     memory.Memory
 }
 
 // NewAgent 创建Agent
-func NewAgent(cfg *Config) *Agent {
+func NewAgent(cfg *AgentConfig) *Agent {
 	runtime := NewRuntime(cfg)
 	if cfg.WorkspaceDir != "" {
 		runtime.SetWorkspaceDir(cfg.WorkspaceDir)
@@ -365,8 +365,8 @@ func (a *Agent) ListSessions() []SessionSummary {
 			ID:        sessions[i].ID,
 			Channel:   sessions[i].Channel,
 			SessionID: sessions[i].SessionID,
-				Name:      sessions[i].Name,
-				UserID:    sessions[i].UserID,
+			Name:      sessions[i].Name,
+			UserID:    sessions[i].UserID,
 			CreatedAt: sessions[i].CreatedAt,
 			UpdatedAt: sessions[i].UpdatedAt,
 		})

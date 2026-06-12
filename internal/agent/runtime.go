@@ -22,13 +22,13 @@ import (
 
 // Runtime Agent运行时（处理LLM调用和工具执行）
 type Runtime struct {
-	config       *Config
+	config       *AgentConfig
 	client       *http.Client
 	workspaceDir string // 用于缓存大工具结果
 }
 
 // NewRuntime 创建运行时
-func NewRuntime(cfg *Config) *Runtime {
+func NewRuntime(cfg *AgentConfig) *Runtime {
 	return &Runtime{
 		config: cfg,
 		client: &http.Client{Timeout: 180 * time.Second},
@@ -713,6 +713,7 @@ func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []t
 	if len(tools) > 0 {
 		reqBody["tools"] = r.convertTools(tools)
 		reqBody["tool_choice"] = "auto"
+
 	}
 
 	return reqBody
@@ -1154,6 +1155,7 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	// 提示大模型工作区目录
 	systemContent += "\n\n## 当前Agent工作区目录\n\n你的工作区目录是: " + r.workspaceDir + "，请使用这个目录进行文件读写操作。"
 	systemContent += "\n ## 人设文件\n AGENTS.md、HEARTBEAT.md、MEMORY.md、PROFILE.md、SOUL.md都存放在当前Agent工作区目录下"
+	systemContent += "## 工作区中的特殊目录：\n 1、sessions：会话保存目录，2、memory：记忆保存目录"
 
 	// 首次引导：检测 BOOTSTRAP.md
 	if r.config.WorkspaceLoader != nil && r.config.WorkspaceLoader.IsBootstrapNeeded() {
@@ -1177,16 +1179,84 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	}
 	// 注入工具提示
 	logger.Info("[Runtime] 开始构建工具加入到上下文", "len", len(tools))
-	// 如果有工具，则添加到系统提示中
+	// // 如果有工具，则添加到系统提示中
+	// if len(tools) > 0 {
+	// 	systemContent += "\n\n## 可用工具\n你必须通过调用工具来完成用户的请求，不要直接猜测或仅描述打算使用什么工具。\n"
+	// 	for _, t := range tools {
+	// 		logger.Debug("[Runtime] 可用工具已加载", "tool", t.Name(), "description", t.Description())
+	// 		systemContent += fmt.Sprintf("- **%s**: %s\n", t.Name(), t.Description())
+	// 	}
+	// 	systemContent += "\n重要：当用户提出需要查询天气、执行命令、读写文件等具体请求时，你必须实际调用对应的工具（通过tool_calls），而不是仅在文本中说明你打算使用工具。"
+	// }
+	// 注入工具提示
 	if len(tools) > 0 {
-		systemContent += "\n\n## 可用工具\n你必须通过调用工具来完成用户的请求，不要直接猜测或仅描述打算使用什么工具。\n"
+		systemContent += `
+	## 工具调用规则（强制执行）
+	
+	你是一个可以执行操作的 Agent，而不是聊天助手。
+
+	当用户请求涉及以下任意情况时：
+	- 查询实时信息
+	- 访问外部数据
+	- 文件读取/写入/修改
+	- 执行系统命令
+	- 调用 API
+	- 数据库操作
+	- 任何你无法仅凭当前上下文确定的信息
+
+	你【必须】立即调用对应工具完成任务。
+
+	禁止：
+	1. 禁止只用文字描述你准备调用什么工具。
+	2. 禁止输出类似：
+	- "我会帮你查询..."
+	- "让我调用工具..."
+	- "正在执行..."
+	- "接下来我将..."
+	如果需要工具，直接产生 tool_call。
+	3. 禁止假设工具执行结果。
+	4. 禁止在没有执行工具前编造答案。
+
+	执行流程：
+	1. 判断是否需要工具
+	2. 如果需要 -> 立即 tool_call
+	3. 等待工具返回结果
+	4. 根据结果回复用户
+
+	示例：
+
+	用户：查询今天北京天气
+	正确：
+	<tool_call weather>
+	等待结果
+	然后回答天气情况
+
+	错误：
+	"我帮你查询一下天气，请稍等"
+
+	用户：读取 test.txt
+	正确：
+	<tool_call read_file>
+	等待结果
+
+	错误：
+	"我会读取文件内容"
+
+	`
+		systemContent += "\n## 当前可用工具\n"
 		for _, t := range tools {
 			logger.Debug("[Runtime] 可用工具已加载", "tool", t.Name(), "description", t.Description())
-			systemContent += fmt.Sprintf("- **%s**: %s\n", t.Name(), t.Description())
+			systemContent += fmt.Sprintf(
+				"- 工具名: `%s`\n  作用: %s\n", t.Name(), t.Description(),
+			)
 		}
-		systemContent += "\n重要：当用户提出需要查询天气、执行命令、读写文件等具体请求时，你必须实际调用对应的工具（通过tool_calls），而不是仅在文本中说明你打算使用工具。"
-	}
 
+		systemContent += `
+		注意：
+		工具存在时，优先使用工具解决问题。
+		不要把工具调用过程当成聊天内容输出。
+		`
+	}
 	systemContent += `
 	## Agent 执行约束（最高优先级）
 	

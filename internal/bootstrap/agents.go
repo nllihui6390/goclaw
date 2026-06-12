@@ -116,7 +116,7 @@ func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, root
 		agentSkillReg.LoadEnabled(filepath.Join(app.DataDir, "skills"), enabledSkills)
 	}
 
-	ag := agent.NewAgent(&agent.Config{
+	ag := agent.NewAgent(&agent.AgentConfig{
 		Name:                  agentName,
 		SystemPrompt:          agentCfg.SystemPrompt,
 		Model:                 model,
