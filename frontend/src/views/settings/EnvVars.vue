@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Key, Refresh, Search, Plus } from '@element-plus/icons-vue'
+import { Key, Refresh, Search, Plus, Download, Upload } from '@element-plus/icons-vue'
 
 const api = inject('api')
 
@@ -136,6 +136,116 @@ async function reloadEnvVars() {
   }
   loading.value = false
 }
+
+// 导出环境变量为 JSON 文件
+function exportEnvVars() {
+  if (!envVars.value.length) {
+    ElMessage.warning('暂无环境变量可导出')
+    return
+  }
+
+  const exportData = {
+    variables: envVars.value.map(v => ({
+      key: v.key,
+      value: v.value,
+      description: v.description || '',
+      enabled: v.enabled
+    })),
+    exported_at: new Date().toISOString()
+  }
+
+  const jsonStr = JSON.stringify(exportData, null, 2)
+  const blob = new Blob([jsonStr], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `env_vars_${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+
+  URL.revokeObjectURL(url)
+  ElMessage.success('环境变量已导出')
+}
+
+// 导入环境变量 JSON 文件
+async function importEnvVars(uploadFile) {
+  const file = uploadFile?.raw || uploadFile
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+
+    // 验证格式
+    if (!data.variables || !Array.isArray(data.variables)) {
+      ElMessage.error('无效的 JSON 格式，需要包含 variables 数组')
+      return
+    }
+
+    // 统计导入数量
+    const count = data.variables.length
+    if (count === 0) {
+      ElMessage.warning('文件中没有环境变量')
+      return
+    }
+
+    // 确认导入
+    await ElMessageBox.confirm(
+      `确定导入 ${count} 个环境变量？已存在的同名变量将被覆盖。`,
+      '确认导入',
+      { type: 'warning' }
+    )
+
+    loading.value = true
+    let successCount = 0
+    let failCount = 0
+
+    for (const entry of data.variables) {
+      // 验证 key 格式
+      const keyRegex = /^[A-Z_][A-Z0-9_]*$/
+      if (!entry.key || !keyRegex.test(entry.key)) {
+        failCount++
+        continue
+      }
+
+      try {
+        // 检查是否已存在
+        const exists = envVars.value.some(v => v.key === entry.key)
+        if (exists) {
+          await api.updateEnvVar({
+            key: entry.key,
+            value: entry.value,
+            description: entry.description || '',
+            enabled: entry.enabled ?? true
+          })
+        } else {
+          await api.createEnvVar({
+            key: entry.key,
+            value: entry.value,
+            description: entry.description || '',
+            enabled: entry.enabled ?? true
+          })
+        }
+        successCount++
+      } catch (e) {
+        failCount++
+      }
+    }
+
+    await loadEnvVars()
+
+    if (failCount === 0) {
+      ElMessage.success(`成功导入 ${successCount} 个环境变量`)
+    } else {
+      ElMessage.warning(`导入完成: ${successCount} 成功, ${failCount} 失败`)
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('导入失败: ' + (e.message || '文件解析错误'))
+    }
+  }
+  loading.value = false
+}
 </script>
 
 <template>
@@ -171,6 +281,19 @@ async function reloadEnvVars() {
       <el-button type="primary" @click="openCreateDialog">
         <el-icon><Plus /></el-icon>添加
       </el-button>
+      <el-button @click="exportEnvVars" :disabled="!envVars.length">
+        <el-icon><Download /></el-icon>导出
+      </el-button>
+      <el-upload
+        :show-file-list="false"
+        accept=".json"
+        :before-upload="() => false"
+        @change="importEnvVars"
+      >
+        <el-button>
+          <el-icon><Upload /></el-icon>导入
+        </el-button>
+      </el-upload>
     </div>
 
     <!-- Env Vars Grid -->
