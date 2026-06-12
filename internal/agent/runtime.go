@@ -82,6 +82,7 @@ type ChatMessage struct {
 	Name             string                `json:"name,omitempty"` // tool 角色消息的工具名称
 	FinishReason     string                `json:"-"`              // LLM 返回的 finish_reason
 	ReasoningContent string                `json:"-"`              // DeepSeek 等模型的 reasoning_content（推理/思考过程）
+	Transient        bool                  `json:"-"`              // 临时消息标记（hint消息，下一轮推理前清理）
 }
 
 // ToolCall 工具调用
@@ -141,49 +142,86 @@ func extractAndStripThinkTags(content string) (thinking string, stripped string)
 	return strings.Join(thinkingParts, "\n"), strings.TrimSpace(result)
 }
 
-func shouldForceContinue(resp *ChatMessage) bool {
+func shouldForceContinue(resp *ChatMessage, hasTools bool) bool {
+	// 有工具调用 → 不需要续推
 	if len(resp.ToolCalls) > 0 {
 		return false
 	}
 
-	visible := strings.TrimSpace(stripThinkTags(resp.Content))
-
-	// 如果 content 为空但 reasoning_content 已有充分推理内容，说明模型已完成推理，
-	// 不应强制继续（DeepSeek 等模型会把推理放在 reasoning_content 中）
-	if visible == "" && len([]rune(resp.ReasoningContent)) >= 100 {
+	// 没有可用工具 → 不需要续推（无法执行工具）
+	if !hasTools {
 		return false
 	}
 
+	// finish_reason == "length" → 响应被截断，必须续推
 	if resp.FinishReason == "length" {
 		return true
 	}
 
+	visible := strings.TrimSpace(stripThinkTags(resp.Content))
+
+	// 空内容 → 需要续推让模型输出
 	if visible == "" {
-		return true
-	}
-
-	runes := len([]rune(visible))
-	if runes <= 3 {
-		return true
-	}
-
-	// 可见回复已较完整，视为最终答案
-	if runes >= 150 {
-		return false
-	}
-
-	// 仅对短回复中明确的「将要行动」措辞轻推，避免技能说明等正文误触发
-	intentPhrases := []string{
-		"让我来", "让我先", "我需要先", "接下来我会", "接下来我将",
-		"我现在来", "我现在先", "我先来", "我将要", "我会先",
-	}
-	for _, phrase := range intentPhrases {
-		if strings.Contains(visible, phrase) {
+		// DeepSeek 特殊处理：如果 reasoning_content 有充分内容，模型已完成推理
+		// 但可能还需要输出结果或调用工具，仍需续推
+		if len([]rune(resp.ReasoningContent)) >= 100 {
 			return true
 		}
+		return true
 	}
 
-	return false
+	// 极短内容（<=3字符）→ 需要续推
+	if len([]rune(visible)) <= 3 {
+		return true
+	}
+
+	// 其他情况：有任何文本内容 + 无工具调用 → 一律续推
+	return true
+}
+
+// getTailContext 获取消息内容的尾部摘录（供模型自检）
+// maxChars: 最大字符数（ 使用 600）
+func getTailContext(content string, maxChars int) string {
+	text := strings.TrimSpace(content)
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= maxChars {
+		return text
+	}
+	// 取尾部，并去除左侧空白
+	tail := strings.TrimSpace(string(runes[len(runes)-maxChars:]))
+	return tail
+}
+
+// cleanTransientMessages 清理临时消息（hint 消息）
+func cleanTransientMessages(messages []ChatMessage) []ChatMessage {
+	var cleaned []ChatMessage
+	for _, m := range messages {
+		if !m.Transient {
+			cleaned = append(cleaned, m)
+		}
+	}
+	return cleaned
+}
+
+// buildAutoContinueHint 构建 auto-continue 提示消息
+// 附带上轮助手回复的尾部摘录供模型自检
+func buildAutoContinueHint(resp *ChatMessage) string {
+	hint := "你刚才描述了后续步骤但未调用工具。若完成用户的上一条请求仍需工具，请直接调用；若已充分回答，请给出简洁的最终回复。"
+
+	visible := stripThinkTags(resp.Content)
+	// 优先使用 visible，若空则用 ReasoningContent（DeepSeek 等）
+	if visible == "" && resp.ReasoningContent != "" {
+		visible = stripThinkTags(resp.ReasoningContent)
+	}
+
+	tail := getTailContext(visible, 600)
+	if tail != "" {
+		hint += "\n\n<previous-assistant-tail>\n" + tail + "\n</previous-assistant-tail>"
+	}
+	return hint
 }
 
 // isRetryableError 检查错误是否可重试
@@ -264,11 +302,16 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 	totalSuccess := 0
 	// auto-continue 跟踪
 	autoContinueCount := 0
-	maxAutoContinue := 3
 	// summarizing 标记
 	summarizing := false
+	// 【 机制】保存 auto-continue 过程中最好的纯文本回复
+	// 如果续推后仍无工具调用，返回原始回复而非最后一轮的回复
+	savedTextResponse := ""  // 保存第一轮触发续推时的回复
+	savedTextReasoning := "" // DeepSeek reasoning_content fallback
 
 	for i := 0; ; i++ {
+		// 每轮迭代开始前清理上一轮的临时消息（hint）
+		messages = cleanTransientMessages(messages)
 		// 安全上限：防止无限循环（但远高于正常需求）
 		if i >= 100 {
 			logger.Warn("[Runtime] 达到安全上限100次迭代，强制退出")
@@ -284,6 +327,16 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			if err != nil {
 				logger.Error("[Runtime] 总结调用失败", "err", err)
 				return "已完成处理，但总结时出错。", nil
+			}
+			// 检查幻影工具调用：某些模型（如 kimi-k2.5）在 summarizing 模式下
+			// 即使未提供 tools 仍会返回 tool_use 块，这些块无法执行，需忽略
+			if len(summaryResp.ToolCalls) > 0 {
+				phantomNames := make([]string, 0, len(summaryResp.ToolCalls))
+				for _, tc := range summaryResp.ToolCalls {
+					phantomNames = append(phantomNames, tc.Function.Name)
+				}
+				logger.Warn("[Runtime] summarizing 阶段收到幻影 tool_calls，已忽略",
+					"phantom_tools", phantomNames)
 			}
 			return stripThinkTags(summaryResp.Content), nil
 		}
@@ -308,7 +361,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			"content_len", len(resp.Content),
 			"tool_calls_count", len(resp.ToolCalls))
 
-		// 输出思考内容&& len(resp.ToolCalls) > 0
+		// 输出思考内容 && len(resp.ToolCalls) > 0
 		if handler != nil {
 			// 从 content 中提取思考内容，合并到 ReasoningContent
 			extractedThinking, _ := extractAndStripThinkTags(resp.Content)
@@ -327,21 +380,6 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 
 		if len(resp.ToolCalls) == 0 {
 			visible := stripThinkTags(resp.Content)
-			if shouldForceContinue(resp) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
-				// 强制继续，但不计入迭代次数
-				autoContinueCount++
-				logger.Info("[Runtime] force continue", "count", autoContinueCount)
-				messages = append(messages, ChatMessage{
-					Role:    "assistant",
-					Content: resp.Content,
-				})
-				messages = append(messages, ChatMessage{
-					Role:    "user",
-					Content: "你刚才描述了后续步骤但未调用工具。若完成用户的上一条请求仍需工具，请直接调用；若已充分回答，请给出简洁的最终回复。",
-				})
-				continue
-			}
-
 			if visible == "" {
 				visible = resp.Content
 			}
@@ -349,12 +387,49 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			if visible == "" && resp.ReasoningContent != "" {
 				visible = stripThinkTags(resp.ReasoningContent)
 			}
+
+			// 如果上一轮也是纯文本 → 连续两次纯文本，返回第一次的回复
+			if savedTextResponse != "" {
+				logger.Info("[Runtime] consecutive text-only, returning saved response",
+					"saved_len", len(savedTextResponse))
+				visible = savedTextResponse
+				if visible == "" && savedTextReasoning != "" {
+					visible = stripThinkTags(savedTextReasoning)
+				}
+				savedTextResponse = ""
+				savedTextReasoning = ""
+				return visible, nil
+			}
+
+			// 第一次纯文本 → 保存后继续，给模型一次调用工具的机会
+			if shouldForceContinue(resp, len(tools) > 0) {
+				savedTextResponse = visible
+				savedTextReasoning = resp.ReasoningContent
+				autoContinueCount++
+				logger.Info("[Runtime] first text-only, saving and continuing",
+					"count", autoContinueCount, "visible_len", len(visible))
+
+				// 注入 hint 消息（附带上一轮摘录供模型自检）
+				messages = append(messages, ChatMessage{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+				messages = append(messages, ChatMessage{
+					Role:      "user",
+					Content:   buildAutoContinueHint(resp),
+					Transient: true,
+				})
+				continue
+			}
+
 			logger.Info("[Runtime] return final", "len", len(visible))
 			return visible, nil
 		}
 
 		logger.Info("[Runtime] 检测到工具调用", "count", len(resp.ToolCalls))
 		autoContinueCount = 0
+		savedTextResponse = ""
+		savedTextReasoning = ""
 
 		assistantMsg := ChatMessage{
 			Role:      "assistant",
@@ -753,7 +828,7 @@ func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []t
 
 	if len(tools) > 0 {
 		reqBody["tools"] = r.convertTools(tools)
-		reqBody["tool_choice"] = "auto"
+		reqBody["tool_choice"] = "auto" // 可覆盖为 "required" 强制模型调用工具
 	}
 
 	return reqBody
