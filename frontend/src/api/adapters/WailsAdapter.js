@@ -436,4 +436,51 @@ export class WailsAdapter {
       return { error: e.message }
     }
   }
+
+  // 环境变量
+  async getEnvVars() {
+    try {
+      const json = await Call.ByName('main.AppService.GetEnvVars')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getEnvVars error:', e)
+      return []
+    }
+  }
+  async createEnvVar(entry) {
+    try {
+      const json = await Call.ByName('main.AppService.CreateEnvVar', JSON.stringify(entry))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] createEnvVar error:', e)
+      return { error: e.message }
+    }
+  }
+  async updateEnvVar(entry) {
+    try {
+      const json = await Call.ByName('main.AppService.UpdateEnvVar', JSON.stringify(entry))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] updateEnvVar error:', e)
+      return { error: e.message }
+    }
+  }
+  async deleteEnvVar(key) {
+    try {
+      const json = await Call.ByName('main.AppService.DeleteEnvVar', JSON.stringify({ key }))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] deleteEnvVar error:', e)
+      return { error: e.message }
+    }
+  }
+  async reloadEnvVars() {
+    try {
+      const json = await Call.ByName('main.AppService.ReloadEnvVars')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] reloadEnvVars error:', e)
+      return { error: e.message }
+    }
+  }
 }

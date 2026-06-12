@@ -83,11 +83,18 @@ export const appRoutes = [
     meta: { title: '安全设置', menuLabel: '安全设置', icon: 'Lock', menuGroup: '设置' }
   },
   {
+    path: '/env-vars',
+    name: 'EnvVars',
+    component: () => import('@/views/settings/EnvVars.vue'),
+    meta: { title: '环境变量', menuLabel: '环境变量', icon: 'Key', menuGroup: '设置' }
+  },
+  {
     path: '/debug',
     name: 'Debug',
     component: () => import('@/views/settings/Debug.vue'),
     meta: { title: '调试日志', menuLabel: '调试日志', icon: 'Monitor', menuGroup: '设置' }
   },
+
 ]
 
 export function buildMenuGroups() {

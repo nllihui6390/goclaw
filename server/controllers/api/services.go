@@ -25,6 +25,7 @@ var (
 	fileSvc     *service.FileService
 	chatSvc     *service.ChatService
 	qrcodeSvc   *service.QRCodeService
+	envVarSvc   *service.EnvVarService
 )
 
 var servicesInited bool
@@ -52,6 +53,8 @@ func InitServices() {
 	statusSvc = service.NewStatusService()
 	fileSvc = service.NewFileService(configSvc)
 	qrcodeSvc = service.NewQRCodeService(configSvc)
+
+	envVarSvc = service.NewEnvVarService(configSvc)
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()

@@ -167,6 +167,13 @@ export class HttpAdapter {
   // 安全配置
   getSecurityConfig() { return http.get('/security/config').then(r => r.data) }
   updateSecurityConfig(config) { return http.put('/security/config', config).then(r => r.data) }
+
+  // 环境变量
+  getEnvVars() { return http.get('/getEnvVars').then(r => r.data) }
+  createEnvVar(entry) { return http.post('/createEnvVars', entry).then(r => r.data) }
+  updateEnvVar(entry) { return http.post('/updateEnvVars', entry).then(r => r.data) }
+  deleteEnvVar(key) { return http.post('/deleteEnvVars', { key }).then(r => r.data) }
+  reloadEnvVars() { return http.post('/reloadEnvVars').then(r => r.data) }
 }
 
 export default new HttpAdapter()

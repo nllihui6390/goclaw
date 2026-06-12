@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"go-claw/config"
 	"go-claw/global"
 	"go-claw/internal/channel"
 	"go-claw/internal/cron"
@@ -34,6 +35,7 @@ type AppService struct {
 	statusSvc   *service.StatusService
 	fileSvc     *service.FileService
 	qrcodeSvc   *service.QRCodeService
+	envVarSvc   *service.EnvVarService
 }
 
 // NewAppService 创建 AppService
@@ -60,6 +62,7 @@ func (a *AppService) initServices() {
 	a.statusSvc = service.NewStatusService()
 	a.fileSvc = service.NewFileService(a.configSvc)
 	a.qrcodeSvc = service.NewQRCodeService(a.configSvc)
+	a.envVarSvc = service.NewEnvVarService(a.configSvc)
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()
@@ -700,4 +703,79 @@ func (a *AppService) GetChannelQRCodeStatusWithParams(channel, token, paramsJSON
 	}
 	data, _ := json.Marshal(result)
 	return string(data)
+}
+
+// ─────────── Env Vars ───────────
+
+// GetEnvVars 获取所有环境变量
+func (a *AppService) GetEnvVars() string {
+	data := a.envVarSvc.ListWithSource()
+	result, _ := json.Marshal(data)
+	return string(result)
+}
+
+// CreateEnvVar 创建新环境变量
+func (a *AppService) CreateEnvVar(envVarJSON string) string {
+	var entry struct {
+		Key         string `json:"key"`
+		Value       string `json:"value"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal([]byte(envVarJSON), &entry); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	if err := a.envVarSvc.Save(config.EnvVarEntry{
+		Key:         entry.Key,
+		Value:       entry.Value,
+		Description: entry.Description,
+		Enabled:     entry.Enabled,
+	}); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	return fmt.Sprintf(`{"status":"ok","key":"%s"}`, entry.Key)
+}
+
+// UpdateEnvVar 更新环境变量
+func (a *AppService) UpdateEnvVar(envVarJSON string) string {
+	var entry struct {
+		Key         string `json:"key"`
+		Value       string `json:"value"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal([]byte(envVarJSON), &entry); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	if err := a.envVarSvc.Update(config.EnvVarEntry{
+		Key:         entry.Key,
+		Value:       entry.Value,
+		Description: entry.Description,
+		Enabled:     entry.Enabled,
+	}); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	return `{"status":"ok"}`
+}
+
+// DeleteEnvVar 删除环境变量
+func (a *AppService) DeleteEnvVar(envVarJSON string) string {
+	var req struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal([]byte(envVarJSON), &req); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	if err := a.envVarSvc.Delete(req.Key); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	return `{"status":"ok"}`
+}
+
+// ReloadEnvVars 重新加载环境变量
+func (a *AppService) ReloadEnvVars() string {
+	if err := a.envVarSvc.ReloadEnvVarsFile(); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	return `{"status":"ok"}`
 }

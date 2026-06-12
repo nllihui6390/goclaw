@@ -145,3 +145,21 @@ func (a *AppService) PreviewFile(path string) string { return a.inner.PreviewFil
 func (a *AppService) UploadChatFile(sessionID, filename, base64Data string) string {
 	return a.inner.UploadChatFile(sessionID, filename, base64Data)
 }
+
+// 环境变量相关操作
+func (a *AppService) GetEnvVars() string                        { return a.inner.GetEnvVars() }
+func (a *AppService) CreateEnvVar(envVarJSON string) string     { return a.inner.CreateEnvVar(envVarJSON) }
+func (a *AppService) UpdateEnvVar(envVarJSON string) string     { return a.inner.UpdateEnvVar(envVarJSON) }
+func (a *AppService) DeleteEnvVar(envVarJSON string) string     { return a.inner.DeleteEnvVar(envVarJSON) }
+func (a *AppService) ReloadEnvVars() string                     { return a.inner.ReloadEnvVars() }
+
+// 安全审批相关操作
+func (a *AppService) GetPendingApprovals() string               { return a.inner.GetPendingApprovals() }
+func (a *AppService) ApproveRequest(id, user string) string     { return a.inner.ApproveRequest(id, user) }
+func (a *AppService) DenyRequest(id, user, reason string) string {
+	return a.inner.DenyRequest(id, user, reason)
+}
+func (a *AppService) GetSecurityConfig() string                 { return a.inner.GetSecurityConfig() }
+func (a *AppService) UpdateSecurityConfig(configJSON string) string {
+	return a.inner.UpdateSecurityConfig(configJSON)
+}

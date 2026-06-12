@@ -75,6 +75,13 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/config/reload", api.HandleConfigReload)
 	mux.HandleFunc("/api/v1/restart", api.HandleRestart)
 	mux.HandleFunc("/api/v1/logs", api.HandleLogs)
+
+	// 环境变量 API
+	mux.HandleFunc("/api/v1/getEnvVars", api.HandleGetEnvVars)
+	mux.HandleFunc("/api/v1/createEnvVars", api.HandleCreateEnvVars)
+	mux.HandleFunc("/api/v1/updateEnvVars", api.HandleUpdateEnvVars)
+	mux.HandleFunc("/api/v1/deleteEnvVars", api.HandleDeleteEnvVars)
+	mux.HandleFunc("/api/v1/reloadEnvVars", api.HandleReloadEnvVars)
 	mux.HandleFunc("/api/v1/status", api.HandleStatus)
 	mux.HandleFunc("/api/v1/sessions", api.HandleSessions)
 	mux.HandleFunc("/api/v1/sessions/", api.HandleSessionByID)

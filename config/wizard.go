@@ -27,8 +27,17 @@ func WriteInitialConfigs(workspaceDir string) error {
 // LoadConfigWithDefaults 加载配置，处理首次运行、迁移、默认值生成
 // 返回加载后的配置和可能的错误
 func LoadConfigWithDefaults() (*Config, error) {
-	// 加载 .env 文件（静默，失败时由日志记录）
-	godotenv.Load()
+	// 记录加载 .env 前的环境变量，用于区分 .env 来源
+	preEnv := os.Environ()
+
+	// 加载 .env 文件（使用 Overload 让 .env 覆盖系统环境变量）
+	godotenv.Overload()
+
+	// 记录 .env 加载后新增的 key（用于来源追踪）
+	postEnv := os.Environ()
+	newKeys := ComputeEnvDiff(preEnv, postEnv)
+	// 将 .env 来源的 key 记录到全局（后续 ResolveValue 可区分 dotenv vs system）
+	RecordDotenvKeysGlobal(newKeys)
 
 	// 1. 加载根配置
 	cfg, err := LoadConfig("config.json")
@@ -84,6 +93,12 @@ func LoadConfigWithDefaults() (*Config, error) {
 			}
 			fmt.Println("配置已从旧格式迁移完成")
 		}
+	}
+
+	// 加载环境变量配置文件（优先级高于 .env）
+	envVarsPath := GetEnvVarFilePath(cfg.Gateway.DataDir)
+	if err := LoadAndApply(envVarsPath); err != nil {
+		fmt.Printf("加载环境变量配置失败: %v\n", err)
 	}
 
 	return cfg, nil
