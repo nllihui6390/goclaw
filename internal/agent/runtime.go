@@ -1404,18 +1404,50 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 func (r *Runtime) compressMessages(messages []ChatMessage) string {
 	logger := glog.Logger()
 
-	summaryPrompt := `请将以下对话历史压缩为简洁的摘要，保留关键信息：
-- 用户的主要问题和请求
-- AI 的关键回答和操作
-- 重要的决策和结论
-- 未完成或待办的事项
+	// 将历史消息格式化为文本，避免模型将其视为新对话
+	var historyText strings.Builder
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			historyText.WriteString("用户: ")
+			historyText.WriteString(msg.Content)
+			historyText.WriteString("\n")
+		case "assistant":
+			historyText.WriteString("AI: ")
+			// 工具调用也要记录
+			if len(msg.ToolCalls) > 0 {
+				for _, tc := range msg.ToolCalls {
+					historyText.WriteString("[调用工具: ")
+					historyText.WriteString(tc.Function.Name)
+					historyText.WriteString("]")
+				}
+				historyText.WriteString("\n")
+			}
+			if msg.Content != "" {
+				historyText.WriteString(msg.Content)
+				historyText.WriteString("\n")
+			}
+		case "tool":
+			historyText.WriteString("工具结果: ")
+			historyText.WriteString(msg.Content)
+			historyText.WriteString("\n")
+		}
+		historyText.WriteString("---\n")
+	}
 
-只输出摘要内容，不要添加其他说明。`
+	summaryPrompt := `你是一个对话历史摘要助手。请将以下对话历史压缩为简洁的摘要。
+
+要求：
+- 只保留关键信息：用户请求、AI的主要回答、重要决策、待办事项
+- 不要回复对话内容，只生成摘要
+- 摘要应简明扼要，不超过200字
+
+对话历史：
+` + historyText.String()
 
 	summaryMessages := []ChatMessage{
-		{Role: "system", Content: summaryPrompt},
+		{Role: "user", Content: summaryPrompt},
 	}
-	summaryMessages = append(summaryMessages, messages...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1426,7 +1458,7 @@ func (r *Runtime) compressMessages(messages []ChatMessage) string {
 		return ""
 	}
 
-	logger.Info("[Runtime] 压缩摘要生成成功", "len", len(resp.Content))
+	logger.Info("[Runtime] 压缩摘要生成成功", "len", len(resp.Content), "preview", truncate(resp.Content, 100))
 	return stripThinkTags(resp.Content)
 }
 

@@ -54,7 +54,7 @@ func (w *ConsoleChannel) PushMessage(msg Message) bool {
 		if recover() != nil {
 		}
 	}()
-	log.Logger().Info("[Console] 收到消息", "msg_id", msg.ID, "agent", msg.Agent, "from", msg.From, "content_len", len(msg.Content))
+	log.Logger().Info("[Console] 收到消息", "msg_id", msg.ID, "agent", msg.Agent, "from", msg.From, "content", msg.Content)
 	select {
 	case w.msgChan <- msg:
 		return true
