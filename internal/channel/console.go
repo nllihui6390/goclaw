@@ -39,10 +39,10 @@ func NewConsoleChannel(botPrefix string, display DisplayConfig) *ConsoleChannel 
 }
 
 func (w *ConsoleChannel) GetName() string                                     { return w.name }
-func (w *ConsoleChannel) GetDisplay() DisplayConfig                         { return w.display }
-func (w *ConsoleChannel) SetEnabled(v bool)                                  { w.enabled = v }
-func (w *ConsoleChannel) IsEnabled() bool                                    { return w.enabled }
-func (w *ConsoleChannel) IsStopped() bool                                    { return w.stopped.Load() }
+func (w *ConsoleChannel) GetDisplay() DisplayConfig                           { return w.display }
+func (w *ConsoleChannel) SetEnabled(v bool)                                   { w.enabled = v }
+func (w *ConsoleChannel) IsEnabled() bool                                     { return w.enabled }
+func (w *ConsoleChannel) IsStopped() bool                                     { return w.stopped.Load() }
 func (w *ConsoleChannel) Receive(ctx context.Context) (<-chan Message, error) { return w.msgChan, nil }
 
 // PushMessage 安全地发送消息到 msgChan
@@ -54,6 +54,7 @@ func (w *ConsoleChannel) PushMessage(msg Message) bool {
 		if recover() != nil {
 		}
 	}()
+	log.Logger().Info("[Console] 收到消息", "msg_id", msg.ID, "agent", msg.Agent, "from", msg.From, "content_len", len(msg.Content))
 	select {
 	case w.msgChan <- msg:
 		return true

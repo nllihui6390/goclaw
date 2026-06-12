@@ -113,18 +113,32 @@ func stripThinkTags(content string) string {
 	return strings.TrimSpace(result)
 }
 
-// extractThinkContent 提取 <think> 标签内的思考内容（保留用于流式显示）
-func extractThinkContent(content string) string {
-	start := strings.Index(content, "<think>")
-	if start == -1 {
-		return ""
+// extractAndStripThinkTags 提取思考内容并剥离标签
+// 返回: (思考内容, 剥离后的内容)
+func extractAndStripThinkTags(content string) (thinking string, stripped string) {
+	var thinkingParts []string
+	result := content
+
+	for {
+		start := strings.Index(result, "<think>")
+		if start == -1 {
+			break
+		}
+		sub := result[start:]
+		end := strings.Index(sub, "</think>")
+		if end == -1 {
+			break
+		}
+		// 提取思考内容
+		thinkContent := sub[7:end] // len("<think>") = 7
+		if strings.TrimSpace(thinkContent) != "" {
+			thinkingParts = append(thinkingParts, thinkContent)
+		}
+		// 剥离标签
+		result = result[:start] + sub[end+len("</think>"):]
 	}
-	start += 7 // len("<think>")
-	end := strings.Index(content[start:], "</think>")
-	if end == -1 {
-		return content[start:]
-	}
-	return content[start : start+end]
+
+	return strings.Join(thinkingParts, "\n"), strings.TrimSpace(result)
 }
 
 func shouldForceContinue(resp *ChatMessage) bool {
@@ -278,10 +292,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 
 		// 每次迭代开始时通知用户正在思考
 		if handler != nil {
-			handler(ToolEvent{
-				Type:     "thinking",
-				Thinking: "正在思考...",
-			})
+			handler(ToolEvent{Type: "thinking", Thinking: "正在思考..."})
 		}
 		// 调用 LLM 并处理工具调用结果<-主进程逻辑开始处
 		resp, err := r.callLLMWithRetry(ctx, messages, tools)
@@ -289,29 +300,33 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			logger.Error("[Runtime] LLM调用失败", "iteration", i+1, "err", err)
 			return "", err
 		}
+		// jsonPretty, _ := json.MarshalIndent(resp, "", "  ")
+		// fmt.Println(string(jsonPretty))
 
 		logger.Info("[Runtime] LLM响应收到",
 			"iteration", i+1,
 			"content_len", len(resp.Content),
 			"tool_calls_count", len(resp.ToolCalls))
 
-		// 输出思考内容
-		if handler != nil && len(resp.ToolCalls) > 0 {
+		// 输出思考内容&& len(resp.ToolCalls) > 0
+		if handler != nil {
+			// 从 content 中提取思考内容，合并到 ReasoningContent
+			extractedThinking, _ := extractAndStripThinkTags(resp.Content)
+
 			thinkingContent := resp.ReasoningContent
-			if thinkingContent == "" {
-				thinkingContent = resp.Content
+			if extractedThinking != "" {
+				thinkingContent = thinkingContent + extractedThinking
 			}
+			// if thinkingContent == "" {
+			// 	thinkingContent = resp.Content
+			// }
 			if thinkingContent != "" {
-				handler(ToolEvent{
-					Type:     "thinking",
-					Thinking: thinkingContent,
-				})
+				handler(ToolEvent{Type: "thinking", Thinking: thinkingContent})
 			}
 		}
 
 		if len(resp.ToolCalls) == 0 {
 			visible := stripThinkTags(resp.Content)
-
 			if shouldForceContinue(resp) && autoContinueCount < maxAutoContinue && len(tools) > 0 {
 				// 强制继续，但不计入迭代次数
 				autoContinueCount++
@@ -454,12 +469,16 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 				return "", err
 			}
 			if len(resp.ToolCalls) > 0 {
-				// 输出思考内容（优先使用 reasoning_content，降级使用 content）
+				// 输出思考内容（从 content 提取 + ReasoningContent 合并）
 				if handler != nil {
+					extractedThinking, _ := extractAndStripThinkTags(resp.Content)
 					thinkingContent := resp.ReasoningContent
-					if thinkingContent == "" {
-						thinkingContent = resp.Content
+					if extractedThinking != "" {
+						thinkingContent = thinkingContent + extractedThinking
 					}
+					// if thinkingContent == "" {
+					// 	thinkingContent = resp.Content
+					// }
 					if thinkingContent != "" {
 						handler(ToolEvent{Type: "thinking", Thinking: thinkingContent})
 					}
@@ -620,7 +639,7 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 	}
 
 	logger.Info("[Runtime] HTTP响应收到", "status", resp.StatusCode, "elapsed_ms", elapsed.Milliseconds())
-	logger.Debug("[Runtime] 响应体原始", "body", string(body))
+	logger.Info("[Runtime] 响应体原始", "body", string(body))
 
 	if resp.StatusCode != 200 {
 		logger.Error("[Runtime] API返回非200状态码",
@@ -628,8 +647,23 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 			"body", truncate(string(body), 500))
 		return nil, fmt.Errorf("API返回状态码 %d: %s", resp.StatusCode, truncate(string(body), 300))
 	}
-
+	// 定义解析大模型响应结构体
 	var llmResp struct {
+		Model   string `json:"model"`
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		Usage   struct {
+			PromptTokens            int `json:"prompt_tokens"`
+			CompletionTokens        int `json:"completion_tokens"`
+			TotalTokens             int `json:"total_tokens"`
+			CompletionTokensDetails struct {
+				ReasoningTokens int `json:"reasoning_tokens"`
+			} `json:"completion_tokens_details"`
+			PromptTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
@@ -660,9 +694,14 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 	}
 
 	logger.Info("[Runtime] OpenAI响应解析",
+		"model", llmResp.Model,
+		"id", llmResp.ID,
 		"content_len", len(msg.Content),
 		"tool_calls_count", len(msg.ToolCalls),
 		"content_preview", truncate(msg.Content, 200),
+		"usage_prompt", llmResp.Usage.PromptTokens,
+		"usage_completion", llmResp.Usage.CompletionTokens,
+		"usage_total", llmResp.Usage.TotalTokens,
 		"elapsed_ms", elapsed.Milliseconds())
 
 	if len(msg.ToolCalls) > 0 {
@@ -709,11 +748,12 @@ func (r *Runtime) buildOpenAIRequestWithConfig(messages []ChatMessage, tools []t
 		"messages":    apiMessages,
 		"temperature": 0.7,
 	}
+	// 开启高思考模式: "minimal", "low", "medium", "high", "xhigh"
+	reqBody["reasoning_effort"] = "high"
 
 	if len(tools) > 0 {
 		reqBody["tools"] = r.convertTools(tools)
 		reqBody["tool_choice"] = "auto"
-
 	}
 
 	return reqBody
