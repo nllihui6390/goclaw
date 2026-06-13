@@ -55,4 +55,7 @@ type Store interface {
 	ListMemories(ctx context.Context, sessionID string, limit int) ([]MemoryEntry, error)
 	DeleteMemory(ctx context.Context, id string) error
 	ClearSessionMemories(ctx context.Context, sessionID string) error
+
+	// SessionFilePath 返回会话文件的磁盘路径（用于摘要等附加文件存取）
+	SessionFilePath(id string) string
 }

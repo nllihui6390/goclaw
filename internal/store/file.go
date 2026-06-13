@@ -112,6 +112,11 @@ func SafeFileName(id string) string {
 	return string(result)
 }
 
+// SessionFilePath 返回会话文件的磁盘路径
+func (s *FileStore) SessionFilePath(id string) string {
+	return filepath.Join(s.sessDir, SafeFileName(id)+".json")
+}
+
 func (s *FileStore) SaveSession(_ context.Context, session SessionData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

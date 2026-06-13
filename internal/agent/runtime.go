@@ -1467,17 +1467,29 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	sessionCtx := fmt.Sprintf("[会话信息]\n当前渠道: %s\n你的会话ID: %s\n（cron_status 的 session_id 参数使用此值可将结果发送到当前会话）", session.Channel, session.ID)
 	messages = append(messages, ChatMessage{Role: "system", Content: sessionCtx})
 
-	// 如果有压缩摘要，注入到系统提示后面
-	if session.CompressedSummary != "" {
+	// 如果有压缩摘要，注入到系统提示后面，作为历史上下文
+	if session.Summary != nil && session.Summary.Summary != "" {
 		messages = append(messages, ChatMessage{
-			Role:    "system",
-			Content: "以下是之前对话的压缩摘要，请参考此上下文继续回答：\n\n" + session.CompressedSummary,
+			Role: "system",
+			Content: "[历史上下文] 以下是过往对话的结构化摘要，仅供背景参考。" +
+				"请聚焦用户的最新消息，除非用户明确要求继续之前未完成的工作。\n\n" +
+				session.Summary.Summary,
 		})
-		logger.Debug("[Runtime] 压缩摘要已注入", "len", len(session.CompressedSummary))
+		logger.Debug("[Runtime] 压缩摘要已注入",
+			"len", len(session.Summary.Summary),
+			"compressed_count", session.Summary.CompressedCount)
 	}
 
-	// 包含所有角色的消息（user, assistant, tool）
-	for _, msg := range session.Messages {
+	// 构建消息列表：跳过已被压缩的旧消息
+	msgStart := 0
+	if session.Summary != nil && session.Summary.CompressedCount > 0 &&
+		session.Summary.CompressedCount < len(session.Messages) {
+		msgStart = session.Summary.CompressedCount
+		logger.Debug("[Runtime] 跳过已压缩消息",
+			"skipped", msgStart,
+			"remaining", len(session.Messages)-msgStart)
+	}
+	for _, msg := range session.Messages[msgStart:] {
 		chatMsg := ChatMessage{
 			Role:       msg.Role,
 			Content:    channel.TextOnlyContent(msg.Content),
@@ -1502,48 +1514,64 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 		maxMessages = 50
 	}
 
-	// 上下文压缩：接近阈值时压缩旧消息
-	// 默认在 maxMessages 的 70% 时触发压缩，且至少要有 30 条消息才考虑压缩
-	compactRatio := r.config.CompactThresholdRatio
-	if compactRatio == 0 {
-		compactRatio = 0.8
+	// 上下文压缩：接近阈值时压缩旧消息（支持增量压缩）
+	compactThreshold := r.config.MaxContextMessages
+	if compactThreshold <= 0 {
+		compactThreshold = 20 // 默认 20 条消息触发压缩
 	}
-	reserveRatio := r.config.ReserveThresholdRatio
-	if reserveRatio == 0 {
-		reserveRatio = 0.2
+	reserveCount := compactThreshold / 2 // 保留最近一半
+	if reserveCount < 5 {
+		reserveCount = 5
 	}
 
-	compactThreshold := int(float64(maxMessages) * compactRatio)
-	// 最少 30 条消息才触发压缩，避免频繁压缩
-	if compactThreshold < 30 {
-		compactThreshold = 30
+	// 计算未压缩的消息数
+	compactedCount := 0
+	if session.Summary != nil {
+		compactedCount = session.Summary.CompressedCount
 	}
-	reserveCount := int(float64(maxMessages) * reserveRatio)
+	uncompactedCount := len(session.Messages) - compactedCount
 
-	if len(messages) > compactThreshold && session.CompressedSummary == "" && reserveCount > 0 {
+	if uncompactedCount > compactThreshold && reserveCount > 0 {
 		logger.Info("[Runtime] 触发上下文压缩",
-			"current_messages", len(messages),
+			"total_messages", len(session.Messages),
+			"compacted", compactedCount,
+			"uncompacted", uncompactedCount,
 			"compact_threshold", compactThreshold,
 			"reserve_count", reserveCount)
 
-		oldMsgs := messages[1 : len(messages)-reserveCount]
-		if len(oldMsgs) > 2 {
-			summary := r.compressMessages(oldMsgs)
-			if summary != "" {
-				session.CompressedSummary = summary
-				session.mu.Lock()
-				session.persistLocked()
-				session.mu.Unlock()
+		// 要压缩的消息：从已压缩位置到保留区之前
+		compressStart := compactedCount
+		compressEnd := len(session.Messages) - reserveCount
+		if compressEnd > compressStart+1 {
+			// 收集要压缩的 session 消息
+			var oldMsgs []ChatMessage
+			for _, msg := range session.Messages[compressStart:compressEnd] {
+				oldMsgs = append(oldMsgs, ChatMessage{
+					Role:    msg.Role,
+					Content: channel.TextOnlyContent(msg.Content),
+				})
+			}
 
-				recentMsgs := messages[len(messages)-reserveCount:]
-				messages = []ChatMessage{
-					{Role: "system", Content: systemContent},
-					{Role: "system", Content: "以下是之前对话的压缩摘要：\n\n" + summary},
+			// 获取已有摘要用于增量更新
+			previousSummary := ""
+			if session.Summary != nil {
+				previousSummary = session.Summary.Summary
+			}
+
+			summary := r.compressMessagesWithSummary(oldMsgs, previousSummary)
+			if summary != "" {
+				newCompactedCount := compressEnd
+				session.Summary = &SummaryState{
+					Summary:         summary,
+					CompressedCount: newCompactedCount,
+					UpdatedAt:       time.Now(),
 				}
-				messages = append(messages, recentMsgs...)
+				session.SaveSummary()
+
 				logger.Info("[Runtime] 上下文压缩完成",
-					"original_count", len(session.Messages)+1,
-					"compressed_count", len(messages),
+					"total_messages", len(session.Messages),
+					"compacted_count", newCompactedCount,
+					"remaining", len(session.Messages)-newCompactedCount,
 					"summary_len", len(summary))
 			}
 		}
@@ -1557,11 +1585,12 @@ func (r *Runtime) buildMessages(session *Session, tools []tool.Tool) []ChatMessa
 	return messages
 }
 
-// compressMessages 调用 LLM 压缩旧消息
-func (r *Runtime) compressMessages(messages []ChatMessage) string {
+// compressMessagesWithSummary 调用 LLM 压缩旧消息，支持增量更新
+// previousSummary 为空时创建新摘要，非空时增量合并更新
+func (r *Runtime) compressMessagesWithSummary(messages []ChatMessage, previousSummary string) string {
 	logger := glog.Logger()
 
-	// 将历史消息格式化为文本，避免模型将其视为新对话
+	// 将历史消息格式化为文本
 	var historyText strings.Builder
 	for _, msg := range messages {
 		switch msg.Role {
@@ -1570,37 +1599,113 @@ func (r *Runtime) compressMessages(messages []ChatMessage) string {
 			historyText.WriteString(msg.Content)
 			historyText.WriteString("\n")
 		case "assistant":
-			historyText.WriteString("AI: ")
-			// 工具调用也要记录
 			if len(msg.ToolCalls) > 0 {
 				for _, tc := range msg.ToolCalls {
-					historyText.WriteString("[调用工具: ")
+					historyText.WriteString("AI调用工具: ")
 					historyText.WriteString(tc.Function.Name)
-					historyText.WriteString("]")
+					historyText.WriteString("\n")
 				}
-				historyText.WriteString("\n")
 			}
 			if msg.Content != "" {
+				historyText.WriteString("AI: ")
 				historyText.WriteString(msg.Content)
 				historyText.WriteString("\n")
 			}
 		case "tool":
+			result := msg.Content
+			if len([]rune(result)) > 800 {
+				runes := []rune(result)
+				result = string(runes[:800]) + "..."
+			}
 			historyText.WriteString("工具结果: ")
-			historyText.WriteString(msg.Content)
+			historyText.WriteString(result)
 			historyText.WriteString("\n")
 		}
 		historyText.WriteString("---\n")
 	}
 
-	summaryPrompt := `你是一个对话历史摘要助手。请将以下对话历史压缩为简洁的摘要。
+	var summaryPrompt string
+	if previousSummary != "" {
+		summaryPrompt = `你是一个上下文压缩助手。请用新对话的信息更新之前的摘要。
 
-要求：
-- 只保留关键信息：用户请求、AI的主要回答、重要决策、待办事项
-- 不要回复对话内容，只生成摘要
-- 摘要应简明扼要，不超过200字
+# 之前的摘要
+` + previousSummary + `
 
-对话历史：
-` + historyText.String()
+# 新对话
+` + historyText.String() + `
+
+# 任务：更新摘要
+
+## 规则：
+- 保留之前摘要中的所有现有信息
+- 从新对话中添加新的进展、决策和上下文
+- 更新进度部分：将"进行中"的项目移到"已完成"
+- 根据当前状态更新"下一步"
+- 如果某些内容不再相关，可以删除
+
+## 输出格式：
+
+## 目标
+[用户试图完成什么]
+
+## 进展
+### 已完成
+- [x] [完成的任务]
+
+### 进行中
+- [ ] [当前工作]
+
+### 阻塞
+- [阻碍进展的问题，如有]
+
+## 关键决策
+- **[决策]**: [简短理由]
+
+## 下一步
+1. [接下来的行动]
+
+## 关键上下文
+- [需要记住的重要信息]
+
+请按格式输出更新后的完整摘要。`
+	} else {
+		summaryPrompt = `你是一个上下文压缩助手。请根据对话创建结构化摘要。
+
+# 对话
+` + historyText.String() + `
+
+# 任务：创建摘要
+
+## 规则：
+- 保持每个部分简洁
+- 只保留关键信息
+
+## 输出格式：
+
+## 目标
+[用户试图完成什么]
+
+## 进展
+### 已完成
+- [x] [完成的任务]
+
+### Chris
+- [ ] [当前工作]
+
+### 阻塞
+- [阻碍进展的问题]
+
+## 关键决策
+- **[决策]**: [理由]
+
+## 下一步
+1. [接下来的行动]
+
+## 关键上下文
+- [需要记住的重要信息]
+
+请按格式输出结构化摘要。`
+	}
 
 	summaryMessages := []ChatMessage{
 		{Role: "user", Content: summaryPrompt},

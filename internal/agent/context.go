@@ -22,19 +22,26 @@ type Message struct {
 	Timestamp  time.Time
 }
 
+// SummaryState 会话摘要状态
+type SummaryState struct {
+	Summary         string    // 结构化摘要文本
+	CompressedCount int       // 已被压缩的消息数量（从 Messages[0] 开始计数）
+	UpdatedAt       time.Time // 更新时间
+}
+
 // Session 会话
 type Session struct {
-	ID                string // 主键（= SessionID，如 desktop:local）
-	SessionID         string // 完整会话标识（channel:user_id 格式）
-	Name              string // 会话标题（用户的第一句话）
-	UserID            string // 用户标识（session_id 的右半部分）
-	Channel           string
-	Messages          []Message
-	CompressedSummary string // 压缩后的历史摘要
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	mu                sync.RWMutex
-	store             store.Store
+	ID        string // 主键（= SessionID，如 desktop:local）
+	SessionID string // 完整会话标识（channel:user_id 格式）
+	Name      string // 会话标题（用户的第一句话）
+	UserID    string // 用户标识（session_id 的右半部分）
+	Channel   string
+	Messages  []Message
+	Summary   *SummaryState // 压缩摘要状态（nil 表示无摘要）
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	mu        sync.RWMutex
+	store     store.Store
 }
 
 // SetChannel 设置渠道名
@@ -128,8 +135,23 @@ func (s *Session) persistLocked() {
 		CreatedAt: s.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: s.UpdatedAt.Format(time.RFC3339),
 	}
-	if err := s.store.SaveSession(context.Background(), data); err != nil {
+if err := s.store.SaveSession(context.Background(), data); err != nil {
 		log.Logger().Error("保存会话失败", "err", err)
+	}
+}
+
+// SaveSummary 持久化摘要到独立文件
+func (s *Session) SaveSummary() {
+	if s.Summary == nil || s.store == nil {
+		return
+	}
+	sessionPath := s.store.SessionFilePath(s.ID)
+	sd := &store.SummaryData{
+		Summary:         s.Summary.Summary,
+		CompressedCount: s.Summary.CompressedCount,
+	}
+	if err := store.SaveSummary(sessionPath, sd); err != nil {
+		log.Logger().Error("保存摘要失败", "err", err)
 	}
 }
 
@@ -225,6 +247,16 @@ func (sm *SessionManager) GetOrCreate(sessionID string) *Session {
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 		store:     sm.store,
+	}
+
+	// 加载摘要（独立文件，不影响会话消息）
+	sessionPath := sm.store.SessionFilePath(sessionID)
+	if sd, err := store.LoadSummary(sessionPath); err == nil && sd != nil {
+		session.Summary = &SummaryState{
+			Summary:         sd.Summary,
+			CompressedCount: sd.CompressedCount,
+			UpdatedAt:       parseRFC3339(sd.UpdatedAt),
+		}
 	}
 
 	sm.sessions[sessionID] = session
