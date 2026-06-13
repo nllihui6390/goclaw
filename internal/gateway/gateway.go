@@ -404,6 +404,10 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 					Thinking: event.Thinking,
 					Content:  event.Content,
 					To:       msg.From,
+						GuardReason:   event.GuardReason,
+						GuardMessage:  event.GuardMessage,
+						ApprovalID:    event.ApprovalID,
+						ApprovalState: event.ApprovalState,
 				})
 			}
 

@@ -167,11 +167,14 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	// 收集工具执行过程（用于 Metadata 持久化，供前端折叠显示）
 	var thinkingParts []string
 	type toolExecRecord struct {
-		Name   string `json:"name"`
-		Args   string `json:"args"`
-		Result string `json:"result,omitempty"`
-		Error  string `json:"error,omitempty"`
-		Status string `json:"status"` // "success" or "error"
+		Name          string `json:"name"`
+		Args          string `json:"args"`
+		Result        string `json:"result,omitempty"`
+		Error         string `json:"error,omitempty"`
+		Status        string `json:"status"` // "success", "error", "guard"
+		ApprovalID    string `json:"approval_id,omitempty"`
+		ApprovalState string `json:"approval_state,omitempty"` // pending/approved/denied
+		GuardMessage  string `json:"guard_message,omitempty"`
 	}
 	var toolExecRecords []toolExecRecord
 	var currentToolArgs string
@@ -205,6 +208,17 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 				Args:   currentToolArgs,
 				Error:  event.Error,
 				Status: "error",
+			})
+		}
+		// 收集安全守卫事件（审批通知）
+		if event.Type == "guard" {
+			toolExecRecords = append(toolExecRecords, toolExecRecord{
+				Name:          event.ToolName,
+				Args:          event.Args,
+				Status:        "guard",
+				ApprovalID:    event.ApprovalID,
+				ApprovalState: event.ApprovalState,
+				GuardMessage:  event.GuardMessage,
 			})
 		}
 		// 调用原始 handler

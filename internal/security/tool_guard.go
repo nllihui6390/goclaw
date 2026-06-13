@@ -77,21 +77,35 @@ type ShellEvasionGuardian struct {
 // NewShellEvasionGuardian 创建 Shell 注入检测守卫
 func NewShellEvasionGuardian() *ShellEvasionGuardian {
 	patterns := []string{
+		// ── Shell 注入模式 ──
 		`\$\([^)]+\)`,       // $(command)
 		"`[^`]+`",           // `command`
-		`\|\s*\w+`,          // pipe to command
-		`;\s*\w+`,           // semicolon command
-		`&&\s*\w+`,          // AND command
-		`\|\|\s*\w+`,        // OR command
-		`>\s*/`,             // redirect to root
-		`<\s*/`,             // redirect from root
-		`\bchmod\s+777\b`,   // dangerous chmod
+
+		// ── Linux 危险命令 ──
+		`\bchmod\s+777\b`,   // chmod 777（全开放权限）
 		`\brm\s+-rf\s+/\b`,  // rm -rf /
-		`\bdd\s+if=`,        // dd command
-		`\bmkfs\b`,          // format disk
-		`\bshutdown\b`,      // shutdown
-		`\breboot\b`,        // reboot
-		`\binit\s+0\b`,      // init 0
+		`\bdd\s+if=`,        // dd（磁盘操作）
+		`\bmkfs\b`,          // 格式化磁盘
+		`\bshutdown\b`,      // 关机
+		`\breboot\b`,        // 重启
+		`\binit\s+0\b`,      // init 0（关机）
+		`\bpoweroff\b`,      // poweroff
+		`\bhalt\b`,          // halt
+
+		// ── Windows 危险命令 ──
+		`\bicacls\b.*\bEveryone:F\b`,        // icacls Everyone:F（= chmod 777）
+		`\bicacls\b.*\b/grant\b.*:F\b`,      // icacls /grant ...:F（完全控制）
+		`\bformat\b\s+[A-Za-z]:`,            // format C:（格式化磁盘）
+		`\bshutdown\b\s+/s`,                  // shutdown /s（Windows关机）
+		`\bshutdown\b\s+/r`,                  // shutdown /r（Windows重启）
+		`\bnet\s+user\b`,                     // net user（用户操作）
+		`\bnet\s+localgroup\b`,               // net localgroup（组操作）
+		`\breg\s+(add|delete|import)\b`,      // 注册表操作
+		`\btaskkill\b\s+/f\b`,                // taskkill /f（强制杀进程）
+		`\bsdelete\b`,                        // 安全删除工具
+		`\bcd\b.*\b\\Windows\\System32\b`,    // 进入 System32
+		`\bdel\b\s+/[sq]\b.*\b\\`,            // del /s /q（批量静默删除）
+		`\brd\b\s+/[sq]\b.*\b\\`,             // rd /s /q（批量静默删除目录）
 	}
 
 	compiled := make([]*regexp.Regexp, len(patterns))

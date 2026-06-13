@@ -58,6 +58,16 @@ export class HttpAdapter {
             yield { type: 'tool_result', tool_name: obj.tool_name, result: obj.result }
           } else if (eventLine === 'event: tool_error') {
             yield { type: 'tool_error', tool_name: obj.tool_name, error: obj.error }
+          } else if (eventLine === 'event: guard') {
+            // 安全守卫事件（审批通知）
+            yield {
+              type: 'guard',
+              tool_name: obj.tool_name,
+              args: obj.args,
+              guard_message: obj.guard_message,
+              approval_id: obj.approval_id,
+              approval_state: obj.approval_state
+            }
           } else if (obj.content) {
             yield { type: 'text', content: obj.content }
           }

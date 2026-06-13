@@ -20,6 +20,10 @@ func DefaultDisplayConfig() DisplayConfig {
 
 // ShouldShowToolMessage 判断是否应显示工具类事件
 func (d DisplayConfig) ShouldShowToolEvent(eventType ToolEventType) bool {
+	// Guard 事件始终显示（安全审批通知，不受过滤影响）
+	if eventType == ToolEventGuard {
+		return true
+	}
 	if !d.ShowToolMessages {
 		// 关闭时：不显示 calling、result、error
 		if eventType == ToolEventCalling || eventType == ToolEventResult || eventType == ToolEventError {
@@ -63,6 +67,7 @@ const (
 	ToolEventError    ToolEventType = "error"     // 工具执行出错
 	ToolEventFile    ToolEventType = "file"      // 文件发送事件（send_file 工具直接推送给前端）
 	ToolEventContent ToolEventType = "content"   // 结构化内容块事件（StructuredTool 返回结果）
+	ToolEventGuard   ToolEventType = "guard"     // 安全守卫拦截事件（审批通知，不受 ShowToolMessages 过滤）
 )
 
 // ToolEvent 工具执行事件（用于实时输出工具调用过程）
@@ -75,6 +80,11 @@ type ToolEvent struct {
 	Thinking string        // 思考内容
 	Content  ContentBlocks // 结构化内容块（用于 StructuredTool 返回结果）
 	To       string        // 目标用户ID（用于指定发送对象）
+	// Guard 事件专用字段
+	GuardReason   string // 守卫拦截原因
+	GuardMessage  string // 守卫提示消息（给用户看）
+	ApprovalID    string // 审批ID
+	ApprovalState string // 审批状态：pending/approved/denied
 }
 
 // ToolEventHandler 工具事件回调函数

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -247,13 +248,18 @@ type ToolEventHandler func(event ToolEvent)
 
 // ToolEvent 工具执行事件
 type ToolEvent struct {
-	Type     string // "calling", "result", "error", "thinking", "content"
+	Type     string // "calling", "result", "error", "thinking", "content", "guard"
 	ToolName string
 	Args     string
 	Result   string
 	Error    string
 	Thinking string
 	Content  channel.ContentBlocks // 结构化内容块（用于 StructuredTool 返回结果）
+	// Guard 事件专用字段（安全守卫审批通知）
+	GuardReason   string // 守卫拦截原因
+	GuardMessage  string // 守卫提示消息（给用户看）
+	ApprovalID    string // 审批ID
+	ApprovalState string // 审批状态：pending/approved/denied
 }
 
 // Execute 执行Agent循环（阻塞版）
@@ -454,7 +460,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				})
 			}
 			// 执行工具并捕获结果（带结果裁剪）
-			result, contentBlocks, err := r.executeTool(ctx, tc, tools)
+			result, contentBlocks, err := r.executeTool(ctx, tc, tools, handler)
 			if err != nil {
 				result = fmt.Sprintf("工具执行错误: %v", err)
 				logger.Error("[Runtime] 工具执行出错", "tool_name", tc.Function.Name, "err", err)
@@ -575,7 +581,7 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 						})
 					}
 
-					result, contentBlocks, execErr := r.executeTool(ctx, tc, tools)
+					result, contentBlocks, execErr := r.executeTool(ctx, tc, tools, handler)
 					if execErr != nil {
 						result = fmt.Sprintf("工具执行错误: %v", execErr)
 						if handler != nil {
@@ -766,6 +772,31 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 		ReasoningContent: llmResp.Choices[0].Message.ReasoningContent,
 		ToolCalls:        llmResp.Choices[0].Message.ToolCalls,
 		FinishReason:     llmResp.Choices[0].FinishReason,
+	}
+
+	// Fallback: 如果标准 tool_calls 为空，尝试从 content 中提取 XML 格式的工具调用
+	// 某些模型（如国产模型 MiniMax 等）不使用标准 OpenAI tool_calls 格式，
+	// 而是将工具调用以 XML 标签形式写入 content 字段
+	if len(msg.ToolCalls) == 0 {
+		hasXMLToolCall := strings.Contains(msg.Content, "<invoke") ||
+			strings.Contains(msg.Content, "<tool_use") ||
+			strings.Contains(msg.Content, "<tool_call>")
+		if hasXMLToolCall {
+			xmlToolCalls, cleanedContent := extractXMLToolCallsWithCleanup(msg.Content)
+			if len(xmlToolCalls) > 0 {
+				msg.ToolCalls = xmlToolCalls
+				msg.Content = cleanedContent
+				logger.Warn("[Runtime] 从 content 中提取到 XML 格式的工具调用（非标准格式）",
+					"count", len(xmlToolCalls),
+					"tools", func() []string {
+						names := make([]string, len(xmlToolCalls))
+						for i, tc := range xmlToolCalls {
+							names[i] = tc.Function.Name
+						}
+						return names
+					}())
+			}
+		}
 	}
 
 	logger.Info("[Runtime] OpenAI响应解析",
@@ -1029,7 +1060,8 @@ func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb 
 }
 
 // executeTool 执行工具（带结果裁剪）
-func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Tool) (string, channel.ContentBlocks, error) {
+// handler 用于发送安全守卫事件（审批通知）
+func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Tool, handler ToolEventHandler) (string, channel.ContentBlocks, error) {
 	logger := glog.Logger()
 	logger.Debug("[Runtime] 开始执行工具",
 		"tool_name", tc.Function.Name,
@@ -1067,6 +1099,17 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 		if guardResult.Decision == security.DecisionDeny {
 			logger.Warn("[Runtime] 工具调用被安全守卫拒绝",
 				"tool", tc.Function.Name, "reason", guardResult.Reason)
+			// 发送 guard 事件（拒绝）
+			if handler != nil {
+				handler(ToolEvent{
+					Type:         "guard",
+					ToolName:     tc.Function.Name,
+					Args:         tc.Function.Arguments,
+					GuardReason:  guardResult.Reason,
+					GuardMessage: guardResult.Message,
+					ApprovalState: "denied",
+				})
+			}
 			return fmt.Sprintf("操作被拒绝: %s", guardResult.Message), nil, nil
 		}
 		if guardResult.Decision == security.DecisionGuard {
@@ -1084,32 +1127,61 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 				guardResult.Message,
 			)
 
-			// 构建通知消息（返回给 LLM，让 LLM 告知用户）
-			notificationMsg := fmt.Sprintf(
-				"⚠️ 安全守卫拦截了工具调用\n\n"+
-					"工具: %s\n"+
-					"原因: %s\n"+
-					"审批ID: %s\n\n"+
-					"请在安全设置页面审批，或使用 /approval approve %s 批准，或 /approval deny %s [原因] 拒绝",
-				tc.Function.Name,
-				guardResult.Message,
-				approvalID,
-				approvalID,
-				approvalID,
-			)
+			// 发送 guard 事件（等待审批）- 前端可据此显示醒目的审批通知
+			if handler != nil {
+				handler(ToolEvent{
+					Type:         "guard",
+					ToolName:     tc.Function.Name,
+					Args:         tc.Function.Arguments,
+					GuardReason:  guardResult.Reason,
+					GuardMessage: guardResult.Message,
+					ApprovalID:   approvalID,
+					ApprovalState: "pending",
+				})
+			}
 
 			// 等待用户审批（阻塞）
 			result, err := approvalSvc.WaitForResult(ctx, approval)
 			if err != nil {
-				return fmt.Sprintf("%s\n\n审批等待失败: %v", notificationMsg, err), nil, nil
+				// 发送 guard 事件（等待失败）
+				if handler != nil {
+					handler(ToolEvent{
+						Type:         "guard",
+						ToolName:     tc.Function.Name,
+						ApprovalID:   approvalID,
+						ApprovalState: "error",
+						GuardMessage: fmt.Sprintf("审批等待失败: %v", err),
+					})
+				}
+				return fmt.Sprintf("审批等待失败: %v", err), nil, nil
 			}
 
 			if !result.Approved {
-				return fmt.Sprintf("%s\n\n操作被用户拒绝: %s", notificationMsg, result.DenyReason), nil, nil
+				// 发送 guard 事件（用户拒绝）
+				if handler != nil {
+					handler(ToolEvent{
+						Type:         "guard",
+						ToolName:     tc.Function.Name,
+						ApprovalID:   approvalID,
+						ApprovalState: "denied",
+						GuardMessage: fmt.Sprintf("操作被用户拒绝: %s", result.DenyReason),
+					})
+				}
+				return fmt.Sprintf("操作被用户拒绝: %s", result.DenyReason), nil, nil
 			}
 
 			// 用户批准了，继续执行工具
 			logger.Info("[Runtime] 工具调用已获用户批准", "tool", tc.Function.Name, "approval_id", approvalID)
+			// 发送 guard 事件（已批准）
+			if handler != nil {
+				handler(ToolEvent{
+					Type:         "guard",
+					ToolName:     tc.Function.Name,
+					ApprovalID:   approvalID,
+					ApprovalState: "approved",
+					GuardMessage: "已批准，继续执行",
+				})
+			}
 			_ = approval // 避免未使用警告
 		}
 	}
@@ -1593,4 +1665,139 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// xmlToolCallPatterns XML 工具调用格式正则（预编译，避免每次调用重新编译）
+var xmlToolCallPatterns = struct {
+	invokeBlock   *regexp.Regexp // <invoke name="xxx">...</invoke>
+	parameter     *regexp.Regexp // <parameter name="key">value</parameter>
+	toolUseBlock  *regexp.Regexp // <tool_use name="xxx">...</tool_use>
+	inputJSON     *regexp.Regexp // <input>{"key":"value"}</input>
+	antToolCall   *regexp.Regexp // <tool_call>xxx 格式
+	allXMLTags    *regexp.Regexp // 清理所有 XML 标签的通用正则
+	minimaxClose  *regexp.Regexp // </minimax:tool_call> 结尾标签
+}{
+	invokeBlock:   regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)">\s*(.*?)\s*</invoke>`),
+	parameter:     regexp.MustCompile(`<parameter\s+name="([^"]+)">(.*?)</parameter>`),
+	toolUseBlock:  regexp.MustCompile(`(?s)<tool_use\s+name="([^"]+)">\s*(.*?)\s*</tool_use>`),
+	inputJSON:     regexp.MustCompile(`(?s)<input>\s*(.*?)\s*</input>`),
+	antToolCall:   regexp.MustCompile(`(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\n(.*?)\n`),
+	allXMLTags:    regexp.MustCompile(`(?s)<(?:/?[\w:]+)[^>]*>`),
+	minimaxClose:  regexp.MustCompile(`</minimax:tool_call>`),
+}
+
+// extractXMLToolCallsWithCleanup 从 content 中提取 XML 格式的工具调用，并返回清理后的纯文本
+// 返回: (提取到的 ToolCall 列表, 清理 XML 标签后的纯文本)
+func extractXMLToolCallsWithCleanup(content string) ([]ToolCall, string) {
+	var toolCalls []ToolCall
+
+	// 1. 提取 <invoke name="xxx"><parameter ...> 格式（MiniMax/某些国产模型）
+	invokeMatches := xmlToolCallPatterns.invokeBlock.FindAllStringSubmatch(content, -1)
+	for _, match := range invokeMatches {
+		toolName := match[1]
+		body := match[2]
+
+		// 从 body 中提取所有 parameter
+		params := map[string]interface{}{}
+		paramMatches := xmlToolCallPatterns.parameter.FindAllStringSubmatch(body, -1)
+		for _, pm := range paramMatches {
+			params[pm[1]] = pm[2]
+		}
+
+		argsJSON, _ := json.Marshal(params)
+		toolCalls = append(toolCalls, ToolCall{
+			ID:   fmt.Sprintf("xml_call_%d", time.Now().UnixNano()),
+			Type: "function",
+			Function: struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			}{
+				Name:      toolName,
+				Arguments: string(argsJSON),
+			},
+		})
+	}
+
+	// 2. 提取 <tool_use name="xxx"><input>...</input> 格式（Anthropic Claude 风格）
+	toolUseMatches := xmlToolCallPatterns.toolUseBlock.FindAllStringSubmatch(content, -1)
+	for _, match := range toolUseMatches {
+		toolName := match[1]
+		body := match[2]
+
+		// 尝试从 <input> 中提取 JSON
+		var argsJSON string
+		inputMatch := xmlToolCallPatterns.inputJSON.FindStringSubmatch(body)
+		if len(inputMatch) >= 2 {
+			// 验证是否为合法 JSON
+			var test map[string]interface{}
+			if json.Unmarshal([]byte(strings.TrimSpace(inputMatch[1])), &test) == nil {
+				argsJSON = strings.TrimSpace(inputMatch[1])
+			}
+		}
+
+		if argsJSON == "" {
+			// 降级：从 parameter 格式提取
+			params := map[string]interface{}{}
+			paramMatches := xmlToolCallPatterns.parameter.FindAllStringSubmatch(body, -1)
+			for _, pm := range paramMatches {
+				params[pm[1]] = pm[2]
+			}
+			marshaled, _ := json.Marshal(params)
+			argsJSON = string(marshaled)
+		}
+
+		toolCalls = append(toolCalls, ToolCall{
+			ID:   fmt.Sprintf("xml_call_%d", time.Now().UnixNano()),
+			Type: "function",
+			Function: struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			}{
+				Name:      toolName,
+				Arguments: argsJSON,
+			},
+		})
+	}
+
+	// 3. 提取 <tool_call>xxx 格式（某些模型的自定义格式）
+	antMatches := xmlToolCallPatterns.antToolCall.FindAllStringSubmatch(content, -1)
+	for _, match := range antMatches {
+		toolName := match[1]
+		body := match[2]
+
+		// 从 body 中提取 parameter
+		params := map[string]interface{}{}
+		paramMatches := xmlToolCallPatterns.parameter.FindAllStringSubmatch(body, -1)
+		for _, pm := range paramMatches {
+			params[pm[1]] = pm[2]
+		}
+
+		// 如果没有 parameter，尝试提取 JSON
+		if len(params) == 0 {
+			var test map[string]interface{}
+			if json.Unmarshal([]byte(strings.TrimSpace(body)), &test) == nil {
+				params = test
+			}
+		}
+
+		argsJSON, _ := json.Marshal(params)
+		toolCalls = append(toolCalls, ToolCall{
+			ID:   fmt.Sprintf("xml_call_%d", time.Now().UnixNano()),
+			Type: "function",
+			Function: struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			}{
+				Name:      toolName,
+				Arguments: string(argsJSON),
+			},
+		})
+	}
+
+	// 4. 清理 content：移除所有 XML 标签和 minimax:tool_call 标签
+	cleaned := xmlToolCallPatterns.minimaxClose.ReplaceAllString(content, "")
+	cleaned = xmlToolCallPatterns.allXMLTags.ReplaceAllString(cleaned, "")
+	cleaned = strings.TrimSpace(cleaned)
+
+	return toolCalls, cleaned
 }

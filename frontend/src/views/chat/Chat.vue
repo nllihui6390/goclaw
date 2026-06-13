@@ -221,6 +221,20 @@ async function send() {
             ensureAssistantMsg()
             messages.value[messages.value.length - 1].tool_calls = [...messages.value[messages.value.length - 1].tool_calls]
           }
+        } else if (event.type === 'guard') {
+          // 处理安全守卫事件（审批通知）
+          const guardCall = {
+            name: event.tool_name,
+            args: event.args,
+            status: 'guard',
+            approval_id: event.approval_id,
+            approval_state: event.approval_state,
+            guard_message: event.guard_message,
+            expanded: true // 守卫事件默认展开
+          }
+          toolCalls.push(guardCall)
+          ensureAssistantMsg()
+          messages.value[messages.value.length - 1].tool_calls = [...toolCalls]
         } else if (event.type === 'text') {
           fullContent += event.content
           const finalContent = contentBlocks.length > 0
@@ -253,7 +267,10 @@ async function send() {
                 result: tc.result,
                 error: tc.error,
                 status: tc.status || 'success',
-                expanded: false,
+                approval_id: tc.approval_id,
+                approval_state: tc.approval_state,
+                guard_message: tc.guard_message,
+                expanded: tc.status === 'guard' ? true : false, // guard 事件默认展开
               }))
             }
           }

@@ -348,14 +348,28 @@ async function saveImageAs() {
 
         <!-- Tool calls (collapsible) -->
         <div v-if="tool_calls && tool_calls.length" class="tool-calls-container">
-          <div v-for="(tc, i) in tool_calls" :key="i" class="collapsible-block tool-call-block">
+          <div v-for="(tc, i) in tool_calls" :key="i"
+            class="collapsible-block tool-call-block"
+            :class="{ 'guard-block': tc.status === 'guard' }">
             <div class="collapsible-header" @click="tc.expanded = !tc.expanded">
               <span class="collapse-icon">{{ tc.expanded ? '▼' : '▶' }}</span>
-              <span class="tool-icon">{{ tc.status === 'error' ? '❌' : '✅' }}</span>
+              <span class="tool-icon">{{ tc.status === 'error' ? '❌' : tc.status === 'guard' ? '⚠️' : '✅' }}</span>
               <span class="tool-name">{{ tc.name }}</span>
-              <span class="tool-status" :class="tc.status">{{ tc.status === 'error' ? '失败' : tc.status === 'calling' ? '调用中...' : '成功' }}</span>
+              <span class="tool-status" :class="tc.status">
+                {{ tc.status === 'error' ? '失败' : tc.status === 'calling' ? '调用中...' : tc.status === 'guard' ? (tc.approval_state === 'approved' ? '已批准' : tc.approval_state === 'denied' ? '已拒绝' : '待审批') : '成功' }}
+              </span>
             </div>
-            <div v-show="tc.expanded" class="collapsible-content tool-call-content">
+            <div v-show="tc.expanded || tc.status === 'guard'" class="collapsible-content tool-call-content">
+              <div v-if="tc.status === 'guard' && tc.guard_message" class="tool-section guard-section">
+                <div class="guard-alert">
+                  <div class="guard-alert-title">⚠️ 安全守卫拦截</div>
+                  <div class="guard-alert-message">{{ tc.guard_message }}</div>
+                  <div v-if="tc.approval_id && tc.approval_state === 'pending'" class="guard-alert-actions">
+                    <el-tag type="warning" size="small">审批ID: {{ tc.approval_id }}</el-tag>
+                    <span class="guard-alert-hint">请使用 /approval approve {{ tc.approval_id }} 批准，或 /approval deny {{ tc.approval_id }} 拒绝</span>
+                  </div>
+                </div>
+              </div>
               <div v-if="tc.args" class="tool-section">
                 <strong>参数：</strong>
                 <pre class="tool-code">{{ formatJSON(tc.args) }}</pre>
@@ -595,6 +609,58 @@ async function saveImageAs() {
       background: rgba(255, 159, 67, 0.15);
       color: $accent-amber;
     }
+
+    &.guard {
+      background: rgba(255, 193, 7, 0.15);
+      color: #f59e0b;
+      font-weight: 600;
+    }
+  }
+
+  // Guard block special styling
+  .guard-block {
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.05);
+
+    .collapsible-header {
+      background: rgba(245, 158, 11, 0.1);
+    }
+  }
+
+  .guard-section {
+    padding: 8px;
+  }
+
+  .guard-alert {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: $radius-md;
+    padding: 12px;
+  }
+
+  .guard-alert-title {
+    font-weight: 600;
+    color: #f59e0b;
+    margin-bottom: 8px;
+  }
+
+  .guard-alert-message {
+    color: $text-primary;
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+
+  .guard-alert-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .guard-alert-hint {
+    font-size: $font-size-xs;
+    color: $text-secondary;
   }
 }
 

@@ -217,6 +217,16 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 					})
 					fmt.Fprintf(rw, "event: tool_error\ndata: %s\n\n", errorData)
 					flusher.Flush()
+				case channel.ToolEventGuard:
+					guardData, _ := json.Marshal(map[string]interface{}{
+						"tool_name":      fileEvt.ToolName,
+						"args":           fileEvt.Args,
+						"guard_message":  fileEvt.GuardMessage,
+						"approval_id":    fileEvt.ApprovalID,
+						"approval_state": fileEvt.ApprovalState,
+					})
+					fmt.Fprintf(rw, "event: guard\ndata: %s\n\n", guardData)
+					flusher.Flush()
 				}
 			case <-keepaliveTicker.C:
 				// SSE 注释作为心跳，保持连接活跃（不触发前端 event handler）
