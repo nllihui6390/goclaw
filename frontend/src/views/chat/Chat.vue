@@ -226,6 +226,7 @@ async function send() {
           }
         } else if (event.type === 'guard') {
           // 处理安全守卫事件（审批通知）
+          // 去重：相同 approval_id 只保留最新状态，更新而非追加
           const guardCall = {
             name: event.tool_name,
             args: event.args,
@@ -233,9 +234,18 @@ async function send() {
             approval_id: event.approval_id,
             approval_state: event.approval_state,
             guard_message: event.guard_message,
-            expanded: true // 守卫事件默认展开
+            expanded: true
           }
-          toolCalls.push(guardCall)
+          if (event.approval_id) {
+            const existingIdx = toolCalls.findIndex(tc => tc.approval_id === event.approval_id)
+            if (existingIdx >= 0) {
+              toolCalls[existingIdx] = guardCall
+            } else {
+              toolCalls.push(guardCall)
+            }
+          } else {
+            toolCalls.push(guardCall)
+          }
           ensureAssistantMsg()
           messages.value[messages.value.length - 1].tool_calls = [...toolCalls]
         } else if (event.type === 'text') {

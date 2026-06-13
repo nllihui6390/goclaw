@@ -320,6 +320,32 @@ async function saveImageAs() {
     a.click()
   }
 }
+
+// ──── Approval actions ────
+async function handleApprove(approvalId) {
+  try {
+    await api.approveRequest(approvalId)
+    // 更新当前消息中对应 tool_call 的审批状态
+    if (props.tool_calls) {
+      const tc = props.tool_calls.find(t => t.approval_id === approvalId)
+      if (tc) tc.approval_state = 'approved'
+    }
+  } catch (e) {
+    console.error('[ChatMessage] 审批失败:', e)
+  }
+}
+
+async function handleDeny(approvalId) {
+  try {
+    await api.denyRequest(approvalId, '用户拒绝')
+    if (props.tool_calls) {
+      const tc = props.tool_calls.find(t => t.approval_id === approvalId)
+      if (tc) tc.approval_state = 'denied'
+    }
+  } catch (e) {
+    console.error('[ChatMessage] 拒绝失败:', e)
+  }
+}
 </script>
 
 <template>
@@ -365,8 +391,14 @@ async function saveImageAs() {
                   <div class="guard-alert-title">⚠️ 安全守卫拦截</div>
                   <div class="guard-alert-message">{{ tc.guard_message }}</div>
                   <div v-if="tc.approval_id && tc.approval_state === 'pending'" class="guard-alert-actions">
-                    <el-tag type="warning" size="small">审批ID: {{ tc.approval_id }}</el-tag>
-                    <span class="guard-alert-hint">请使用 /approval approve {{ tc.approval_id }} 批准，或 /approval deny {{ tc.approval_id }} 拒绝</span>
+                    <el-button type="success" size="small" @click="handleApprove(tc.approval_id)">批准</el-button>
+                    <el-button type="danger" size="small" @click="handleDeny(tc.approval_id)">拒绝</el-button>
+                  </div>
+                  <div v-else-if="tc.approval_state === 'approved'" class="guard-alert-status approved">
+                    ✓ 已批准，继续执行
+                  </div>
+                  <div v-else-if="tc.approval_state === 'denied'" class="guard-alert-status denied">
+                    ✗ 已拒绝
                   </div>
                 </div>
               </div>
@@ -658,9 +690,22 @@ async function saveImageAs() {
     margin-top: 8px;
   }
 
-  .guard-alert-hint {
-    font-size: $font-size-xs;
-    color: $text-secondary;
+  .guard-alert-status {
+    margin-top: 8px;
+    padding: 6px 12px;
+    border-radius: $radius-sm;
+    font-size: $font-size-sm;
+    font-weight: 500;
+
+    &.approved {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+
+    &.denied {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
   }
 }
 

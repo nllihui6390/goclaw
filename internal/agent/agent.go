@@ -178,6 +178,8 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	}
 	var toolExecRecords []toolExecRecord
 	var currentToolArgs string
+	// 用于 guard 事件去重：相同 approval_id 只保留最后一条
+	guardEventIndex := make(map[string]int) // approval_id -> index in toolExecRecords
 
 	wrappedHandler := func(event ToolEvent) {
 		// 收集内容块事件
@@ -211,15 +213,30 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			})
 		}
 		// 收集安全守卫事件（审批通知）
+		// 去重逻辑：相同 approval_id 的事件只保留最后一条（更新而非追加）
 		if event.Type == "guard" {
-			toolExecRecords = append(toolExecRecords, toolExecRecord{
+			record := toolExecRecord{
 				Name:          event.ToolName,
 				Args:          event.Args,
 				Status:        "guard",
 				ApprovalID:    event.ApprovalID,
 				ApprovalState: event.ApprovalState,
 				GuardMessage:  event.GuardMessage,
-			})
+			}
+			if event.ApprovalID != "" {
+				// 有 approval_id，检查是否已存在
+				if idx, exists := guardEventIndex[event.ApprovalID]; exists {
+					// 更新已存在的记录（保留最新状态）
+					toolExecRecords[idx] = record
+				} else {
+					// 新记录
+					guardEventIndex[event.ApprovalID] = len(toolExecRecords)
+					toolExecRecords = append(toolExecRecords, record)
+				}
+			} else {
+				// 无 approval_id（Deny 直接拒绝的情况），直接追加
+				toolExecRecords = append(toolExecRecords, record)
+			}
 		}
 		// 调用原始 handler
 		if handler != nil {
