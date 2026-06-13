@@ -32,6 +32,23 @@ func HandleCreateSession(rw http.ResponseWriter, r *http.Request) {
 	rw.Write([]byte(result))
 }
 
+// HandleGetLatestSession 获取指定 agent 的最新 session ID（GET）
+// 用于 console 通道恢复上次的会话
+func HandleGetLatestSession(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	agentName := r.URL.Query().Get("agent")
+	if agentName == "" {
+		agentName = "default"
+	}
+
+	sessionID := chatSvc.GetLatestSession(agentName)
+	writeJSON(rw, http.StatusOK, map[string]string{"session_id": sessionID})
+}
+
 // HandleChatHistory 获取会话历史记录
 func HandleChatHistory(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

@@ -186,6 +186,24 @@ func (idx *SessionIndex) Delete(uuid string) {
 	}
 }
 
+// GetLatestByAgent 获取指定 agent 最近使用的 session UUID
+// 用于 console 通道恢复上次的会话
+func (idx *SessionIndex) GetLatestByAgent(agent string) string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var latest *SessionIndexEntry
+	for _, e := range idx.entries {
+		if e.Agent == agent && (latest == nil || e.UpdatedAt > latest.UpdatedAt) {
+			latest = e
+		}
+	}
+	if latest != nil {
+		return latest.ID
+	}
+	return ""
+}
+
 // persistLocked 写入磁盘（需持有写锁，直接构建列表避免 List() 的死锁）
 func (idx *SessionIndex) persistLocked() {
 	list := make([]SessionIndexEntry, 0, len(idx.entries))

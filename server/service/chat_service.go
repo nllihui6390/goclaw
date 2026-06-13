@@ -58,6 +58,31 @@ func (c *ChatService) CreateSession(agentName string) string {
 	return string(data)
 }
 
+// GetLatestSession 获取指定 agent 的最新 session ID，如果没有则创建新的
+func (c *ChatService) GetLatestSession(agentName string) string {
+	if agentName == "" {
+		agentName = "default"
+	}
+
+	c.mu.RLock()
+	si := c.sessionIndex
+	c.mu.RUnlock()
+
+	if si != nil {
+		sessionID := si.GetLatestByAgent(agentName)
+		if sessionID != "" {
+			return sessionID
+		}
+	}
+
+	// 没有历史 session，创建新的
+	id := utils.UUID()
+	if si != nil {
+		si.EnsureEntry(id, "console", id, agentName)
+	}
+	return id
+}
+
 // SendMessage 发送消息并返回完整响应（包含 ContentBlocks + Metadata）
 func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 	c.mu.RLock()

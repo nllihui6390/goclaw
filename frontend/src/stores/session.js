@@ -17,7 +17,7 @@ export const useSessionStore = defineStore('session', () => {
     localStorage.setItem(`goclaw_session_${agent}`, id)
   }
 
-  /** 初始化会话：按 agent 查找或创建 */
+  /** 初始化会话：优先从后端获取最新 session，降级使用 localStorage */
   async function initSession(api, agentName) {
     currentAgent.value = agentName || 'default'
 
@@ -27,22 +27,35 @@ export const useSessionStore = defineStore('session', () => {
       return sessionId.value
     }
 
-    // 尝试复用已保存的 ID
+    // 优先从后端获取最新 session（实现跨设备同步）
+    try {
+      const sessionID = await api.getLatestSession(currentAgent.value)
+      if (sessionID) {
+        sessionId.value = sessionID
+        saveId(currentAgent.value, sessionID)
+        initialized.value[currentAgent.value] = true
+        return sessionID
+      }
+    } catch (e) {
+      console.warn('[SessionStore] getLatestSession failed, fallback to localStorage:', e)
+    }
+
+    // 降级：尝试使用 localStorage 中的缓存
     const saved = getStoredId(currentAgent.value)
     if (saved) {
       sessionId.value = saved
       initialized.value[currentAgent.value] = true
-      return sessionId.value
+      return saved
     }
 
-    // 首次启动：从后端获取新 UUID
+    // 最后降级：创建新 session
     try {
       const data = await api.createSession(currentAgent.value)
       sessionId.value = data.session_id
       saveId(currentAgent.value, sessionId.value)
       initialized.value[currentAgent.value] = true
     } catch {
-      // 降级：前端生成
+      // 最极端降级：前端生成 UUID
       sessionId.value = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
         const r = Math.random() * 16 | 0
         return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)

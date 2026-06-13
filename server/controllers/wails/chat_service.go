@@ -45,3 +45,8 @@ func (c *ChatService) SendMessage(sessionID, content, agentName string) string {
 func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 	return c.chatSvc.GetChatHistory(sessionID, agentName)
 }
+
+// GetLatestSession 获取指定 agent 的最新 session ID
+func (c *ChatService) GetLatestSession(agentName string) string {
+	return c.chatSvc.GetLatestSession(agentName)
+}

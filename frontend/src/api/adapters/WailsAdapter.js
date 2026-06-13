@@ -45,6 +45,18 @@ export class WailsAdapter {
     }
   }
 
+  // 获取指定 agent 的最新 session ID（优先从后端恢复）
+  async getLatestSession(agent) {
+    try {
+      const result = await Call.ByName('main.ChatService.GetLatestSession', agent || 'default')
+      // Wails 返回的是纯字符串（session UUID），不是 JSON
+      return result || ''
+    } catch (e) {
+      console.error('[WailsAdapter] getLatestSession error:', e)
+      return ''
+    }
+  }
+
   // 获取历史消息
   async getChatHistory(sessionId, agent) {
     try {

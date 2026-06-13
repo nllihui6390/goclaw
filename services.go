@@ -27,6 +27,10 @@ func (c *ChatService) GetChatHistory(sessionID, agentName string) string {
 	return c.inner.GetChatHistory(sessionID, agentName)
 }
 
+func (c *ChatService) GetLatestSession(agentName string) string {
+	return c.inner.GetLatestSession(agentName)
+}
+
 // AppService Wails 管理服务（薄包装层，保持在 main 包以保持绑定名 main.AppService）
 type AppService struct {
 	inner        *wailsCtrl.AppService

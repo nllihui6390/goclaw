@@ -11,6 +11,11 @@ export class HttpAdapter {
   // 创建新会话
   createSession(agent) { return http.post('/chat/session', { agent }).then(r => r.data) }
 
+  // 获取指定 agent 的最新 session ID
+  getLatestSession(agent) {
+    return http.get('/chat/session/latest', { params: { agent } }).then(r => r.data.session_id)
+  }
+
   // 对话（SSE 流式）
   // yield { type: 'text', content } 或 { type: 'file', info: {...} }
   async *sendMessage(sessionId, content, agent) {

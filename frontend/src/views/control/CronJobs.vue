@@ -490,7 +490,6 @@ function getTypeIcon(type) {
 
 .card-actions {
   display: flex;
-  gap: 8px;
   flex-shrink: 0;
 }
 
