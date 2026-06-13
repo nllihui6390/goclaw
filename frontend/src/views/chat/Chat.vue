@@ -60,7 +60,10 @@ async function loadHistory() {
               result: tc.result,
               error: tc.error,
               status: tc.status || 'success',
-              expanded: false,
+              approval_id: tc.approval_id,
+              approval_state: tc.approval_state,
+              guard_message: tc.guard_message,
+              expanded: tc.status === 'guard' ? true : false,
             })),
             files: undefined
           }
