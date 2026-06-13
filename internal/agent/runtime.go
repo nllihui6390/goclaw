@@ -144,20 +144,19 @@ func extractAndStripThinkTags(content string) (thinking string, stripped string)
 	return strings.Join(thinkingParts, "\n"), strings.TrimSpace(result)
 }
 
-func shouldForceContinue(resp *ChatMessage, hasTools bool) bool {
+// shouldForceContinue 判断是否需要续推, 返回 (是否续推, 是否为不合格内容)
+func shouldForceContinue(resp *ChatMessage, hasTools bool) (bool, bool) {
 	// 有工具调用 → 不需要续推
 	if len(resp.ToolCalls) > 0 {
-		return false
+		return false, false
 	}
-
 	// 没有可用工具 → 不需要续推（无法执行工具）
 	if !hasTools {
-		return false
+		return false, false
 	}
-
 	// finish_reason == "length" → 响应被截断，必须续推
 	if resp.FinishReason == "length" {
-		return true
+		return true, false
 	}
 
 	visible := strings.TrimSpace(stripThinkTags(resp.Content))
@@ -167,18 +166,18 @@ func shouldForceContinue(resp *ChatMessage, hasTools bool) bool {
 		// DeepSeek 特殊处理：如果 reasoning_content 有充分内容，模型已完成推理
 		// 但可能还需要输出结果或调用工具，仍需续推
 		if len([]rune(resp.ReasoningContent)) >= 100 {
-			return true
+			return true, true
 		}
-		return true
+		return true, true
 	}
 
 	// 极短内容（<=3字符）→ 需要续推
 	if len([]rune(visible)) <= 3 {
-		return true
+		return true, true
 	}
 
 	// 其他情况：有任何文本内容 + 无工具调用 → 一律续推
-	return true
+	return true, false
 }
 
 // getTailContext 获取消息内容的尾部摘录（供模型自检）
@@ -372,19 +371,15 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		if handler != nil {
 			// 从 content 中提取思考内容，合并到 ReasoningContent
 			extractedThinking, _ := extractAndStripThinkTags(resp.Content)
-
 			thinkingContent := resp.ReasoningContent
 			if extractedThinking != "" {
 				thinkingContent = thinkingContent + extractedThinking
 			}
-			// if thinkingContent == "" {
-			// 	thinkingContent = resp.Content
-			// }
 			if thinkingContent != "" {
 				handler(ToolEvent{Type: "thinking", Thinking: thinkingContent})
 			}
 		}
-
+		// 处理无工具调用的情况（纯文本回复）
 		if len(resp.ToolCalls) == 0 {
 			visible := stripThinkTags(resp.Content)
 			if visible == "" {
@@ -409,9 +404,11 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			}
 
 			// 第一次纯文本 → 保存后继续，给模型一次调用工具的机会
-			if shouldForceContinue(resp, len(tools) > 0) {
-				savedTextResponse = visible
-				savedTextReasoning = resp.ReasoningContent
+			if aa, bb := shouldForceContinue(resp, len(tools) > 0); aa {
+				if bb == false {
+					savedTextResponse = visible
+					savedTextReasoning = resp.ReasoningContent
+				}
 				autoContinueCount++
 				logger.Info("[Runtime] first text-only, saving and continuing",
 					"count", autoContinueCount, "visible_len", len(visible))
