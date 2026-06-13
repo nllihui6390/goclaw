@@ -406,7 +406,7 @@ async function confirmNewChat() {
 
       <!-- Empty state -->
       <div v-if="messages.length === 0" class="chat-empty">
-        <h2 class="empty-title">go-claw AI Agent</h2>
+        <h2 class="empty-title">go-claw 智能助手</h2>
         <p class="empty-subtitle">在下方输入消息开始对话</p>
       </div>
     </div>
