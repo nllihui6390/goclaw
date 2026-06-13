@@ -524,7 +524,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 			toolMsg := ChatMessage{
 				Role:       "tool",
 				ToolCallID: tc.ID,
-				Content:    result + "\n\n如果任务尚未完成，请继续执行。",
+				Content:    result + toolContinueSuffix(result),
 			}
 			messages = append(messages, toolMsg)
 		}
@@ -1800,4 +1800,13 @@ func extractXMLToolCallsWithCleanup(content string) ([]ToolCall, string) {
 	cleaned = strings.TrimSpace(cleaned)
 
 	return toolCalls, cleaned
+}
+
+// toolContinueSuffix 根据工具结果决定后续提示
+// 安全守卫拒绝的结果需要特殊提示，避免 LLM 误解为执行成功并重复尝试
+func toolContinueSuffix(result string) string {
+	if strings.HasPrefix(result, "操作被拒绝:") || strings.HasPrefix(result, "操作被用户拒绝:") {
+		return "\n\n⚠️ 该命令已被安全守卫拦截，未执行。请不要重复尝试相同的危险命令。"
+	}
+	return "\n\n如果任务尚未完成，请继续执行。"
 }
