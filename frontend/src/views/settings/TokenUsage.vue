@@ -119,6 +119,20 @@ const byDateTableData = computed(() => {
     .sort((a, b) => b.date.localeCompare(a.date))
 })
 
+// 分页状态
+const byModelPage = ref(1)
+const byDatePage = ref(1)
+
+// 分页后的数据
+const pagedByModelData = computed(() => {
+  const start = (byModelPage.value - 1) * 10
+  return byModelTableData.value.slice(start, start + 10)
+})
+const pagedByDateData = computed(() => {
+  const start = (byDatePage.value - 1) * 10
+  return byDateTableData.value.slice(start, start + 10)
+})
+
 // 格式化数字（紧凑格式）
 function formatCompact(num) {
   if (num >= 1_000_000) {
@@ -440,26 +454,44 @@ onMounted(() => {
           <template #header>
             <span>按模型统计</span>
           </template>
-          <el-table :data="byModelTableData" size="small" stripe>
+          <el-table :data="pagedByModelData" size="small" stripe>
             <el-table-column prop="model" label="模型" />
             <el-table-column prop="prompt_tokens" label="输入 Token" :formatter="(row) => formatCompact(row.prompt_tokens)" sortable />
             <el-table-column prop="completion_tokens" label="输出 Token" :formatter="(row) => formatCompact(row.completion_tokens)" sortable />
             <el-table-column label="总 Token" :formatter="(row) => formatCompact(row.prompt_tokens + row.completion_tokens)" sortable />
             <el-table-column prop="call_count" label="调用次数" :formatter="(row) => formatCompact(row.call_count)" sortable />
           </el-table>
+          <el-pagination
+            v-if="byModelTableData.length > 10"
+            :current-page="byModelPage"
+            :page-size="10"
+            :total="byModelTableData.length"
+            layout="prev, pager, next"
+            @current-change="(p) => byModelPage = p"
+            style="margin-top: 12px; justify-content: center;"
+          />
         </el-card>
 
         <el-card v-if="byDateTableData.length > 0" class="table-card">
           <template #header>
             <span>按日期统计</span>
           </template>
-          <el-table :data="byDateTableData" size="small" stripe>
+          <el-table :data="pagedByDateData" size="small" stripe>
             <el-table-column prop="date" label="日期" />
             <el-table-column prop="prompt_tokens" label="输入 Token" :formatter="(row) => formatCompact(row.prompt_tokens)" sortable />
             <el-table-column prop="completion_tokens" label="输出 Token" :formatter="(row) => formatCompact(row.completion_tokens)" sortable />
             <el-table-column label="总 Token" :formatter="(row) => formatCompact(row.prompt_tokens + row.completion_tokens)" sortable />
             <el-table-column prop="call_count" label="调用次数" :formatter="(row) => formatCompact(row.call_count)" sortable />
           </el-table>
+          <el-pagination
+            v-if="byDateTableData.length > 10"
+            :current-page="byDatePage"
+            :page-size="10"
+            :total="byDateTableData.length"
+            layout="prev, pager, next"
+            @current-change="(p) => byDatePage = p"
+            style="margin-top: 12px; justify-content: center;"
+          />
         </el-card>
       </div>
 
