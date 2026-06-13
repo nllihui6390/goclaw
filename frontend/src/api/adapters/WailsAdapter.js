@@ -483,4 +483,24 @@ export class WailsAdapter {
       return { error: e.message }
     }
   }
+
+  // Token 使用量
+  async getTokenUsage(params) {
+    try {
+      const json = await Call.ByName('main.AppService.GetTokenUsage', JSON.stringify(params))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getTokenUsage error:', e)
+      return null
+    }
+  }
+  async getTokenUsageDetails(params) {
+    try {
+      const json = await Call.ByName('main.AppService.GetTokenUsageDetails', JSON.stringify(params))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getTokenUsageDetails error:', e)
+      return []
+    }
+  }
 }

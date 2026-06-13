@@ -163,3 +163,7 @@ func (a *AppService) GetSecurityConfig() string                 { return a.inner
 func (a *AppService) UpdateSecurityConfig(configJSON string) string {
 	return a.inner.UpdateSecurityConfig(configJSON)
 }
+
+// Token 使用量相关操作
+func (a *AppService) GetTokenUsage(paramsJSON string) string        { return a.inner.GetTokenUsage(paramsJSON) }
+func (a *AppService) GetTokenUsageDetails(paramsJSON string) string { return a.inner.GetTokenUsageDetails(paramsJSON) }

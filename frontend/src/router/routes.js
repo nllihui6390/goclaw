@@ -89,6 +89,12 @@ export const appRoutes = [
     meta: { title: '环境变量', menuLabel: '环境变量', icon: 'Key', menuGroup: '设置' }
   },
   {
+    path: '/token-usage',
+    name: 'TokenUsage',
+    component: () => import('@/views/settings/TokenUsage.vue'),
+    meta: { title: 'Token 消耗', menuLabel: 'Token消耗', icon: 'Coin', menuGroup: '设置' }
+  },
+  {
     path: '/debug',
     name: 'Debug',
     component: () => import('@/views/settings/Debug.vue'),

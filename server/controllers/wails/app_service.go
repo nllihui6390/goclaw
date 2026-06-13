@@ -23,19 +23,20 @@ import (
 // AppService Wails 管理服务
 type AppService struct {
 	// service instances
-	configSvc   *service.ConfigService
-	sessionSvc  *service.SessionService
-	agentSvc    *service.AgentService
-	channelSvc  *service.ChannelService
-	providerSvc *service.ProviderService
-	toolSvc     *service.ToolService
-	skillSvc    *service.SkillService
-	cronSvc     *service.CronService
-	logSvc      *service.LogService
-	statusSvc   *service.StatusService
-	fileSvc     *service.FileService
-	qrcodeSvc   *service.QRCodeService
-	envVarSvc   *service.EnvVarService
+	configSvc      *service.ConfigService
+	sessionSvc     *service.SessionService
+	agentSvc       *service.AgentService
+	channelSvc     *service.ChannelService
+	providerSvc    *service.ProviderService
+	toolSvc        *service.ToolService
+	skillSvc       *service.SkillService
+	cronSvc        *service.CronService
+	logSvc         *service.LogService
+	statusSvc      *service.StatusService
+	fileSvc        *service.FileService
+	qrcodeSvc      *service.QRCodeService
+	envVarSvc      *service.EnvVarService
+	tokenUsageSvc  *service.TokenUsageService
 }
 
 // NewAppService 创建 AppService
@@ -63,6 +64,7 @@ func (a *AppService) initServices() {
 	a.fileSvc = service.NewFileService(a.configSvc)
 	a.qrcodeSvc = service.NewQRCodeService(a.configSvc)
 	a.envVarSvc = service.NewEnvVarService(a.configSvc)
+	a.tokenUsageSvc = service.NewTokenUsageService(global.GetDataDir())
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()
@@ -778,4 +780,36 @@ func (a *AppService) ReloadEnvVars() string {
 		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
 	}
 	return `{"status":"ok"}`
+}
+
+// GetTokenUsage 获取 Token 使用量摘要
+func (a *AppService) GetTokenUsage(paramsJSON string) string {
+	var params struct {
+		StartDate string `json:"start_date"`
+		EndDate   string `json:"end_date"`
+		Model     string `json:"model"`
+		Provider  string `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	summary := a.tokenUsageSvc.GetSummary(params.StartDate, params.EndDate, params.Model, params.Provider)
+	data, _ := json.Marshal(summary)
+	return string(data)
+}
+
+// GetTokenUsageDetails 获取原始 Token 使用记录
+func (a *AppService) GetTokenUsageDetails(paramsJSON string) string {
+	var params struct {
+		StartDate string `json:"start_date"`
+		EndDate   string `json:"end_date"`
+		Model     string `json:"model"`
+		Provider  string `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	records := a.tokenUsageSvc.GetDetails(params.StartDate, params.EndDate, params.Model, params.Provider)
+	data, _ := json.Marshal(records)
+	return string(data)
 }

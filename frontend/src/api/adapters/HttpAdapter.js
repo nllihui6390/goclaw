@@ -184,6 +184,20 @@ export class HttpAdapter {
   updateEnvVar(entry) { return http.post('/updateEnvVars', entry).then(r => r.data) }
   deleteEnvVar(key) { return http.post('/deleteEnvVars', { key }).then(r => r.data) }
   reloadEnvVars() { return http.post('/reloadEnvVars').then(r => r.data) }
+
+  // Token 使用量
+  getTokenUsage(params) {
+    const search = new URLSearchParams({ start_date: params.start_date, end_date: params.end_date })
+    if (params.model) search.set('model', params.model)
+    if (params.provider) search.set('provider', params.provider)
+    return http.get(`/token-usage?${search.toString()}`).then(r => r.data)
+  }
+  getTokenUsageDetails(params) {
+    const search = new URLSearchParams({ start_date: params.start_date, end_date: params.end_date })
+    if (params.model) search.set('model', params.model)
+    if (params.provider) search.set('provider', params.provider)
+    return http.get(`/token-usage/details?${search.toString()}`).then(r => r.data)
+  }
 }
 
 export default new HttpAdapter()

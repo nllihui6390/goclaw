@@ -17,6 +17,7 @@ import (
 	"go-claw/internal/multiagent"
 	"go-claw/internal/proactive"
 	"go-claw/internal/security"
+	"go-claw/internal/token_usage"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 	"go-claw/pkg/utils"
@@ -28,6 +29,8 @@ func (app *App) initInbox() {
 	// 设置全局数据目录（用于工具的临时文件和媒体存储）
 	tool.SetGlobalDataDir(app.DataDir)
 	media.SetDataDir(app.DataDir)
+	// 初始化 Token 使用量管理器
+	token_usage.Init(app.DataDir)
 	app.logger.Info("Inbox 系统已初始化")
 }
 

@@ -12,20 +12,21 @@ import (
 )
 
 var (
-	sessionSvc  *service.SessionService
-	configSvc   *service.ConfigService
-	agentSvc    *service.AgentService
-	channelSvc  *service.ChannelService
-	providerSvc *service.ProviderService
-	toolSvc     *service.ToolService
-	skillSvc    *service.SkillService
-	cronSvc     *service.CronService
-	logSvc      *service.LogService
-	statusSvc   *service.StatusService
-	fileSvc     *service.FileService
-	chatSvc     *service.ChatService
-	qrcodeSvc   *service.QRCodeService
-	envVarSvc   *service.EnvVarService
+	sessionSvc      *service.SessionService
+	configSvc       *service.ConfigService
+	agentSvc        *service.AgentService
+	channelSvc      *service.ChannelService
+	providerSvc     *service.ProviderService
+	toolSvc         *service.ToolService
+	skillSvc        *service.SkillService
+	cronSvc         *service.CronService
+	logSvc          *service.LogService
+	statusSvc       *service.StatusService
+	fileSvc         *service.FileService
+	chatSvc         *service.ChatService
+	qrcodeSvc       *service.QRCodeService
+	envVarSvc       *service.EnvVarService
+	tokenUsageSvc   *service.TokenUsageService
 )
 
 var servicesInited bool
@@ -55,6 +56,10 @@ func InitServices() {
 	qrcodeSvc = service.NewQRCodeService(configSvc)
 
 	envVarSvc = service.NewEnvVarService(configSvc)
+
+	// Token 使用量服务
+	dataDir := global.GetDataDir()
+	tokenUsageSvc = service.NewTokenUsageService(dataDir)
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()

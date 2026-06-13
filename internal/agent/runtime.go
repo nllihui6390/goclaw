@@ -10,6 +10,7 @@ import (
 	"go-claw/internal/channel"
 	"go-claw/internal/security"
 	"go-claw/internal/skill"
+	"go-claw/internal/token_usage"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 	"io"
@@ -809,6 +810,16 @@ func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessa
 		"usage_completion", llmResp.Usage.CompletionTokens,
 		"usage_total", llmResp.Usage.TotalTokens,
 		"elapsed_ms", elapsed.Milliseconds())
+
+	// 记录 Token 使用量到管理器
+	if llmResp.Usage.PromptTokens > 0 || llmResp.Usage.CompletionTokens > 0 {
+		providerID := "default"
+		modelName := llmResp.Model
+		if modelName == "" {
+			modelName = rtCfg.Model
+		}
+		token_usage.Record(providerID, modelName, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens)
+	}
 
 	if len(msg.ToolCalls) > 0 {
 		for i, tc := range msg.ToolCalls {

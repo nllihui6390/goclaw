@@ -99,6 +99,10 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/security/deny", api.HandleDenyRequest)
 	mux.HandleFunc("/api/v1/security/config", api.HandleSecurityConfig)
 
+	// Token 使用量 API
+	mux.HandleFunc("/api/v1/token-usage", api.HandleTokenUsage)
+	mux.HandleFunc("/api/v1/token-usage/details", api.HandleTokenUsageDetails)
+
 	// 前端 SPA
 	mux.HandleFunc("/", serveFrontend)
 
