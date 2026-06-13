@@ -66,12 +66,17 @@ type MCPConfig struct {
 
 // MCPServerConfig MCP 服务器配置
 type MCPServerConfig struct {
-	Name    string            `json:"name"`
-	Command string            `json:"command"`
-	URL     string            `json:"url"`
-	Args    []string          `json:"args"`
-	Env     map[string]string `json:"env"`
-	Enabled bool              `json:"enabled"`
+	Key         string            `json:"key"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Enabled     bool              `json:"enabled"`
+	Transport   string            `json:"transport"` // stdio / streamable_http / sse
+	URL         string            `json:"url"`
+	Headers     map[string]string `json:"headers"`
+	Command     string            `json:"command"`
+	Args        []string          `json:"args"`
+	Env         map[string]string `json:"env"`
+	Cwd         string            `json:"cwd"`
 }
 
 // ACPConfig ACP 协议配置

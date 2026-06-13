@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject, onMounted, computed } from 'vue'
+import { ref, inject, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAgentStore } from '@/stores/agent'
 
@@ -9,23 +9,44 @@ const agentStore = useAgentStore()
 const loading = ref(false)
 const servers = ref([])
 const toolsDialogVisible = ref(false)
+const toolsLoading = ref(false)
 const createDialogVisible = ref(false)
-const jsonImportVisible = ref(false)
+const authDialogVisible = ref(false)
 const currentTools = ref([])
 const currentServerName = ref('')
+const authServerUrl = ref('')
 
-// 创建模式: 'form' | 'json'
+// 编辑状态
+const isEditing = ref(false)
+const editingOriginalName = ref('')
+
+// 创建/编辑模式: 'form' | 'json'
 const createMode = ref('form')
 
-// JSON 导入文本
-const importJson = ref('')
+// JSON 编辑文本（与表单双向同步）
+const formJson = ref('')
+
+// 表单→JSON 转换
+function formToJson() {
+  const config = {
+    name: form.value.key || form.value.name,
+    command: form.value.transport === 'stdio' ? form.value.command : '',
+    url: form.value.transport !== 'stdio' ? form.value.url : '',
+    args: parseArgs(form.value.args),
+    env: parseEnv(form.value.env),
+    enabled: true,
+  }
+  if (form.value.description) config.description = form.value.description
+  if (form.value.transport !== 'stdio') config.transport = form.value.transport
+  formJson.value = JSON.stringify(config, null, 2)
+}
 
 // 表单
 const form = ref({
   key: '',
   name: '',
   description: '',
-  transport: 'stdio',
+  transport: 'streamable_http',
   command: '',
   url: '',
   args: '',
@@ -76,13 +97,27 @@ async function handleDelete(row) {
 
 async function showTools(row) {
   currentServerName.value = row.name
+  currentTools.value = []
+  toolsLoading.value = true
+  toolsDialogVisible.value = true
   try {
     const tools = await api.getMCPServerTools(row.name)
     currentTools.value = tools || []
-    toolsDialogVisible.value = true
   } catch (e) {
     ElMessage.error('获取工具列表失败')
+  } finally {
+    toolsLoading.value = false
   }
+}
+
+function openAuth(row) {
+  currentServerName.value = row.name
+  authServerUrl.value = row.url || ''
+  authDialogVisible.value = true
+}
+
+function showSchema(row) {
+  ElMessageBox.alert(JSON.stringify(row.inputSchema, null, 2), `${row.name} - 参数 Schema`)
 }
 
 // 解析 HTTP headers
@@ -154,129 +189,130 @@ function normalizeClientData(key, raw) {
   }
 }
 
-// JSON 导入处理
-async function handleJsonImport() {
-  if (!importJson.value.trim()) {
-    ElMessage.warning('请输入 JSON 配置')
-    return
-  }
-
-  let parsed
-  try {
-    parsed = JSON.parse(importJson.value)
-  } catch {
-    ElMessage.error('无效的 JSON 格式')
-    return
-  }
-
-  const clientsToCreate = []
-
-  if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
-    // 格式1: { "mcpServers": { "key": {...} } }
-    Object.entries(parsed.mcpServers).forEach(([key, data]) => {
-      if (typeof data === 'object' && data !== null) {
-        clientsToCreate.push({ key, data: normalizeClientData(key, data) })
-      }
-    })
-  } else if (parsed.key && (parsed.command || parsed.url || parsed.baseUrl)) {
-    // 格式2: { "key": "...", "command": "..." }
-    const { key, ...clientData } = parsed
-    clientsToCreate.push({ key, data: normalizeClientData(key, clientData) })
-  } else {
-    // 格式3: { "key1": {...}, "key2": {...} }
-    Object.entries(parsed).forEach(([key, data]) => {
-      if (typeof data === 'object' && data !== null && (data.command || data.url || data.baseUrl)) {
-        clientsToCreate.push({ key, data: normalizeClientData(key, data) })
-      }
-    })
-  }
-
-  if (clientsToCreate.length === 0) {
-    ElMessage.warning('未找到有效的 MCP Server 配置')
-    return
-  }
-
-  let created = 0
-  let failed = 0
-  for (const { data } of clientsToCreate) {
+function buildConfigFromData() {
+  if (createMode.value === 'json') {
     try {
-      await api.createMCPServer(agent.value, {
-        name: data.name,
-        command: data.command,
-        url: data.url,
-        args: data.args,
-        env: data.env,
-        enabled: data.enabled,
-      })
-      created++
+      let parsed = JSON.parse(formJson.value || '{}')
+      // 处理 mcpServers 包装格式：取第一个
+      if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
+        const entries = Object.entries(parsed.mcpServers)
+        if (entries.length > 0) {
+          parsed = { key: entries[0][0], ...entries[0][1] }
+        }
+      }
+      // 处理键值对格式：取第一个有效条目
+      if (!parsed.name && !parsed.key && !parsed.command && !parsed.url) {
+        const entries = Object.entries(parsed).filter(([, v]) => typeof v === 'object' && v !== null && (v.command || v.url))
+        if (entries.length > 0) {
+          parsed = { key: entries[0][0], ...entries[0][1] }
+        }
+      }
+      const key = parsed.name || parsed.key || ''
+      const data = normalizeClientData(key, parsed)
+      if (!data.name) {
+        ElMessage.warning('请输入 name')
+        return null
+      }
+      return buildFullConfig(data)
     } catch {
-      failed++
-      ElMessage.error(`创建 "${data.name}" 失败`)
+      ElMessage.error('JSON 格式无效')
+      return null
     }
-  }
-
-  if (created > 0) {
-    ElMessage.success(`成功创建 ${created} 个 MCP Server${failed > 0 ? `，${failed} 个失败` : ''}`)
-    jsonImportVisible.value = false
-    importJson.value = ''
-    loadServers()
+  } else {
+    const name = form.value.key || form.value.name
+    if (!name) {
+      ElMessage.warning('请输入 name')
+      return null
+    }
+    return buildFullConfig({
+      key: name,
+      name,
+      description: form.value.description,
+      transport: form.value.transport,
+      command: form.value.transport === 'stdio' ? form.value.command : '',
+      url: form.value.transport !== 'stdio' ? form.value.url : '',
+      args: parseArgs(form.value.args),
+      env: parseEnv(form.value.env),
+      headers: parseHeaders(form.value.headers),
+      cwd: form.value.cwd,
+    })
   }
 }
 
-// 表单创建处理
-async function handleCreate() {
-  if (!form.value.key && !form.value.name) {
-    ElMessage.warning('请输入 name')
-    return
-  }
-  const serverName = form.value.key || form.value.name
-
-  if (form.value.transport === 'stdio' && !form.value.command) {
-    ElMessage.warning('Stdio 模式需要填写命令')
-    return
-  }
-  if (form.value.transport !== 'stdio' && !form.value.url) {
-    ElMessage.warning('HTTP/SSE 模式需要填写 URL')
-    return
-  }
-
-  const config = {
-    name: serverName,
-    command: form.value.transport === 'stdio' ? form.value.command : '',
-    url: form.value.transport !== 'stdio' ? form.value.url : '',
-    args: parseArgs(form.value.args),
-    env: parseEnv(form.value.env),
-    enabled: true,
-  }
+async function handleSave() {
+  const config = buildConfigFromData()
+  if (!config) return
 
   try {
-    await api.createMCPServer(agent.value, config)
-    ElMessage.success('创建成功')
+    if (isEditing.value) {
+      await api.updateMCPServer(agent.value, editingOriginalName.value, config)
+      ElMessage.success('更新成功')
+    } else {
+      await api.createMCPServer(agent.value, config)
+      ElMessage.success('创建成功')
+    }
     createDialogVisible.value = false
+    isEditing.value = false
     resetForm()
     loadServers()
   } catch (e) {
-    ElMessage.error('创建失败')
+    ElMessage.error(isEditing.value ? '更新失败' : '创建失败')
   }
 }
 
 function resetForm() {
   form.value = {
     key: '', name: '', description: '',
-    transport: 'stdio', command: '', url: '',
+    transport: 'streamable_http', command: '', url: '',
     args: '', env: '', cwd: '', headers: ''
   }
 }
 
+// 构建完整格式的 MCP 配置
+function buildFullConfig(overrides = {}) {
+  return {
+    key: overrides.key || overrides.name || '',
+    name: overrides.name || '',
+    description: overrides.description || '',
+    enabled: overrides.enabled ?? true,
+    transport: overrides.transport || 'streamable_http',
+    url: overrides.url || '',
+    headers: overrides.headers || {},
+    command: overrides.command || '',
+    args: overrides.args || [],
+    env: overrides.env || {},
+    cwd: overrides.cwd || '',
+    oauth_status: null,
+  }
+}
+
 function openCreate() {
-  createMode.value = 'form'
+  isEditing.value = false
+  editingOriginalName.value = ''
+  createMode.value = 'json'
   resetForm()
+  formJson.value = JSON.stringify(buildFullConfig(), null, 2)
   createDialogVisible.value = true
 }
 
-function openJsonImport() {
-  importJson.value = ''
-  jsonImportVisible.value = true
+function openEdit(server) {
+  isEditing.value = true
+  editingOriginalName.value = server.name
+  createMode.value = 'json'
+  formJson.value = JSON.stringify(buildFullConfig({
+    key: server.key || server.name,
+    name: server.name,
+    description: server.description || '',
+    enabled: server.enabled,
+    transport: server.transport || (server.command ? 'stdio' : 'streamable_http'),
+    url: server.url || '',
+    headers: server.headers || {},
+    command: server.command || '',
+    args: server.args || [],
+    env: server.env || {},
+    cwd: server.cwd || '',
+  }), null, 2)
+  createDialogVisible.value = true
 }
 
 onMounted(() => {
@@ -290,7 +326,6 @@ onMounted(() => {
     <div class="header">
       <h2>MCP 集成</h2>
       <div class="header-actions">
-        <el-button @click="openJsonImport">JSON 导入</el-button>
         <el-button type="primary" @click="openCreate">新建 Server</el-button>
       </div>
     </div>
@@ -306,7 +341,12 @@ onMounted(() => {
       <el-card v-for="server in servers" :key="server.name" class="server-card">
         <template #header>
           <div class="card-header">
-            <span class="server-name">{{ server.name }}</span>
+            <div class="header-left">
+              <span class="server-name">{{ server.name }}</span>
+              <el-tag :type="server.connected ? 'success' : 'info'" size="small" class="status-tag">
+                {{ server.connected ? '已连接' : '未连接' }}
+              </el-tag>
+            </div>
             <el-switch :model-value="server.enabled" @change="handleToggle(server)" />
           </div>
         </template>
@@ -325,19 +365,15 @@ onMounted(() => {
             <span class="value code">{{ server.url }}</span>
           </div>
           <div class="info-row">
-            <span class="label">状态:</span>
-            <el-tag :type="server.connected ? 'success' : 'info'" size="small">
-              {{ server.connected ? '已连接' : '未连接' }}
-            </el-tag>
-          </div>
-          <div class="info-row">
             <span class="label">工具数:</span>
             <span class="value">{{ server.tools_count || 0 }}</span>
           </div>
         </div>
 
         <div class="card-actions">
-          <el-button size="small" @click="showTools(server)">查看工具</el-button>
+          <el-button size="small" @click="showTools(server)">工具</el-button>
+          <el-button v-if="server.url" size="small" type="warning" @click="openAuth(server)">授权</el-button>
+          <el-button size="small" type="primary" @click="openEdit(server)">编辑</el-button>
           <el-button size="small" type="danger" @click="handleDelete(server)">删除</el-button>
         </div>
       </el-card>
@@ -347,20 +383,40 @@ onMounted(() => {
     <el-empty v-else description="暂无 MCP Server" />
 
     <!-- 工具列表弹窗 -->
-    <el-dialog v-model="toolsDialogVisible" :title="`${currentServerName} - 工具列表`" width="600px">
-      <el-table :data="currentTools" size="small" stripe>
-        <el-table-column prop="name" label="名称" width="180" />
+    <el-dialog v-model="toolsDialogVisible" :title="`${currentServerName} - 工具列表`" width="700px">
+      <div v-if="toolsLoading" class="loading-inline">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span>加载中...</span>
+      </div>
+      <el-table v-else-if="currentTools.length > 0" :data="currentTools" size="small" stripe height="360">
+        <el-table-column prop="name" label="名称" width="200" />
         <el-table-column prop="description" label="描述" />
+        <el-table-column prop="inputSchema" label="参数" width="80">
+          <template #default="{ row }">
+            <el-button v-if="row.inputSchema" size="small" link type="primary" @click="showSchema(row)">查看</el-button>
+          </template>
+        </el-table-column>
       </el-table>
+      <el-empty v-else description="暂无工具" />
     </el-dialog>
 
-    <!-- 创建弹窗 -->
-    <el-dialog v-model="createDialogVisible" title="新建 MCP Server" width="560px">
-      <!-- 模式切换 -->
-      <div class="mode-tabs">
+    <!-- 授权弹窗 -->
+    <el-dialog v-model="authDialogVisible" :title="`${currentServerName} - 授权`" width="500px">
+      <p class="auth-hint">Remote MCP Server 需要 OAuth 2.1 授权。</p>
+      <p class="auth-hint">当前 Server URL: <code>{{ authServerUrl }}</code></p>
+      <p class="auth-hint">可通过浏览器访问该 Server 完成授权后，刷新此页面。</p>
+      <template #footer>
+        <el-button @click="authDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 创建/编辑弹窗 -->
+    <el-dialog v-model="createDialogVisible" :title="isEditing ? '编辑 MCP Server' : '新建 MCP Server'" width="700px">
+      <!-- 模式切换（仅新建时显示） -->
+      <div v-if="!isEditing" class="mode-tabs">
         <el-radio-group v-model="createMode" size="small">
-          <el-radio-button value="form">表单创建</el-radio-button>
-          <el-radio-button value="json">JSON 导入</el-radio-button>
+          <el-radio-button value="json">JSON</el-radio-button>
+          <el-radio-button value="form">表单</el-radio-button>
         </el-radio-group>
       </div>
 
@@ -410,45 +466,26 @@ onMounted(() => {
         </template>
       </el-form>
 
-      <!-- JSON 导入模式 -->
-      <div v-else class="json-import-section">
+      <!-- JSON 模式 -->
+      <div v-else class="json-section">
         <p class="json-hint">
           支持三种格式：<br/>
-          ① mcpServers 包装：<code>{"mcpServers":{"key":{"command":"..."}}}</code><br/>
-          ② 单条格式：<code>{"key":"...","name":"...","command":"..."}</code><br/>
+          ① 单条格式：<code>{"name":"...","command":"..."}</code><br/>
+          ② mcpServers 包装：<code>{"mcpServers":{"key":{"command":"..."}}}</code><br/>
           ③ 键值对格式：<code>{"key":{"command":"..."}}</code>
         </p>
-        <el-input v-model="importJson" type="textarea" :rows="12"
-          placeholder='{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/path"]}}}'
+        <el-input v-model="formJson" type="textarea" :rows="14"
+          placeholder='{"name":"filesystem","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/path"]}'
         />
-        <el-button type="primary" @click="handleJsonImport" style="margin-top:12px;width:100%">
-          导入并创建
-        </el-button>
       </div>
 
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button v-if="createMode === 'form'" type="primary" @click="handleCreate">创建</el-button>
+        <el-button type="primary" @click="handleSave">{{ isEditing ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
 
-    <!-- JSON 导入弹窗 -->
-    <el-dialog v-model="jsonImportVisible" title="JSON 导入 MCP Server" width="560px">
-      <p class="json-hint">
-        支持三种格式：<br/>
-        ① mcpServers 包装：<code>{"mcpServers":{"key":{"command":"..."}}}</code><br/>
-        ② 单条格式：<code>{"key":"...","name":"...","command":"..."}</code><br/>
-        ③ 键值对格式：<code>{"key":{"command":"..."}}</code>
-      </p>
-      <el-input v-model="importJson" type="textarea" :rows="14"
-        placeholder='{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/path"]}}}'
-      />
-      <template #footer>
-        <el-button @click="jsonImportVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleJsonImport">导入并创建</el-button>
-      </template>
-    </el-dialog>
-  </div>
+    </div>
 </template>
 
 <style lang="scss" scoped>
@@ -485,13 +522,38 @@ onMounted(() => {
   color: $text-muted;
 }
 
+.loading-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 80px;
+  color: $text-muted;
+}
+
 .mode-tabs {
   margin-bottom: 16px;
 }
 
-.json-import-section {
+.json-section {
   .json-hint {
     margin-bottom: 12px;
+  }
+}
+
+.auth-hint {
+  font-size: 13px;
+  color: $text-muted;
+  margin-bottom: 8px;
+  line-height: 1.6;
+
+  code {
+    font-family: monospace;
+    font-size: 12px;
+    background: $bg-glass-light;
+    padding: 1px 4px;
+    border-radius: 3px;
+    word-break: break-all;
   }
 }
 
@@ -521,6 +583,16 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status-tag {
+    flex-shrink: 0;
   }
 
   .server-name {

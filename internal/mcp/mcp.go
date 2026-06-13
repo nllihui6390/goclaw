@@ -2,12 +2,15 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,12 +19,17 @@ import (
 
 // ServerConfig MCP 服务器配置
 type ServerConfig struct {
-	Name    string            `json:"name"`
-	Command string            `json:"command"`     // 启动命令 (stdio 模式)
-	URL     string            `json:"url"`         // SSE 服务器地址
-	Args    []string          `json:"args"`        // 命令参数
-	Env     map[string]string `json:"env"`         // 环境变量
-	Enabled bool              `json:"enabled"`     // 是否启用
+	Key         string            `json:"key"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Enabled     bool              `json:"enabled"`
+	Transport   string            `json:"transport"` // stdio / streamable_http / sse
+	URL         string            `json:"url"`
+	Headers     map[string]string `json:"headers"`
+	Command     string            `json:"command"`
+	Args        []string          `json:"args"`
+	Env         map[string]string `json:"env"`
+	Cwd         string            `json:"cwd"`
 }
 
 // Tool MCP 工具定义
@@ -45,10 +53,17 @@ type ContentItem struct {
 
 // JSONRPCRequest JSON-RPC 请求
 type JSONRPCRequest struct {
-	JSONRPC string                 `json:"jsonrpc"` // "2.0"
-	ID      int                    `json:"id"`
-	Method  string                 `json:"method"`
-	Params  map[string]interface{} `json:"params,omitempty"`
+	JSONRPC string                  `json:"jsonrpc"`
+	ID      int                     `json:"id"`
+	Method  string                  `json:"method"`
+	Params  *map[string]interface{} `json:"params,omitempty"`
+}
+
+// JSONRPCNotification JSON-RPC 通知（无 id）
+type JSONRPCNotification struct {
+	JSONRPC string                  `json:"jsonrpc"`
+	Method  string                  `json:"method"`
+	Params  *map[string]interface{} `json:"params,omitempty"`
 }
 
 // JSONRPCResponse JSON-RPC 响应
@@ -67,14 +82,16 @@ type RPCError struct {
 
 // Client MCP 客户端
 type Client struct {
-	config  ServerConfig
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	stdout  io.Reader
-	nextID  int
-	mu      sync.RWMutex
-	pending map[int]chan *JSONRPCResponse
-	tools   []Tool
+	config     ServerConfig
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     io.Reader
+	httpClient *http.Client
+	sessionID  string // mcp-session-id（HTTP 模式）
+	nextID     int
+	mu         sync.RWMutex
+	pending    map[int]chan *JSONRPCResponse
+	tools      []Tool
 }
 
 // NewClient 创建 MCP 客户端
@@ -119,6 +136,9 @@ func (c *Client) Connect(ctx context.Context) error {
 
 		// 启动消息读取协程
 		go c.readResponses()
+	} else if c.config.URL != "" {
+		// HTTP/SSE 模式
+		c.httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 
 	// 初始化：获取工具列表
@@ -133,7 +153,7 @@ func (c *Client) Connect(ctx context.Context) error {
 // initialize 初始化连接
 func (c *Client) initialize(ctx context.Context) error {
 	// 发送 initialize 请求
-	_, err := c.sendRequest(ctx, "initialize", map[string]interface{}{
+	_, err := c.sendRequest(ctx, "initialize", &map[string]interface{}{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]interface{}{},
 		"clientInfo": map[string]interface{}{
@@ -145,11 +165,12 @@ func (c *Client) initialize(ctx context.Context) error {
 		return err
 	}
 
-	// 发送 initialized 通知
+	// 发送 initialized 通知（无 params）
 	c.sendNotification("notifications/initialized", nil)
 
 	// 获取工具列表
-	result, err := c.sendRequest(ctx, "tools/list", nil)
+	emptyParams := map[string]interface{}{}
+	result, err := c.sendRequest(ctx, "tools/list", &emptyParams)
 	if err != nil {
 		return err
 	}
@@ -168,7 +189,23 @@ func (c *Client) initialize(ctx context.Context) error {
 
 // CallTool 调用 MCP 工具
 func (c *Client) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (*ToolResult, error) {
-	result, err := c.sendRequest(ctx, "tools/call", map[string]interface{}{
+	result, err := c.callTool(ctx, toolName, args)
+
+	// 如果 session 过期（HTTP 401 或 SessionExpired），重新连接后重试一次
+	if err != nil && c.httpClient != nil && (strings.Contains(err.Error(), "SessionExpired") || strings.Contains(err.Error(), "HTTP 401")) {
+		glog.Logger().Info("[MCP] Session 过期，重新连接", "name", c.config.Name)
+		c.sessionID = ""
+		if reconnErr := c.initialize(ctx); reconnErr != nil {
+			return nil, fmt.Errorf("重新连接失败: %v (原始错误: %v)", reconnErr, err)
+		}
+		result, err = c.callTool(ctx, toolName, args)
+	}
+
+	return result, err
+}
+
+func (c *Client) callTool(ctx context.Context, toolName string, args map[string]interface{}) (*ToolResult, error) {
+	result, err := c.sendRequest(ctx, "tools/call", &map[string]interface{}{
 		"name":      toolName,
 		"arguments": args,
 	})
@@ -178,7 +215,6 @@ func (c *Client) CallTool(ctx context.Context, toolName string, args map[string]
 
 	var toolResult ToolResult
 	if err := json.Unmarshal(result, &toolResult); err != nil {
-		// 如果无法解析为 ToolResult，返回文本内容
 		return &ToolResult{
 			Content: []ContentItem{{Type: "text", Text: string(result)}},
 		}, nil
@@ -202,7 +238,10 @@ func (c *Client) Disconnect() {
 }
 
 // sendRequest 发送 JSON-RPC 请求
-func (c *Client) sendRequest(ctx context.Context, method string, params map[string]interface{}) (json.RawMessage, error) {
+func (c *Client) sendRequest(ctx context.Context, method string, params *map[string]interface{}) (json.RawMessage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	c.mu.Lock()
 	id := c.nextID
 	c.nextID++
@@ -224,9 +263,67 @@ func (c *Client) sendRequest(ctx context.Context, method string, params map[stri
 	}
 
 	data, _ := json.Marshal(req)
+	glog.Logger().Info("[MCP] 发送请求", "method", method, "body", string(data))
+
 	if c.stdin != nil {
+		// stdio 模式
 		c.stdin.Write(data)
 		c.stdin.Write([]byte("\n"))
+	} else if c.httpClient != nil {
+		// HTTP 模式
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", c.config.URL, bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("创建 HTTP 请求失败: %v", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "application/json, text/event-stream")
+		for k, v := range c.config.Headers {
+			httpReq.Header.Set(k, v)
+		}
+		if c.sessionID != "" {
+			httpReq.Header.Set("mcp-session-id", c.sessionID)
+		}
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("HTTP 请求失败: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// 保存 session ID
+		if sid := resp.Header.Get("mcp-session-id"); sid != "" {
+			c.sessionID = sid
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		glog.Logger().Info("[MCP] HTTP 响应",
+			"status", resp.StatusCode,
+			"method", method,
+			"body", truncateStr(string(body), 500),
+			"session_id", c.sessionID,
+			"sent_session_id", httpReq.Header.Get("mcp-session-id"),
+		)
+		if resp.StatusCode != 200 && resp.StatusCode != 202 {
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateStr(string(body), 200))
+		}
+
+		// 202 Accepted 表示服务器接受了请求但没有响应体
+		if resp.StatusCode == 202 || len(body) == 0 {
+			if method == "tools/list" {
+				return json.RawMessage(`{"tools":[]}`), nil
+			}
+			return json.RawMessage(`{}`), nil
+		}
+
+		var rpcResp JSONRPCResponse
+		if err := json.Unmarshal(body, &rpcResp); err != nil {
+			return nil, fmt.Errorf("解析 HTTP 响应失败: %v (body: %s)", err, truncateStr(string(body), 200))
+		}
+		if rpcResp.Error != nil {
+			return nil, fmt.Errorf("MCP 错误 [%d]: %s (body: %s)", rpcResp.Error.Code, rpcResp.Error.Message, truncateStr(string(body), 200))
+		}
+		return rpcResp.Result, nil
+	} else {
+		return nil, fmt.Errorf("MCP 客户端未初始化传输")
 	}
 
 	select {
@@ -243,17 +340,37 @@ func (c *Client) sendRequest(ctx context.Context, method string, params map[stri
 }
 
 // sendNotification 发送 JSON-RPC 通知
-func (c *Client) sendNotification(method string, params map[string]interface{}) {
-	req := JSONRPCRequest{
+func (c *Client) sendNotification(method string, params *map[string]interface{}) {
+	req := JSONRPCNotification{
 		JSONRPC: "2.0",
 		Method:  method,
 		Params:  params,
 	}
 
 	data, _ := json.Marshal(req)
+	glog.Logger().Info("[MCP] 发送通知", "method", method, "body", string(data))
 	if c.stdin != nil {
 		c.stdin.Write(data)
 		c.stdin.Write([]byte("\n"))
+	} else if c.httpClient != nil {
+		httpReq, err := http.NewRequest("POST", c.config.URL, bytes.NewReader(data))
+		if err != nil {
+			glog.Logger().Warn("[MCP] 通知创建请求失败", "method", method, "err", err)
+			return
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "application/json, text/event-stream")
+		if c.sessionID != "" {
+			httpReq.Header.Set("mcp-session-id", c.sessionID)
+		}
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			glog.Logger().Warn("[MCP] 通知发送失败", "method", method, "err", err)
+			return
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		glog.Logger().Info("[MCP] 通知响应", "method", method, "status", resp.StatusCode, "body", string(body))
 	}
 }
 
@@ -431,6 +548,13 @@ func (a *MCPToolAdapter) Execute(ctx context.Context, params map[string]interfac
 }
 
 // CreateMCPToolsFromManager 从 MCP Manager 创建所有工具的适配器列表
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 func CreateMCPToolsFromManager(mgr *Manager, ctx context.Context) []*MCPToolAdapter {
 	allTools := mgr.ListAllTools()
 	var adapters []*MCPToolAdapter

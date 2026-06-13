@@ -1113,11 +1113,11 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			// 发送 guard 事件（拒绝）
 			if handler != nil {
 				handler(ToolEvent{
-					Type:         "guard",
-					ToolName:     tc.Function.Name,
-					Args:         tc.Function.Arguments,
-					GuardReason:  guardResult.Reason,
-					GuardMessage: guardResult.Message,
+					Type:          "guard",
+					ToolName:      tc.Function.Name,
+					Args:          tc.Function.Arguments,
+					GuardReason:   guardResult.Reason,
+					GuardMessage:  guardResult.Message,
 					ApprovalState: "denied",
 				})
 			}
@@ -1141,12 +1141,12 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			// 发送 guard 事件（等待审批）- 前端可据此显示醒目的审批通知
 			if handler != nil {
 				handler(ToolEvent{
-					Type:         "guard",
-					ToolName:     tc.Function.Name,
-					Args:         tc.Function.Arguments,
-					GuardReason:  guardResult.Reason,
-					GuardMessage: guardResult.Message,
-					ApprovalID:   approvalID,
+					Type:          "guard",
+					ToolName:      tc.Function.Name,
+					Args:          tc.Function.Arguments,
+					GuardReason:   guardResult.Reason,
+					GuardMessage:  guardResult.Message,
+					ApprovalID:    approvalID,
 					ApprovalState: "pending",
 				})
 			}
@@ -1157,11 +1157,11 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 				// 发送 guard 事件（等待失败）
 				if handler != nil {
 					handler(ToolEvent{
-						Type:         "guard",
-						ToolName:     tc.Function.Name,
-						ApprovalID:   approvalID,
+						Type:          "guard",
+						ToolName:      tc.Function.Name,
+						ApprovalID:    approvalID,
 						ApprovalState: "error",
-						GuardMessage: fmt.Sprintf("审批等待失败: %v", err),
+						GuardMessage:  fmt.Sprintf("审批等待失败: %v", err),
 					})
 				}
 				return fmt.Sprintf("审批等待失败: %v", err), nil, nil
@@ -1171,11 +1171,11 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 				// 发送 guard 事件（用户拒绝）
 				if handler != nil {
 					handler(ToolEvent{
-						Type:         "guard",
-						ToolName:     tc.Function.Name,
-						ApprovalID:   approvalID,
+						Type:          "guard",
+						ToolName:      tc.Function.Name,
+						ApprovalID:    approvalID,
 						ApprovalState: "denied",
-						GuardMessage: fmt.Sprintf("操作被用户拒绝: %s", result.DenyReason),
+						GuardMessage:  fmt.Sprintf("操作被用户拒绝: %s", result.DenyReason),
 					})
 				}
 				return fmt.Sprintf("操作被用户拒绝: %s", result.DenyReason), nil, nil
@@ -1186,11 +1186,11 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 			// 发送 guard 事件（已批准）
 			if handler != nil {
 				handler(ToolEvent{
-					Type:         "guard",
-					ToolName:     tc.Function.Name,
-					ApprovalID:   approvalID,
+					Type:          "guard",
+					ToolName:      tc.Function.Name,
+					ApprovalID:    approvalID,
 					ApprovalState: "approved",
-					GuardMessage: "已批准，继续执行",
+					GuardMessage:  "已批准，继续执行",
 				})
 			}
 			_ = approval // 避免未使用警告
@@ -1198,21 +1198,6 @@ func (r *Runtime) executeTool(ctx context.Context, tc ToolCall, tools []tool.Too
 	}
 
 	startTime := time.Now()
-
-	// 文件类工具（write_file, read_file, edit_file, append_file）自动拼接工作区目录
-	// 只对简单相对路径生效，不拼接已包含完整路径的路径
-	// if r.workspaceDir != "" {
-	// 	switch tc.Function.Name {
-	// 	case "write_file", "read_file", "edit_file", "append_file":
-	// 		if path, ok := params["path"].(string); ok && path != "" {
-	// 			// 只对简单相对路径拼接工作区目录
-	// 			// 以下情况不拼接：绝对路径、已包含 clawdata/ 的路径
-	// 			if !filepath.IsAbs(path) && !strings.Contains(path, "clawdata/") && !strings.Contains(path, "clawdata\\") {
-	// 				params["path"] = filepath.Join(r.workspaceDir, path)
-	// 			}
-	// 		}
-	// 	}
-	// }
 
 	// 优先使用 StructuredTool 接口
 	var result string
@@ -1785,21 +1770,21 @@ func truncate(s string, maxLen int) string {
 
 // xmlToolCallPatterns XML 工具调用格式正则（预编译，避免每次调用重新编译）
 var xmlToolCallPatterns = struct {
-	invokeBlock   *regexp.Regexp // <invoke name="xxx">...</invoke>
-	parameter     *regexp.Regexp // <parameter name="key">value</parameter>
-	toolUseBlock  *regexp.Regexp // <tool_use name="xxx">...</tool_use>
-	inputJSON     *regexp.Regexp // <input>{"key":"value"}</input>
-	antToolCall   *regexp.Regexp // <tool_call>xxx 格式
-	allXMLTags    *regexp.Regexp // 清理所有 XML 标签的通用正则
-	minimaxClose  *regexp.Regexp // </minimax:tool_call> 结尾标签
+	invokeBlock  *regexp.Regexp // <invoke name="xxx">...</invoke>
+	parameter    *regexp.Regexp // <parameter name="key">value</parameter>
+	toolUseBlock *regexp.Regexp // <tool_use name="xxx">...</tool_use>
+	inputJSON    *regexp.Regexp // <input>{"key":"value"}</input>
+	antToolCall  *regexp.Regexp // <tool_call>xxx 格式
+	allXMLTags   *regexp.Regexp // 清理所有 XML 标签的通用正则
+	minimaxClose *regexp.Regexp // </minimax:tool_call> 结尾标签
 }{
-	invokeBlock:   regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)">\s*(.*?)\s*</invoke>`),
-	parameter:     regexp.MustCompile(`<parameter\s+name="([^"]+)">(.*?)</parameter>`),
-	toolUseBlock:  regexp.MustCompile(`(?s)<tool_use\s+name="([^"]+)">\s*(.*?)\s*</tool_use>`),
-	inputJSON:     regexp.MustCompile(`(?s)<input>\s*(.*?)\s*</input>`),
-	antToolCall:   regexp.MustCompile(`(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\n(.*?)\n`),
-	allXMLTags:    regexp.MustCompile(`(?s)<(?:/?[\w:]+)[^>]*>`),
-	minimaxClose:  regexp.MustCompile(`</minimax:tool_call>`),
+	invokeBlock:  regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)">\s*(.*?)\s*</invoke>`),
+	parameter:    regexp.MustCompile(`<parameter\s+name="([^"]+)">(.*?)</parameter>`),
+	toolUseBlock: regexp.MustCompile(`(?s)<tool_use\s+name="([^"]+)">\s*(.*?)\s*</tool_use>`),
+	inputJSON:    regexp.MustCompile(`(?s)<input>\s*(.*?)\s*</input>`),
+	antToolCall:  regexp.MustCompile(`(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\n(.*?)\n`),
+	allXMLTags:   regexp.MustCompile(`(?s)<(?:/?[\w:]+)[^>]*>`),
+	minimaxClose: regexp.MustCompile(`</minimax:tool_call>`),
 }
 
 // extractXMLToolCallsWithCleanup 从 content 中提取 XML 格式的工具调用，并返回清理后的纯文本

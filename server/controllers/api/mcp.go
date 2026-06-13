@@ -180,12 +180,21 @@ func HandleMCPTools(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 先尝试从 Gateway 的 MCPMgr 获取
 	gw := global.GetGateway()
-	if gw == nil || gw.MCPMgr == nil {
-		writeJSON(rw, http.StatusOK, []interface{}{})
-		return
+	if gw != nil && gw.MCPMgr != nil {
+		tools := mcpSvc.ListTools(gw.MCPMgr, serverName)
+		if len(tools) > 0 {
+			writeJSON(rw, http.StatusOK, tools)
+			return
+		}
 	}
 
-	tools := mcpSvc.ListTools(gw.MCPMgr, serverName)
+	// 未在运行中的 Manager 找到，从所有 agent 配置中查找并临时连接
+	tools, errMsg := mcpSvc.FetchToolsByServerName(serverName, global.GetDataDir())
+	if errMsg != "" {
+		writeJSON(rw, http.StatusOK, map[string]string{"error": errMsg, "server": serverName})
+		return
+	}
 	writeJSON(rw, http.StatusOK, tools)
 }

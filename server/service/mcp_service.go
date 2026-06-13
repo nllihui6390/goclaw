@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+
 	"go-claw/config"
 	"go-claw/internal/mcp"
 )
@@ -13,14 +15,19 @@ type MCPService struct {
 
 // MCPServerInfo MCP Server 信息（前端展示）
 type MCPServerInfo struct {
+	Key         string            `json:"key"`
 	Name        string            `json:"name"`
-	Command     string            `json:"command"`
+	Description string            `json:"description"`
+	Enabled     bool              `json:"enabled"`
+	Transport   string            `json:"transport"`
 	URL         string            `json:"url"`
+	Headers     map[string]string `json:"headers"`
+	Command     string            `json:"command"`
 	Args        []string          `json:"args"`
 	Env         map[string]string `json:"env"`
-	Enabled     bool              `json:"enabled"`
-	Connected   bool              `json:"connected"`   // 连接状态
-	ToolsCount  int               `json:"tools_count"` // 工具数量
+	Cwd         string            `json:"cwd"`
+	Connected   bool              `json:"connected"`
+	ToolsCount  int               `json:"tools_count"`
 }
 
 // NewMCPService 创建 MCP 服务
@@ -42,14 +49,19 @@ func (s *MCPService) ListServers(agentName string) []MCPServerInfo {
 	result := make([]MCPServerInfo, 0, len(servers))
 	for _, srv := range servers {
 		info := MCPServerInfo{
-			Name:    srv.Name,
-			Command: srv.Command,
-			URL:     srv.URL,
-			Args:    srv.Args,
-			Env:     srv.Env,
-			Enabled: srv.Enabled,
-			Connected: false, // 连接状态需要从 Manager 获取
-			ToolsCount: 0,
+			Key:         srv.Key,
+			Name:        srv.Name,
+			Description: srv.Description,
+			Enabled:     srv.Enabled,
+			Transport:   srv.Transport,
+			URL:         srv.URL,
+			Headers:     srv.Headers,
+			Command:     srv.Command,
+			Args:        srv.Args,
+			Env:         srv.Env,
+			Cwd:         srv.Cwd,
+			Connected:   false,
+			ToolsCount:  0,
 		}
 		result = append(result, info)
 	}
@@ -150,4 +162,45 @@ func (s *MCPService) ListTools(manager *mcp.Manager, serverName string) []mcp.To
 		return serverTools
 	}
 	return []mcp.Tool{}
+}
+
+// FetchToolsByServerName 从所有 agent 配置中查找 MCP server，临时连接并拉取工具列表
+func (s *MCPService) FetchToolsByServerName(serverName string, dataDir string) ([]mcp.Tool, string) {
+	workspaceDir := s.workspaceDir
+	if workspaceDir == "" && dataDir != "" {
+		workspaceDir = dataDir + "/workspaces"
+	}
+	agentNames, err := config.ListAgentConfigs(workspaceDir)
+	if err != nil {
+		return nil, "无法列出 agent 配置: " + err.Error()
+	}
+
+	for _, agentName := range agentNames {
+		agentCfg, err := config.LoadAgentConfig(workspaceDir, agentName)
+		if err != nil {
+			continue
+		}
+		for _, srv := range agentCfg.MCP.Servers {
+			if srv.Name == serverName && srv.Enabled {
+				client := mcp.NewClient(mcp.ServerConfig{
+					Name:    srv.Name,
+					Command: srv.Command,
+					URL:     srv.URL,
+					Args:    srv.Args,
+					Env:     srv.Env,
+					Enabled: srv.Enabled,
+				})
+				if err := client.Connect(context.Background()); err != nil {
+					return nil, "连接 MCP Server 失败: " + err.Error()
+				}
+				defer client.Disconnect()
+				tools := client.ListTools()
+				if len(tools) == 0 {
+					return nil, "已连接但未获取到工具（tools/list 返回空）"
+				}
+				return tools, ""
+			}
+		}
+	}
+	return nil, "未找到 server: " + serverName
 }

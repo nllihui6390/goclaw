@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -320,15 +321,19 @@ func loadMCPForAgent(agentCfg *config.AgentConfig, logger *slog.Logger) *mcp.Man
 			continue
 		}
 		mgr.Register(mcp.ServerConfig{
-			Name:    serverCfg.Name,
-			Command: serverCfg.Command,
-			URL:     serverCfg.URL,
-			Args:    serverCfg.Args,
-			Env:     serverCfg.Env,
-			Enabled: serverCfg.Enabled,
+			Name:        serverCfg.Name,
+			Description: serverCfg.Description,
+			Enabled:     serverCfg.Enabled,
+			Transport:   serverCfg.Transport,
+			URL:         serverCfg.URL,
+			Headers:     serverCfg.Headers,
+			Command:     serverCfg.Command,
+			Args:        serverCfg.Args,
+			Env:         serverCfg.Env,
+			Cwd:         serverCfg.Cwd,
 		})
 	}
-	mgr.ConnectAll(nil)
+	mgr.ConnectAll(context.Background())
 	logger.Info("MCP 客户端已连接", "agent", agentCfg.Name, "servers", len(agentCfg.MCP.Servers))
 	return mgr
 }
