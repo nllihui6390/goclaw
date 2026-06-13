@@ -324,7 +324,7 @@ function updateCharts() {
         textStyle: { color: ct.tooltipColor }
       },
       legend: {
-        data: ['Prompt Tokens', 'Completion Tokens', 'Total Tokens'],
+        data: ['输入 Token', '输出 Token', '总 Token'],
         top: 0,
         textStyle: { color: ct.legendColor }
       },
@@ -351,9 +351,9 @@ function updateCharts() {
         splitLine: { lineStyle: { color: ct.splitLineColor } }
       },
       series: [
-        { name: 'Prompt Tokens', type: 'line', smooth: true, symbolSize: 4, lineStyle: { width: 2 }, data: promptData, itemStyle: { color: '#1677ff' } },
-        { name: 'Completion Tokens', type: 'line', smooth: true, symbolSize: 4, lineStyle: { width: 2 }, data: completionData, itemStyle: { color: '#52c41a' } },
-        { name: 'Total Tokens', type: 'line', smooth: true, symbolSize: 4, lineStyle: { width: 2 }, data: totalData, itemStyle: { color: '#fa8c16' } }
+        { name: '输入 Token', type: 'line', smooth: true, symbolSize: 4, lineStyle: { width: 2 }, data: promptData, itemStyle: { color: '#1677ff' } },
+        { name: '输出 Token', type: 'line', smooth: true, symbolSize: 4, lineStyle: { width: 2 }, data: completionData, itemStyle: { color: '#52c41a' } },
+        { name: '总 Token', type: 'line', smooth: true, symbolSize: 4, lineStyle: { width: 2 }, data: totalData, itemStyle: { color: '#fa8c16' } }
       ]
     }, true)
   }
@@ -406,15 +406,15 @@ onMounted(() => {
         </el-card>
         <el-card class="summary-card">
           <div class="card-value">{{ formatCompact(aggregatedData.total_prompt_tokens) }}</div>
-          <div class="card-label">Prompt Tokens</div>
+          <div class="card-label">输入 Token</div>
         </el-card>
         <el-card class="summary-card">
           <div class="card-value">{{ formatCompact(aggregatedData.total_completion_tokens) }}</div>
-          <div class="card-label">Completion Tokens</div>
+          <div class="card-label">输出 Token</div>
         </el-card>
         <el-card class="summary-card">
           <div class="card-value">{{ formatCompact(aggregatedData.total_prompt_tokens + aggregatedData.total_completion_tokens) }}</div>
-          <div class="card-label">Total Tokens</div>
+          <div class="card-label">总 Token</div>
         </el-card>
       </div>
 
@@ -442,9 +442,9 @@ onMounted(() => {
           </template>
           <el-table :data="byModelTableData" size="small" stripe>
             <el-table-column prop="model" label="模型" />
-            <el-table-column prop="prompt_tokens" label="Prompt" :formatter="(row) => formatCompact(row.prompt_tokens)" sortable />
-            <el-table-column prop="completion_tokens" label="Completion" :formatter="(row) => formatCompact(row.completion_tokens)" sortable />
-            <el-table-column label="Total" :formatter="(row) => formatCompact(row.prompt_tokens + row.completion_tokens)" sortable />
+            <el-table-column prop="prompt_tokens" label="输入 Token" :formatter="(row) => formatCompact(row.prompt_tokens)" sortable />
+            <el-table-column prop="completion_tokens" label="输出 Token" :formatter="(row) => formatCompact(row.completion_tokens)" sortable />
+            <el-table-column label="总 Token" :formatter="(row) => formatCompact(row.prompt_tokens + row.completion_tokens)" sortable />
             <el-table-column prop="call_count" label="调用次数" :formatter="(row) => formatCompact(row.call_count)" sortable />
           </el-table>
         </el-card>
@@ -455,9 +455,9 @@ onMounted(() => {
           </template>
           <el-table :data="byDateTableData" size="small" stripe>
             <el-table-column prop="date" label="日期" />
-            <el-table-column prop="prompt_tokens" label="Prompt" :formatter="(row) => formatCompact(row.prompt_tokens)" sortable />
-            <el-table-column prop="completion_tokens" label="Completion" :formatter="(row) => formatCompact(row.completion_tokens)" sortable />
-            <el-table-column label="Total" :formatter="(row) => formatCompact(row.prompt_tokens + row.completion_tokens)" sortable />
+            <el-table-column prop="prompt_tokens" label="输入 Token" :formatter="(row) => formatCompact(row.prompt_tokens)" sortable />
+            <el-table-column prop="completion_tokens" label="输出 Token" :formatter="(row) => formatCompact(row.completion_tokens)" sortable />
+            <el-table-column label="总 Token" :formatter="(row) => formatCompact(row.prompt_tokens + row.completion_tokens)" sortable />
             <el-table-column prop="call_count" label="调用次数" :formatter="(row) => formatCompact(row.call_count)" sortable />
           </el-table>
         </el-card>
