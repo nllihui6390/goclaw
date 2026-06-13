@@ -139,15 +139,91 @@ func (c *Client) Connect(ctx context.Context) error {
 	} else if c.config.URL != "" {
 		// HTTP/SSE 模式
 		c.httpClient = &http.Client{Timeout: 60 * time.Second}
+
+		// SSE 模式：先 GET 获取 endpoint，再 POST
+		if c.config.Transport == "sse" {
+			endpointURL, err := c.sseConnect(ctx)
+			if err != nil {
+				return fmt.Errorf("SSE 连接失败: %v", err)
+			}
+			if endpointURL != "" {
+				c.config.URL = endpointURL
+			}
+		}
 	}
 
 	// 初始化：获取工具列表
 	if err := c.initialize(ctx); err != nil {
-		return fmt.Errorf("初始化 MCP 服务器失败: %v", err)
+		// 如果 POST 失败且不是 SSE 模式，尝试 SSE
+		if c.httpClient != nil && c.config.Transport != "sse" {
+			glog.Logger().Info("[MCP] POST 初始化失败，尝试 SSE 模式", "name", c.config.Name)
+			endpointURL, sseErr := c.sseConnect(ctx)
+			if sseErr == nil && endpointURL != "" {
+				c.config.URL = endpointURL
+				if err2 := c.initialize(ctx); err2 != nil {
+					return fmt.Errorf("SSE 初始化也失败: %v (原始: %v)", err2, err)
+				}
+				// SSE 成功，继续
+			} else {
+				return fmt.Errorf("初始化 MCP 服务器失败: %v", err)
+			}
+		} else {
+			return fmt.Errorf("初始化 MCP 服务器失败: %v", err)
+		}
 	}
 
 	logger.Info("[MCP] 已连接", "name", c.config.Name, "tools_count", len(c.tools))
 	return nil
+}
+
+// sseConnect SSE 模式连接：GET 获取 endpoint
+func (c *Client) sseConnect(ctx context.Context) (string, error) {
+	logger := glog.Logger()
+	logger.Info("[MCP] SSE 连接", "url", c.config.URL)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", c.config.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("SSE GET 失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("SSE GET HTTP %d: %s", resp.StatusCode, truncateStr(string(body), 200))
+	}
+
+	// 解析 SSE 流，提取 endpoint（仅读取前面少量事件）
+	scanner := bufio.NewScanner(resp.Body)
+	var eventType, data string
+	lineCount := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		lineCount++
+		if strings.HasPrefix(line, "event:") {
+			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		} else if strings.HasPrefix(line, "data:") {
+			data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		} else if strings.TrimSpace(line) == "" && eventType != "" {
+			if eventType == "endpoint" && data != "" {
+				logger.Info("[MCP] SSE endpoint 获取成功", "endpoint", data)
+				return data, nil
+			}
+			eventType = ""
+			data = ""
+		}
+		if lineCount > 50 {
+			break
+		}
+	}
+	// 没有找到 endpoint，使用原 URL 作为 POST 端点
+	logger.Info("[MCP] SSE 未找到 endpoint 事件，使用原 URL")
+	return "", nil
 }
 
 // initialize 初始化连接
@@ -295,6 +371,12 @@ func (c *Client) sendRequest(ctx context.Context, method string, params *map[str
 		}
 
 		body, _ := io.ReadAll(resp.Body)
+		bodyStr := string(body)
+		// 处理 SSE 格式响应：提取 data: 行的 JSON
+		if strings.Contains(bodyStr, "event:") || strings.Contains(bodyStr, "data:") {
+			bodyStr = extractSSEData(bodyStr)
+			body = []byte(bodyStr)
+		}
 		glog.Logger().Info("[MCP] HTTP 响应",
 			"status", resp.StatusCode,
 			"method", method,
@@ -548,6 +630,21 @@ func (a *MCPToolAdapter) Execute(ctx context.Context, params map[string]interfac
 }
 
 // CreateMCPToolsFromManager 从 MCP Manager 创建所有工具的适配器列表
+// extractSSEData 从 SSE 格式响应中提取 JSON-RPC 数据
+// 输入: "event: message\ndata: {"jsonrpc":"2.0",...}\n\n"
+// 输出: "{"jsonrpc":"2.0",...}"
+func extractSSEData(raw string) string {
+	lines := strings.Split(raw, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data:") {
+			val := strings.TrimPrefix(line, "data:")
+			return strings.TrimSpace(val)
+		}
+	}
+	return raw
+}
+
 func truncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
