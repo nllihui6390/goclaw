@@ -117,7 +117,7 @@ function openAuth(row) {
 }
 
 function showSchema(row) {
-  ElMessageBox.alert(JSON.stringify(row.inputSchema, null, 2), `${row.name} - 参数 Schema`)
+  ElMessageBox.alert(JSON.stringify(row.inputSchema, null, 2), `${row.name} - 参数 Schema`).catch(() => {})
 }
 
 // 解析 HTTP headers
