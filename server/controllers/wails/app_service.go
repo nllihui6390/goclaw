@@ -37,6 +37,7 @@ type AppService struct {
 	qrcodeSvc      *service.QRCodeService
 	envVarSvc      *service.EnvVarService
 	tokenUsageSvc  *service.TokenUsageService
+	mcpSvc         *service.MCPService
 }
 
 // NewAppService 创建 AppService
@@ -65,6 +66,7 @@ func (a *AppService) initServices() {
 	a.qrcodeSvc = service.NewQRCodeService(a.configSvc)
 	a.envVarSvc = service.NewEnvVarService(a.configSvc)
 	a.tokenUsageSvc = service.NewTokenUsageService(global.GetDataDir())
+	a.mcpSvc = service.NewMCPService(a.configSvc)
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()
@@ -811,5 +813,77 @@ func (a *AppService) GetTokenUsageDetails(paramsJSON string) string {
 	}
 	records := a.tokenUsageSvc.GetDetails(params.StartDate, params.EndDate, params.Model, params.Provider)
 	data, _ := json.Marshal(records)
+	return string(data)
+}
+
+// MCP 相关操作
+func (a *AppService) GetMCPServers(agent string) string {
+	servers := a.mcpSvc.ListServers(agent)
+	gw := global.GetGateway()
+	if gw != nil && gw.MCPMgr != nil {
+		allTools := gw.MCPMgr.ListAllTools()
+		for i := range servers {
+			if tools, ok := allTools[servers[i].Name]; ok {
+				servers[i].Connected = true
+				servers[i].ToolsCount = len(tools)
+			}
+		}
+	}
+	data, _ := json.Marshal(servers)
+	return string(data)
+}
+
+func (a *AppService) CreateMCPServer(agent, serverJSON string) string {
+	var serverConfig config.MCPServerConfig
+	if err := json.Unmarshal([]byte(serverJSON), &serverConfig); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	if serverConfig.Name == "" {
+		return `{"error":"name is required"}`
+	}
+	if err := a.mcpSvc.CreateServer(agent, serverConfig); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	global.ReloadConfigAndSyncAgents()
+	return `{"status":"created"}`
+}
+
+func (a *AppService) UpdateMCPServer(agent, name, serverJSON string) string {
+	var serverConfig config.MCPServerConfig
+	if err := json.Unmarshal([]byte(serverJSON), &serverConfig); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	serverConfig.Name = name
+	if err := a.mcpSvc.UpdateServer(agent, name, serverConfig); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	global.ReloadConfigAndSyncAgents()
+	return `{"status":"updated"}`
+}
+
+func (a *AppService) DeleteMCPServer(agent, name string) string {
+	if err := a.mcpSvc.DeleteServer(agent, name); err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	global.ReloadConfigAndSyncAgents()
+	return `{"status":"deleted"}`
+}
+
+func (a *AppService) ToggleMCPServer(agent, name string) string {
+	newEnabled, err := a.mcpSvc.ToggleServer(agent, name)
+	if err != nil {
+		return fmt.Sprintf(`{"error":"%s"}`, err.Error())
+	}
+	global.ReloadConfigAndSyncAgents()
+	return fmt.Sprintf(`{"status":"toggled","enabled":%v}`, newEnabled)
+}
+
+func (a *AppService) GetMCPServerTools(name string) string {
+	gw := global.GetGateway()
+	if gw == nil || gw.MCPMgr == nil {
+		return "[]"
+	}
+	tools := a.mcpSvc.ListTools(gw.MCPMgr, name)
+	data, _ := json.Marshal(tools)
 	return string(data)
 }

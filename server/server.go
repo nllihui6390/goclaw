@@ -104,6 +104,14 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/token-usage", api.HandleTokenUsage)
 	mux.HandleFunc("/api/v1/token-usage/details", api.HandleTokenUsageDetails)
 
+	// MCP 集成 API
+	mux.HandleFunc("/api/v1/mcp", api.HandleMCPList)
+	mux.HandleFunc("/api/v1/mcp/create", api.HandleMCPCreate)
+	mux.HandleFunc("/api/v1/mcp/update", api.HandleMCPUpdate)
+	mux.HandleFunc("/api/v1/mcp/delete", api.HandleMCPDelete)
+	mux.HandleFunc("/api/v1/mcp/toggle", api.HandleMCPToggle)
+	mux.HandleFunc("/api/v1/mcp/tools", api.HandleMCPTools)
+
 	// 前端 SPA
 	mux.HandleFunc("/", serveFrontend)
 

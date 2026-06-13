@@ -9,7 +9,6 @@ import (
 	"go-claw/config"
 	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
-	"go-claw/internal/mcp"
 	"go-claw/internal/proactive"
 	"go-claw/internal/security"
 	"go-claw/internal/tool"
@@ -25,7 +24,6 @@ type App struct {
 
 	// 子系统（可为 nil）
 	CronMgr      *cron.Manager
-	MCPMgr       *mcp.Manager
 	ProactiveMgr *proactive.ProactiveManager
 	ToolGuard    *security.ToolGuard // 工具安全守卫
 
@@ -72,7 +70,6 @@ func NewApp(dataDir string) (*App, error) {
 
 	// 8. 其他子系统（顺序无关）
 	app.initInbox()
-	app.initMCP()
 	app.initACP()
 	app.initCron()
 	app.initMultiAgentTools()
@@ -107,8 +104,8 @@ func (app *App) Shutdown() {
 	if app.CronMgr != nil {
 		app.CronMgr.Stop()
 	}
-	if app.MCPMgr != nil {
-		app.MCPMgr.DisconnectAll()
+	if app.Gateway != nil && app.Gateway.MCPMgr != nil {
+		app.Gateway.MCPMgr.DisconnectAll()
 	}
 	app.Gateway.Stop()
 	tool.CloseBrowser()

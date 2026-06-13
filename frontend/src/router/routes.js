@@ -68,7 +68,7 @@ export const appRoutes = [
     path: '/mcp',
     name: 'Mcp',
     component: () => import('@/views/agent/Mcp.vue'),
-    meta: { title: 'MCP 集成' }
+    meta: { title: 'MCP 集成', menuLabel: 'MCP集成', icon: 'Connection', menuGroup: 'Agent' }
   },
   {
     path: '/models',

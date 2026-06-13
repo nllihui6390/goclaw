@@ -160,6 +160,7 @@ type AgentConfig struct {
 	SupportsImage         bool           `json:"supports_image"`
 	SupportsVideo         bool           `json:"supports_video"`
 	Channels              ChannelsConfig `json:"channels"` // Agent 自己的渠道配置
+	MCP                   MCPConfig      `json:"mcp"`      // MCP 集成配置（per-agent）
 }
 
 // ChannelsConfig 渠道配置集合

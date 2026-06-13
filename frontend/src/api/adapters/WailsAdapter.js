@@ -515,4 +515,60 @@ export class WailsAdapter {
       return []
     }
   }
+
+  // MCP 集成
+  async getMCPServers(agent) {
+    try {
+      const json = await Call.ByName('main.AppService.GetMCPServers', agent || 'default')
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getMCPServers error:', e)
+      return []
+    }
+  }
+  async createMCPServer(agent, config) {
+    try {
+      const json = await Call.ByName('main.AppService.CreateMCPServer', agent || 'default', JSON.stringify(config))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] createMCPServer error:', e)
+      return { error: e.message }
+    }
+  }
+  async updateMCPServer(agent, name, config) {
+    try {
+      const json = await Call.ByName('main.AppService.UpdateMCPServer', agent || 'default', name, JSON.stringify(config))
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] updateMCPServer error:', e)
+      return { error: e.message }
+    }
+  }
+  async deleteMCPServer(agent, name) {
+    try {
+      const json = await Call.ByName('main.AppService.DeleteMCPServer', agent || 'default', name)
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] deleteMCPServer error:', e)
+      return { error: e.message }
+    }
+  }
+  async toggleMCPServer(agent, name) {
+    try {
+      const json = await Call.ByName('main.AppService.ToggleMCPServer', agent || 'default', name)
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] toggleMCPServer error:', e)
+      return { error: e.message }
+    }
+  }
+  async getMCPServerTools(name) {
+    try {
+      const json = await Call.ByName('main.AppService.GetMCPServerTools', name)
+      return JSON.parse(json)
+    } catch (e) {
+      console.error('[WailsAdapter] getMCPServerTools error:', e)
+      return []
+    }
+  }
 }

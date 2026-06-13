@@ -8,6 +8,7 @@ import (
 
 	"go-claw/config"
 	"go-claw/internal/agent"
+	"go-claw/internal/mcp"
 	"go-claw/internal/memory"
 	"go-claw/internal/skill"
 	"go-claw/internal/store"
@@ -94,6 +95,20 @@ func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, root
 	initDataDirs(agentWorkspaceDir, agentSessionsDir, app.logger)
 
 	tools := loadTools(agentCfg.Tools)
+
+	// 加载 per-agent MCP 配置
+	mcpMgr := loadMCPForAgent(agentCfg, app.logger)
+	if mcpMgr != nil && mcpMgr.HasClients() {
+		mcpAdapters := mcp.CreateMCPToolsFromManager(mcpMgr, nil)
+		for _, adapter := range mcpAdapters {
+			tools = append(tools, adapter)
+		}
+		app.logger.Info("MCP 工具已加载", "agent", agentName, "mcp_tools", len(mcpAdapters))
+		// 注入到 Gateway 的 MCPMgr（用于前端查看工具）
+		if app.Gateway.MCPMgr == nil {
+			app.Gateway.MCPMgr = mcpMgr
+		}
+	}
 
 	// 解析配置：从 provider 获取
 	model, baseURL, apiKey, providerType := rootCfg.ResolveAgentConfig(agentCfg)
@@ -291,4 +306,29 @@ func (app *App) SaveAgentConfig(agentName string, agentCfg *config.AgentConfig) 
 func (app *App) ListAgentConfigs() ([]string, error) {
 	workspaceDir := filepath.Join(app.DataDir, app.Workspace)
 	return config.ListAgentConfigs(workspaceDir)
+}
+
+// loadMCPForAgent 从 agent 配置加载 MCP 服务器并创建 Manager
+func loadMCPForAgent(agentCfg *config.AgentConfig, logger *slog.Logger) *mcp.Manager {
+	if agentCfg == nil || len(agentCfg.MCP.Servers) == 0 {
+		return nil
+	}
+
+	mgr := mcp.NewManager()
+	for _, serverCfg := range agentCfg.MCP.Servers {
+		if !serverCfg.Enabled {
+			continue
+		}
+		mgr.Register(mcp.ServerConfig{
+			Name:    serverCfg.Name,
+			Command: serverCfg.Command,
+			URL:     serverCfg.URL,
+			Args:    serverCfg.Args,
+			Env:     serverCfg.Env,
+			Enabled: serverCfg.Enabled,
+		})
+	}
+	mgr.ConnectAll(nil)
+	logger.Info("MCP 客户端已连接", "agent", agentCfg.Name, "servers", len(agentCfg.MCP.Servers))
+	return mgr
 }

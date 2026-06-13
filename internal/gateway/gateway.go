@@ -8,6 +8,7 @@ import (
 
 	"go-claw/internal/agent"
 	"go-claw/internal/channel"
+	"go-claw/internal/mcp"
 	"go-claw/internal/store"
 	"go-claw/pkg/log"
 	"go-claw/pkg/utils"
@@ -21,6 +22,7 @@ type Gateway struct {
 	router       *Router                    // 路由器
 	bus          *AgentBus                  // Agent间消息总线
 	sessionIndex *store.SessionIndex        // 会话索引（channel:user → UUID）
+	MCPMgr       *mcp.Manager              // MCP 管理器
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup

@@ -27,6 +27,7 @@ var (
 	qrcodeSvc       *service.QRCodeService
 	envVarSvc       *service.EnvVarService
 	tokenUsageSvc   *service.TokenUsageService
+	mcpSvc          *service.MCPService
 )
 
 var servicesInited bool
@@ -60,6 +61,9 @@ func InitServices() {
 	// Token 使用量服务
 	dataDir := global.GetDataDir()
 	tokenUsageSvc = service.NewTokenUsageService(dataDir)
+
+	// MCP 服务
+	mcpSvc = service.NewMCPService(configSvc)
 
 	// 从 global 获取依赖（初始化时设置，无需每次请求时注入）
 	gw := global.GetGateway()

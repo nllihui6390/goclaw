@@ -203,6 +203,26 @@ export class HttpAdapter {
     if (params.provider) search.set('provider', params.provider)
     return http.get(`/token-usage/details?${search.toString()}`).then(r => r.data)
   }
+
+  // MCP 集成
+  getMCPServers(agent) {
+    return http.get('/mcp', { params: { agent } }).then(r => r.data)
+  }
+  createMCPServer(agent, config) {
+    return http.post('/mcp/create', config, { params: { agent } }).then(r => r.data)
+  }
+  updateMCPServer(agent, name, config) {
+    return http.post('/mcp/update', config, { params: { agent, name } }).then(r => r.data)
+  }
+  deleteMCPServer(agent, name) {
+    return http.post('/mcp/delete', null, { params: { agent, name } }).then(r => r.data)
+  }
+  toggleMCPServer(agent, name) {
+    return http.post('/mcp/toggle', null, { params: { agent, name } }).then(r => r.data)
+  }
+  getMCPServerTools(name) {
+    return http.get('/mcp/tools', { params: { name } }).then(r => r.data)
+  }
 }
 
 export default new HttpAdapter()

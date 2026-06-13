@@ -171,3 +171,11 @@ func (a *AppService) UpdateSecurityConfig(configJSON string) string {
 // Token 使用量相关操作
 func (a *AppService) GetTokenUsage(paramsJSON string) string        { return a.inner.GetTokenUsage(paramsJSON) }
 func (a *AppService) GetTokenUsageDetails(paramsJSON string) string { return a.inner.GetTokenUsageDetails(paramsJSON) }
+
+// MCP 相关操作
+func (a *AppService) GetMCPServers(agent string) string            { return a.inner.GetMCPServers(agent) }
+func (a *AppService) CreateMCPServer(agent, serverJSON string) string { return a.inner.CreateMCPServer(agent, serverJSON) }
+func (a *AppService) UpdateMCPServer(agent, name, serverJSON string) string { return a.inner.UpdateMCPServer(agent, name, serverJSON) }
+func (a *AppService) DeleteMCPServer(agent, name string) string    { return a.inner.DeleteMCPServer(agent, name) }
+func (a *AppService) ToggleMCPServer(agent, name string) string    { return a.inner.ToggleMCPServer(agent, name) }
+func (a *AppService) GetMCPServerTools(name string) string         { return a.inner.GetMCPServerTools(name) }

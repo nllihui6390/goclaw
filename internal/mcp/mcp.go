@@ -350,3 +350,99 @@ func (m *Manager) ListAllTools() map[string][]Tool {
 	}
 	return result
 }
+
+// GetClient 获取指定名称的 MCP 客户端
+func (m *Manager) GetClient(name string) *Client {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.clients[name]
+}
+
+// HasClients 检查是否有已注册的客户端
+func (m *Manager) HasClients() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.clients) > 0
+}
+
+// MCPToolAdapter 将 MCP Tool 适配为 go-claw tool.Tool 接口
+type MCPToolAdapter struct {
+	mcpTool     Tool
+	client      *Client
+	serverName  string
+	toolName    string
+	description string
+	params      map[string]interface{}
+}
+
+// NewMCPToolAdapter 创建 MCP 工具适配器
+func NewMCPToolAdapter(serverName string, client *Client, mcpTool Tool) *MCPToolAdapter {
+	return &MCPToolAdapter{
+		mcpTool:     mcpTool,
+		client:      client,
+		serverName:  serverName,
+		toolName:    mcpTool.Name,
+		description: mcpTool.Description,
+		params:      mcpTool.InputSchema,
+	}
+}
+
+func (a *MCPToolAdapter) Name() string {
+	return "mcp_" + a.serverName + "_" + a.toolName
+}
+
+func (a *MCPToolAdapter) Description() string {
+	return "[MCP:" + a.serverName + "] " + a.description
+}
+
+func (a *MCPToolAdapter) Parameters() map[string]interface{} {
+	if a.params == nil {
+		return map[string]interface{}{}
+	}
+	return a.params
+}
+
+func (a *MCPToolAdapter) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
+	result, err := a.client.CallTool(ctx, a.toolName, params)
+	if err != nil {
+		return "", err
+	}
+
+	if result.IsError {
+		text := ""
+		for _, item := range result.Content {
+			if item.Type == "text" {
+				text += item.Text
+			}
+		}
+		return "", fmt.Errorf("MCP 工具错误: %s", text)
+	}
+
+	text := ""
+	for _, item := range result.Content {
+		if item.Type == "text" {
+			text += item.Text
+		}
+	}
+	if text == "" {
+		text = "工具执行完成（无文本输出）"
+	}
+	return text, nil
+}
+
+// CreateMCPToolsFromManager 从 MCP Manager 创建所有工具的适配器列表
+func CreateMCPToolsFromManager(mgr *Manager, ctx context.Context) []*MCPToolAdapter {
+	allTools := mgr.ListAllTools()
+	var adapters []*MCPToolAdapter
+	for serverName := range allTools {
+		client := mgr.GetClient(serverName)
+		if client == nil {
+			continue
+		}
+		tools := allTools[serverName]
+		for _, t := range tools {
+			adapters = append(adapters, NewMCPToolAdapter(serverName, client, t))
+		}
+	}
+	return adapters
+}

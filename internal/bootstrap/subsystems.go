@@ -12,7 +12,6 @@ import (
 	"go-claw/internal/cron"
 	"go-claw/internal/gateway"
 	"go-claw/internal/inbox"
-	"go-claw/internal/mcp"
 	"go-claw/internal/media"
 	"go-claw/internal/multiagent"
 	"go-claw/internal/proactive"
@@ -32,26 +31,6 @@ func (app *App) initInbox() {
 	// 初始化 Token 使用量管理器
 	token_usage.Init(app.DataDir)
 	app.logger.Info("Inbox 系统已初始化")
-}
-
-// initMCP 初始化 MCP 集成
-func (app *App) initMCP() {
-	if !app.Config.MCP.Enabled {
-		return
-	}
-	app.MCPMgr = mcp.NewManager()
-	for _, serverCfg := range app.Config.MCP.Servers {
-		app.MCPMgr.Register(mcp.ServerConfig{
-			Name:    serverCfg.Name,
-			Command: serverCfg.Command,
-			URL:     serverCfg.URL,
-			Args:    serverCfg.Args,
-			Env:     serverCfg.Env,
-			Enabled: serverCfg.Enabled,
-		})
-	}
-	app.MCPMgr.ConnectAll(nil)
-	app.logger.Info("MCP 集成已启动", "servers", len(app.Config.MCP.Servers))
 }
 
 // initACP 初始化 ACP 协议
