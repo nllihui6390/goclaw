@@ -107,7 +107,8 @@ func (g *ShellEvasionGuardian) Name() string {
 }
 
 func (g *ShellEvasionGuardian) Check(_ context.Context, toolName string, params map[string]interface{}) GuardResult {
-	if toolName != "exec" {
+	// 支持两种工具名：注册名 "exec" 和实际工具名 "execute_command"
+	if toolName != "exec" && toolName != "execute_command" {
 		return GuardResult{Decision: DecisionApprove}
 	}
 
