@@ -158,19 +158,16 @@ func shouldForceContinue(resp *ChatMessage, hasTools bool) (bool, bool) {
 	if resp.FinishReason == "length" {
 		return true, false
 	}
-
 	visible := strings.TrimSpace(stripThinkTags(resp.Content))
-
 	// 空内容 → 需要续推让模型输出
 	if visible == "" {
 		// DeepSeek 特殊处理：如果 reasoning_content 有充分内容，模型已完成推理
 		// 但可能还需要输出结果或调用工具，仍需续推
 		if len([]rune(resp.ReasoningContent)) >= 100 {
-			return true, true
+			return true, false
 		}
 		return true, true
 	}
-
 	// 极短内容（<=3字符）→ 需要续推
 	if len([]rune(visible)) <= 3 {
 		return true, true
@@ -215,18 +212,17 @@ func cleanTransientMessages(messages []ChatMessage) []ChatMessage {
 // buildAutoContinueHint 构建 auto-continue 提示消息
 // 附带上轮助手回复的尾部摘录供模型自检
 func buildAutoContinueHint(resp *ChatMessage) string {
-	hint := "你刚才描述了后续步骤但未调用工具。若完成用户的上一条请求仍需工具，请直接调用；若已充分回答，请给出简洁的最终回复。"
-
-	visible := stripThinkTags(resp.Content)
-	// 优先使用 visible，若空则用 ReasoningContent（DeepSeek 等）
-	if visible == "" && resp.ReasoningContent != "" {
-		visible = stripThinkTags(resp.ReasoningContent)
-	}
-
-	tail := getTailContext(visible, 600)
-	if tail != "" {
-		hint += "\n\n<previous-assistant-tail>\n" + tail + "\n</previous-assistant-tail>"
-	}
+	// hint := "你刚才描述了后续步骤但未调用工具。若完成用户的上一条请求仍需工具，请直接调用；若已充分回答，请给出简洁的最终回复。"
+	hint := "是否还需调用工具，需要直接调用。不需要请忽略！"
+	// visible := stripThinkTags(resp.Content)
+	// // 优先使用 visible，若空则用 ReasoningContent（DeepSeek 等）
+	// if visible == "" && resp.ReasoningContent != "" {
+	// 	visible = stripThinkTags(resp.ReasoningContent)
+	// }
+	// tail := getTailContext(visible, 600)
+	// if tail != "" {
+	// 	hint += "\n\n<previous-assistant-tail>\n" + tail + "\n</previous-assistant-tail>"
+	// }
 	return hint
 }
 
@@ -290,7 +286,6 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		}
 	}
 	// 构建消息列表（包含工具调用结果）
-
 	messages := r.buildMessages(session, tools)
 
 	// 恢复原始内容（确保后续持久化时保存的是原始消息）
@@ -315,7 +310,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 	autoContinueCount := 0
 	// summarizing 标记
 	summarizing := false
-	// 【 机制】保存 auto-continue 过程中最好的纯文本回复
+	// 【机制】保存 auto-continue 过程中最好的纯文本回复
 	// 如果续推后仍无工具调用，返回原始回复而非最后一轮的回复
 	savedTextResponse := ""  // 保存第一轮触发续推时的回复
 	savedTextReasoning := "" // DeepSeek reasoning_content fallback
@@ -346,8 +341,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				for _, tc := range summaryResp.ToolCalls {
 					phantomNames = append(phantomNames, tc.Function.Name)
 				}
-				logger.Warn("[Runtime] summarizing 阶段收到幻影 tool_calls，已忽略",
-					"phantom_tools", phantomNames)
+				logger.Warn("[Runtime] summarizing 阶段收到幻影 tool_calls，已忽略", "phantom_tools", phantomNames)
 			}
 			return stripThinkTags(summaryResp.Content), nil
 		}
@@ -367,10 +361,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		// jsonPretty, _ := json.MarshalIndent(resp, "", "  ")
 		// fmt.Println(string(jsonPretty))
 
-		logger.Info("[Runtime] LLM响应收到",
-			"iteration", i+1,
-			"content_len", len(resp.Content),
-			"tool_calls_count", len(resp.ToolCalls))
+		logger.Info("[Runtime] LLM响应收到", "iteration", i+1, "content_len", len(resp.Content), "tool_calls_count", len(resp.ToolCalls))
 
 		// 输出思考内容 && len(resp.ToolCalls) > 0
 		if handler != nil {
@@ -397,8 +388,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 
 			// 如果上一轮也是纯文本 → 连续两次纯文本，返回第一次的回复
 			if savedTextResponse != "" {
-				logger.Info("[Runtime] consecutive text-only, returning saved response",
-					"saved_len", len(savedTextResponse))
+				logger.Info("[Runtime] 连续纯文本，返回已保存的回复", "saved_len", len(savedTextResponse))
 				visible = savedTextResponse
 				if visible == "" && savedTextReasoning != "" {
 					visible = stripThinkTags(savedTextReasoning)
@@ -415,19 +405,11 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 					savedTextReasoning = resp.ReasoningContent
 				}
 				autoContinueCount++
-				logger.Info("[Runtime] first text-only, saving and continuing",
-					"count", autoContinueCount, "visible_len", len(visible))
+				logger.Info("[Runtime] 首次纯文本，保存并继续", "count", autoContinueCount, "visible_len", len(visible))
 
 				// 注入 hint 消息（附带上一轮摘录供模型自检）
-				messages = append(messages, ChatMessage{
-					Role:    "assistant",
-					Content: resp.Content,
-				})
-				messages = append(messages, ChatMessage{
-					Role:      "user",
-					Content:   buildAutoContinueHint(resp),
-					Transient: true,
-				})
+				messages = append(messages, ChatMessage{Role: "assistant", Content: resp.Content})
+				messages = append(messages, ChatMessage{Role: "user", Content: buildAutoContinueHint(resp), Transient: true})
 				continue
 			}
 
@@ -440,27 +422,15 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 		savedTextResponse = ""
 		savedTextReasoning = ""
 
-		assistantMsg := ChatMessage{
-			Role:      "assistant",
-			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
-		}
+		assistantMsg := ChatMessage{Role: "assistant", Content: resp.Content, ToolCalls: resp.ToolCalls}
 		messages = append(messages, assistantMsg)
 
 		for idx, tc := range resp.ToolCalls {
-			logger.Info("[Runtime] 执行工具",
-				"iteration", i+1,
-				"tool_idx", idx+1,
-				"tool_name", tc.Function.Name,
-				"tool_call_id", tc.ID)
+			logger.Info("[Runtime] 执行工具", "iteration", i+1, "tool_idx", idx+1, "tool_name", tc.Function.Name, "tool_call_id", tc.ID)
 
 			// 输出工具调用开始
 			if handler != nil {
-				handler(ToolEvent{
-					Type:     "calling",
-					ToolName: tc.Function.Name,
-					Args:     tc.Function.Arguments,
-				})
+				handler(ToolEvent{Type: "calling", ToolName: tc.Function.Name, Args: tc.Function.Arguments})
 			}
 			// 执行工具并捕获结果（带结果裁剪）
 			result, contentBlocks, err := r.executeTool(ctx, tc, tools, handler)
@@ -468,11 +438,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				result = fmt.Sprintf("工具执行错误: %v", err)
 				logger.Error("[Runtime] 工具执行出错", "tool_name", tc.Function.Name, "err", err)
 				if handler != nil {
-					handler(ToolEvent{
-						Type:     "error",
-						ToolName: tc.Function.Name,
-						Error:    err.Error(),
-					})
+					handler(ToolEvent{Type: "error", ToolName: tc.Function.Name, Error: err.Error()})
 				}
 
 				// 记录失败次数
@@ -488,11 +454,7 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 				logger.Info("[Runtime] 工具执行成功", "tool_name", tc.Function.Name, "result_len", len(result))
 				// 输出工具执行结果
 				if handler != nil {
-					handler(ToolEvent{
-						Type:     "result",
-						ToolName: tc.Function.Name,
-						Result:   result,
-					})
+					handler(ToolEvent{Type: "result", ToolName: tc.Function.Name, Result: result})
 					// send_file 工具额外发送 file 事件（供前端实时渲染）
 					if tc.Function.Name == "send_file" {
 						var toolParams map[string]interface{}
@@ -506,29 +468,17 @@ func (r *Runtime) ExecuteWithEnhancedMessage(ctx context.Context, session *Sessi
 							if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 								fileType = "url"
 							}
-							handler(ToolEvent{
-								Type:     "file",
-								ToolName: filename,
-								Args:     fileType,
-								Result:   path,
-							})
+							handler(ToolEvent{Type: "file", ToolName: filename, Args: fileType, Result: path})
 						}
 					}
 					// StructuredTool 返回的结构化内容块（用于 session 持久化）
 					if len(contentBlocks) > 0 {
-						handler(ToolEvent{
-							Type:    "content",
-							Content: contentBlocks,
-						})
+						handler(ToolEvent{Type: "content", Content: contentBlocks})
 					}
 				}
 			}
 
-			toolMsg := ChatMessage{
-				Role:       "tool",
-				ToolCallID: tc.ID,
-				Content:    result + toolContinueSuffix(result),
-			}
+			toolMsg := ChatMessage{Role: "tool", ToolCallID: tc.ID, Content: result + toolContinueSuffix(result)}
 			messages = append(messages, toolMsg)
 		}
 	}
@@ -560,59 +510,32 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 					if extractedThinking != "" {
 						thinkingContent = thinkingContent + extractedThinking
 					}
-					// if thinkingContent == "" {
-					// 	thinkingContent = resp.Content
-					// }
 					if thinkingContent != "" {
 						handler(ToolEvent{Type: "thinking", Thinking: thinkingContent})
 					}
 				}
 				// 需要工具调用，走阻塞路径
-				assistantMsg := ChatMessage{
-					Role:      "assistant",
-					Content:   resp.Content,
-					ToolCalls: resp.ToolCalls,
-				}
+				assistantMsg := ChatMessage{Role: "assistant", Content: resp.Content, ToolCalls: resp.ToolCalls}
 				messages = append(messages, assistantMsg)
 
 				for _, tc := range resp.ToolCalls {
 					if handler != nil {
-						handler(ToolEvent{
-							Type:     "calling",
-							ToolName: tc.Function.Name,
-							Args:     tc.Function.Arguments,
-						})
+						handler(ToolEvent{Type: "calling", ToolName: tc.Function.Name, Args: tc.Function.Arguments})
 					}
-
 					result, contentBlocks, execErr := r.executeTool(ctx, tc, tools, handler)
 					if execErr != nil {
 						result = fmt.Sprintf("工具执行错误: %v", execErr)
 						if handler != nil {
-							handler(ToolEvent{
-								Type:     "error",
-								ToolName: tc.Function.Name,
-								Error:    execErr.Error(),
-							})
+							handler(ToolEvent{Type: "error", ToolName: tc.Function.Name, Error: execErr.Error()})
 						}
 					} else if handler != nil {
-						handler(ToolEvent{
-							Type:     "result",
-							ToolName: tc.Function.Name,
-							Result:   result,
-						})
+						handler(ToolEvent{Type: "result", ToolName: tc.Function.Name, Result: result})
 						// StructuredTool 返回的结构化内容块（用于 session 持久化）
 						if len(contentBlocks) > 0 {
-							handler(ToolEvent{
-								Type:    "content",
-								Content: contentBlocks,
-							})
+							handler(ToolEvent{Type: "content", Content: contentBlocks})
 						}
 					}
-					toolMsg := ChatMessage{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    result,
-					}
+					toolMsg := ChatMessage{Role: "tool", ToolCallID: tc.ID, Content: result}
 					messages = append(messages, toolMsg)
 				}
 				continue

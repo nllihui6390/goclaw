@@ -315,6 +315,8 @@ function openEdit(server) {
   createDialogVisible.value = true
 }
 
+watch(agent, loadServers)
+
 onMounted(() => {
   loadServers()
 })
@@ -324,7 +326,10 @@ onMounted(() => {
   <div class="mcp-page">
     <!-- 头部 -->
     <div class="header">
-      <h2>MCP 集成</h2>
+      <div class="header-left">
+        <h2>MCP 集成</h2>
+        <el-tag size="small">{{ agent }}</el-tag>
+      </div>
       <div class="header-actions">
         <el-button type="primary" @click="openCreate">新建 Server</el-button>
       </div>
@@ -500,6 +505,12 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
 
   h2 {
     color: $text-primary;
