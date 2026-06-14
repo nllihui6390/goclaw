@@ -94,6 +94,9 @@ func (t *WeatherTool) Parameters() map[string]interface{} {
 	}
 }
 
+// Execute 执行天气查询工具
+// 从参数中提取城市名称，调用天气API获取实时天气数据，
+// 并将结果以格式化的JSON字符串返回
 func (t *WeatherTool) Execute(ctx context.Context, params map[string]interface{}) (string, error) {
 	city, ok := params["city"].(string)
 	if !ok {
@@ -111,7 +114,7 @@ func (t *WeatherTool) Execute(ctx context.Context, params map[string]interface{}
 		return "", fmt.Errorf("JSON序列化失败: %w", err)
 	}
 
-	return string(jsonBytes), nil
+	return "天气查询成功：" + string(jsonBytes), nil
 }
 
 // fetchWeather 调用真实天气API
@@ -174,9 +177,9 @@ func (t *WeatherTool) fetchWttr(ctx context.Context, city string) (*WeatherResul
 			} `json:"weatherDesc"`
 		} `json:"current_condition"`
 		Weather []struct {
-			Date      string `json:"date"`
-			MaxTempC  string `json:"maxtempC"`
-			MinTempC  string `json:"mintempC"`
+			Date        string `json:"date"`
+			MaxTempC    string `json:"maxtempC"`
+			MinTempC    string `json:"mintempC"`
 			WeatherDesc []struct {
 				Value string `json:"value"`
 			} `json:"weatherDesc"`
