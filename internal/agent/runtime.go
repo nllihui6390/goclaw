@@ -176,7 +176,12 @@ func shouldForceContinue(resp *ChatMessage, hasTools bool) (bool, bool) {
 		return true, true
 	}
 
-	// 其他情况：有任何文本内容 + 无工具调用 → 一律续推
+	// 实质性文本（>=80字符）→ 是真正的用户回复，不需要续推，直接返回
+	// if len([]rune(visible)) >= 80 {
+	// 	return false, false
+	// }
+
+	// 中等长度内容 → 续推，给模型一次调用工具的机会
 	return true, false
 }
 

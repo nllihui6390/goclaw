@@ -200,10 +200,15 @@ func (l *Loader) GetBootstrapGuidance() string {
 
 工作目录中存在 BOOTSTRAP.md — 首次设置。
 
+## 你必须遵守的规则：
 1. 阅读 BOOTSTRAP.md 内容，友好地表示初次见面，引导用户完成设置。
 2. 按照 BOOTSTRAP.md 的指示，帮助用户定义身份和偏好。
 3. 按指南创建/更新必要文件（PROFILE.md、MEMORY.md 等）。
 4. 完成后告知用户，系统会自动标记引导完成。
+
+## 禁止行为：
+- 不要执行任何工具调用。
+- 不要尝试访问网络或外部系统（例如，不使用插件）。
 
 BOOTSTRAP.md 内容：
 %s
