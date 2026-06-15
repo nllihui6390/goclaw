@@ -183,11 +183,11 @@ type SkillsConfig struct {
 }
 
 type ConsoleConfig struct {
-	Enabled          bool `json:"enabled"`
+	Enabled          bool   `json:"enabled"`
 	BotPrefix        string `json:"bot_prefix"`
-	ShowToolMessages bool `json:"show_tool_messages"` // 显示工具调用和输出消息
-	ShowThinking     bool `json:"show_thinking"`      // 显示模型思考/推理内容
-	StreamOutput     bool `json:"stream_output"`      // 流式输出
+	ShowToolMessages bool   `json:"show_tool_messages"` // 显示工具调用和输出消息
+	ShowThinking     bool   `json:"show_thinking"`      // 显示模型思考/推理内容
+	StreamOutput     bool   `json:"stream_output"`      // 流式输出
 }
 
 // IsUnset 判断是否为未配置的零值（新建 agent 未写入 channels 时会出现）
@@ -738,22 +738,22 @@ func GetDefaultChannelsConfig() ChannelsConfig {
 			StreamOutput:     true,
 		},
 		Lark: LarkConfig{
-			Enabled: false,
-			StreamOutput:     true,
+			Enabled:      false,
+			StreamOutput: true,
 		},
 		DingTalk: DingTalkConfig{
-			Enabled: false,
-			StreamOutput:     true,
+			Enabled:      false,
+			StreamOutput: true,
 		},
 		WeCom: WeComConfig{
-			Enabled: false,
-			StreamOutput:     true,
+			Enabled:      false,
+			StreamOutput: true,
 		},
 		WeChat: WeChatConfig{
 			Enabled:      false,
 			BotTokenFile: DefaultDataDir + "/wechat_bot_token",
 			MediaDir:     DefaultDataDir + "/media/wechat",
-			StreamOutput:     true,
+			StreamOutput: true,
 		},
 	}
 }
@@ -762,9 +762,10 @@ func GetDefaultChannelsConfig() ChannelsConfig {
 func GetDefaultAgentConfig(name, provider, model string) *AgentConfig {
 	return &AgentConfig{
 		Name:          name,
+		DisplayName:   "默认助手",
 		Provider:      provider,
 		Model:         model,
-		SystemPrompt:  "你是一个有用的AI助手。你可以使用工具来帮助用户。",
+		SystemPrompt:  "你是一个有用的AI个人助手。你可以使用工具来帮助用户。",
 		Tools:         []string{"weather", "exec", "write_file", "read_file", "edit_file", "append_file", "send_file", "get_current_time", "set_user_timezone", "cron_status"},
 		MaxIterations: 50,
 		MaxTokens:     32000,
