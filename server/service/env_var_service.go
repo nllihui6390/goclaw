@@ -27,9 +27,6 @@ func NewEnvVarService(config *ConfigService) *EnvVarService {
 		config:   config,
 	}
 
-	// 启动时应用一次已保存的环境变量
-	s.ApplyToProcess()
-
 	return s
 }
 
@@ -113,8 +110,8 @@ func (s *EnvVarService) Save(entry config.EnvVarEntry) error {
 		return err
 	}
 
-	// 自动应用
-	go s.ApplyToProcess()
+	// 自动应用并重载配置
+	go s.ApplyToProcessAndReload()
 
 	return nil
 }
@@ -156,8 +153,8 @@ func (s *EnvVarService) Update(entry config.EnvVarEntry) error {
 		return err
 	}
 
-	// 自动应用
-	go s.ApplyToProcess()
+	// 自动应用并重载配置
+	go s.ApplyToProcessAndReload()
 
 	return nil
 }
@@ -208,6 +205,7 @@ func (s *EnvVarService) Delete(key string) error {
 }
 
 // ApplyToProcess 将所有启用的环境变量应用到进程
+// 注意：此方法仅设置 os 环境变量，不触发 Agent 同步
 func (s *EnvVarService) ApplyToProcess() error {
 	s.mu.RLock()
 	entries := s.List()
@@ -229,11 +227,19 @@ func (s *EnvVarService) ApplyToProcess() error {
 	}
 	config.SetAppliedKeys(newApplied)
 
-	// 触发配置重载，使 Agent 重新读取 provider 配置（os.Getenv 覆盖）
-	global.ReloadConfigAndSyncAgents()
-
 	glog.Logger().Info("[EnvVar] 环境变量已应用到进程", "count", len(newApplied))
 
+	return nil
+}
+
+// ApplyToProcessAndReload 将环境变量应用到进程，并触发配置重载+Agent同步
+// 用于用户手动修改环境变量后的生效流程
+func (s *EnvVarService) ApplyToProcessAndReload() error {
+	if err := s.ApplyToProcess(); err != nil {
+		return err
+	}
+	// 触发配置重载，使 Agent 重新读取 provider 配置（os.Getenv 覆盖）
+	global.ReloadConfigAndSyncAgents()
 	return nil
 }
 
@@ -268,9 +274,6 @@ func (s *EnvVarService) ResolveValue(key string) (string, string) {
 
 // ReloadEnvVarsFile 强制重新加载环境变量文件并应用到进程
 func (s *EnvVarService) ReloadEnvVarsFile() error {
-	s.mu.Lock()
-	s.mu.Unlock()
-
-	// 重新读取并应用
-	return s.ApplyToProcess()
+	// 重新读取并应用（含 Agent 同步）
+	return s.ApplyToProcessAndReload()
 }

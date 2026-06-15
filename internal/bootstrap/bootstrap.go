@@ -55,6 +55,12 @@ func NewApp(dataDir string) (*App, error) {
 	// 4. 安全守卫（必须在 Agents 前，Agent 创建时注入 ToolGuard）
 	app.initSecurity()
 
+	// 4.5. 应用环境变量（必须在 Agents 前，Provider API Key 可能来自 env_vars.json）
+	envVarFile := config.GetEnvVarFilePath(app.DataDir)
+	if err := config.LoadAndApply(envVarFile); err != nil {
+		app.logger.Warn("加载环境变量配置失败", "err", err)
+	}
+
 	// 5. Agents 注册（必须在 Start 前）
 	app.initAgents()
 
