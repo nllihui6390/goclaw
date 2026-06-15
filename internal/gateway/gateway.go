@@ -396,7 +396,11 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 			msgCtx = agent.WithChannel(msgCtx, msg.Channel)
 			msgCtx = agent.WithUser(msgCtx, msg.From)
 
+			var hadTextStream bool
 			handler := func(event agent.ToolEvent) {
+				if event.Type == "text" {
+					hadTextStream = true
+				}
 				ch.SendToolEvent(channel.ToolEvent{
 					Type:     channel.ToolEventType(event.Type),
 					ToolName: event.ToolName,
@@ -424,12 +428,16 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 				g.sessionIndex.RecordSession(sessionID, msg.Channel, msg.From, targetAgent, msg.Content)
 			}
 
-			// 发送响应
-			ch.Send(g.ctx, channel.Response{
-				Content: response,
-				Channel: msg.Channel,
-				To:      msg.From,
-			})
+			// 流式模式下文本已通过 ToolEventText 实时推送，末尾仅发空串触发流关闭避免重复
+		sendContent := response
+		if hadTextStream {
+			sendContent = ""
+		}
+		ch.Send(g.ctx, channel.Response{
+			Content: sendContent,
+			Channel: msg.Channel,
+			To:      msg.From,
+		})
 		}
 	}
 }

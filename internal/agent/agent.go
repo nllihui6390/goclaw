@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"go-claw/internal/channel"
@@ -14,6 +15,9 @@ import (
 	"go-claw/internal/store"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
+
+	goAgent "github.com/nllihui6390/go-agent"
+	goTool "github.com/nllihui6390/go-agent/tool"
 )
 
 // WorkspaceLoader 工作空间加载器接口
@@ -63,6 +67,10 @@ type Agent struct {
 	runtime    *Runtime
 	sessionMgr *SessionManager
 	memory     memory.Memory
+
+	// go-agent 循环引擎
+	goAgent   *goAgent.Agent
+	goAgentMu sync.Mutex
 }
 
 // NewAgent 创建Agent
@@ -71,12 +79,111 @@ func NewAgent(cfg *AgentConfig) *Agent {
 	if cfg.WorkspaceDir != "" {
 		runtime.SetWorkspaceDir(cfg.WorkspaceDir)
 	}
-	return &Agent{
+	a := &Agent{
 		config:     cfg,
 		runtime:    runtime,
 		sessionMgr: NewSessionManager(cfg.Store),
 		memory:     cfg.Memory,
 	}
+	a.initGoAgent()
+	return a
+}
+
+// initGoAgent 创建 go-agent 循环引擎
+func (a *Agent) initGoAgent() {
+	cfg := a.config
+
+	// 注册工具到 go-agent Registry
+	toolReg := goTool.NewRegistry()
+	for _, t := range cfg.Tools {
+		toolReg.Register(t)
+	}
+
+	// 创建 go-agent Config
+	agentCfg := goAgent.DefaultConfig(cfg.Name, a.runtime.chatModel, cfg.SystemPrompt).
+		WithTools(toolReg).
+		WithMaxIters(cfg.MaxIterations).
+		WithWorkspaceDir(cfg.WorkspaceDir).
+		WithSupportsImage(cfg.SupportsImage).
+		WithSupportsVideo(cfg.SupportsVideo)
+
+	if cfg.Memory != nil {
+		agentCfg = agentCfg.WithMemory(memory.AsAgentMem(cfg.Memory))
+	}
+	if cfg.SkillRegistry != nil {
+		agentCfg.WithSkills(nil)
+	}
+	if cfg.WorkspaceLoader != nil {
+		agentCfg = agentCfg.WithPersonaLoader(cfg.WorkspaceLoader)
+	}
+
+	a.goAgent = goAgent.NewAgent(*agentCfg)
+
+	// 默认允许所有工具执行（go-claw 通过 ToolGuard 做安全检查，不走 PermissionChecker）
+	if perm, ok := a.goAgent.GetConfig().Permission.(*goAgent.DefaultPermissionChecker); ok {
+		perm.SetMode(goTool.ModeBypass)
+	}
+}
+
+// refreshGoAgent 热切换 ChatModel（动态配置变更时调用）
+func (a *Agent) refreshGoAgent() {
+	a.runtime.refreshChatModel()
+	// go-agent 的 model 已经通过 runtime.chatModel 共享，无需重建
+}
+
+// convertSessionToGoAgent 将 go-claw 会话历史加载到 go-agent session
+func (a *Agent) loadSessionToGoAgent(session *Session) {
+	a.goAgentMu.Lock()
+	defer a.goAgentMu.Unlock()
+
+	goSession := a.goAgent.GetSession()
+	goSession.Clear()
+
+	// 跳过后添加的消息：当前轮的用户消息会由 ReplyStream 自己 AddMessage，
+	// 避免会话中同一消息被加载两次导致模型输出重复
+	msgs := session.Messages
+	if len(msgs) > 0 && msgs[len(msgs)-1].Role == "user" {
+		msgs = msgs[:len(msgs)-1]
+	}
+
+	for _, msg := range msgs {
+		goMsg := goAgent.Msg{
+			ID:        fmt.Sprintf("msg_%s_%d", msg.Role, len(goSession.GetHistory())),
+			Name:      a.config.Name,
+			Role:      goAgent.Role(msg.Role),
+			Content:   channelBlocksToAgentBlocks(msg.Content),
+			Metadata:  msg.Metadata,
+			CreatedAt: msg.Timestamp.Format(time.RFC3339),
+		}
+		if msg.ToolCallID != "" {
+			if msg.Role == "tool" {
+				goMsg.Name = msg.ToolCallID
+			} else if msg.Name != "" {
+				goMsg.Name = msg.Name
+			}
+		}
+		goSession.AddMessage(goMsg)
+	}
+}
+
+// channelBlocksToAgentBlocks 转换 go-claw ContentBlocks → go-agent ContentBlock
+func channelBlocksToAgentBlocks(blocks channel.ContentBlocks) []goAgent.ContentBlock {
+	result := make([]goAgent.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch block := b.(type) {
+		case *channel.TextBlock:
+			result = append(result, goAgent.NewTextBlock(block.Text))
+		case *channel.ImageBlock:
+			if block.Source.Type == "url" {
+				result = append(result, goAgent.NewDataBlockURL(block.Source.URL, block.Source.MediaType))
+			} else {
+				result = append(result, goAgent.NewDataBlockBase64(block.Source.Data, block.Source.MediaType))
+			}
+		case *channel.FileBlock:
+			result = append(result, goAgent.NewTextBlock("[File: "+block.Filename+"]"))
+		}
+	}
+	return result
 }
 
 // Process 处理用户消息
@@ -127,30 +234,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	session.SetSessionID(session.Channel + ":" + session.UserID)
 	logger.Debug("[Agent] 会话已获取/创建", "session_id", sessionID, "msg_count", len(session.Messages))
 
-	// 检索相关记忆
-	var relevantMemories []string
-	if a.memory != nil {
-		results, err := a.memory.Retrieve(ctx, userMessage, sessionID, 5)
-		if err != nil {
-			logger.Warn("[Agent] 记忆检索失败", "err", err)
-		} else if len(results) > 0 {
-			logger.Debug("[Agent] 检索到相关记忆", "count", len(results))
-			for _, res := range results {
-				relevantMemories = append(relevantMemories,
-					fmt.Sprintf("[%s] %s", res.Entry.Type, res.Entry.Content))
-			}
-		}
-	}
-
-	// 构建发送给 LLM 的消息（原始消息 + 记忆上下文）
-	llmMessage := userMessage
-	if len(relevantMemories) > 0 {
-		memoryContext := "相关记忆:\n" + strings.Join(relevantMemories, "\n")
-		llmMessage = memoryContext + "\n\n用户问题: " + userMessage
-		logger.Debug("[Agent] 消息已增强，加入记忆上下文", "memory_count", len(relevantMemories))
-	}
-
-	// 会话历史只保存原始用户消息，不保存增强后的记忆上下文
+	// 会话历史只保存原始用户消息
 	if len(blocks) > 0 {
 		// 有结构化内容块时，将其与文本消息合并保存
 		userBlocks := channel.ParseFileMarkers(userMessage)
@@ -162,121 +246,101 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	}
 	logger.Debug("[Agent] 用户消息已添加到会话", "history_len", len(session.Messages), "blocks", len(blocks))
 
-	// 执行运行时（传入增强后的消息供 LLM 使用，但不在会话历史中污染）
-	// 收集内容块（用于追加到最终响应，确保 session 持久化）
-	contentBlocks := channel.ContentBlocks{}
-	// 收集工具执行过程（用于 Metadata 持久化，供前端折叠显示）
-	var thinkingParts []string
-	type toolExecRecord struct {
-		Name          string `json:"name"`
-		Args          string `json:"args"`
-		Result        string `json:"result,omitempty"`
-		Error         string `json:"error,omitempty"`
-		Status        string `json:"status"` // "success", "error", "guard"
-		ApprovalID    string `json:"approval_id,omitempty"`
-		ApprovalState string `json:"approval_state,omitempty"` // pending/approved/denied
-		GuardMessage  string `json:"guard_message,omitempty"`
-	}
-	var toolExecRecords []toolExecRecord
-	var currentToolArgs string
-	// 用于 guard 事件去重：相同 approval_id 只保留最后一条
-	guardEventIndex := make(map[string]int) // approval_id -> index in toolExecRecords
-
-	wrappedHandler := func(event ToolEvent) {
-		// 收集内容块事件
-		if event.Type == "content" && len(event.Content) > 0 {
-			contentBlocks = append(contentBlocks, event.Content...)
-		}
-		// 收集思考内容
-		if event.Type == "thinking" && event.Thinking != "" {
-			thinkingParts = append(thinkingParts, event.Thinking)
-		}
-		// 收集工具调用开始
-		if event.Type == "calling" {
-			currentToolArgs = event.Args
-		}
-		// 收集工具执行结果
-		if event.Type == "result" {
-			toolExecRecords = append(toolExecRecords, toolExecRecord{
-				Name:   event.ToolName,
-				Args:   currentToolArgs,
-				Result: event.Result,
-				Status: "success",
-			})
-		}
-		// 收集工具执行错误
-		if event.Type == "error" {
-			toolExecRecords = append(toolExecRecords, toolExecRecord{
-				Name:   event.ToolName,
-				Args:   currentToolArgs,
-				Error:  event.Error,
-				Status: "error",
-			})
-		}
-		// 收集安全守卫事件（审批通知）
-		// 去重逻辑：相同 approval_id 的事件只保留最后一条（更新而非追加）
-		if event.Type == "guard" {
-			record := toolExecRecord{
-				Name:          event.ToolName,
-				Args:          event.Args,
-				Status:        "guard",
-				ApprovalID:    event.ApprovalID,
-				ApprovalState: event.ApprovalState,
-				GuardMessage:  event.GuardMessage,
-			}
-			if event.ApprovalID != "" {
-				// 有 approval_id，检查是否已存在
-				if idx, exists := guardEventIndex[event.ApprovalID]; exists {
-					// 更新已存在的记录（保留最新状态）
-					toolExecRecords[idx] = record
-				} else {
-					// 新记录
-					guardEventIndex[event.ApprovalID] = len(toolExecRecords)
-					toolExecRecords = append(toolExecRecords, record)
-				}
-			} else {
-				// 无 approval_id（Deny 直接拒绝的情况），直接追加
-				toolExecRecords = append(toolExecRecords, record)
-			}
-		}
-		// 调用原始 handler
-		if handler != nil {
-			handler(event)
-		}
-	}
-
-	logger.Info("[Agent] 开始执行Runtime",
+	logger.Info("[Agent] 开始执行 go-agent 循环",
 		"tools_count", len(a.config.Tools),
 		"max_iterations", a.config.MaxIterations,
 		"blocks_count", len(blocks))
 
-	// 如果有记忆上下文或多模态 blocks，将增强后的消息传入 Runtime
-	// ExecuteWithEnhancedMessage 会临时替换会话中最后一条 user 消息，构建完 LLM 请求后恢复
-	var enhancedMsg string
-	if llmMessage != userMessage || len(blocks) > 0 {
-		enhancedMsg = llmMessage
-	}
+	// ─────────── 使用 go-agent ReAct 循环 ───────────
+	// 1. 加载会话历史到 go-agent session
+	a.loadSessionToGoAgent(session)
 
-	finalResponse, err := a.runtime.ExecuteWithEnhancedMessage(ctx, session, enhancedMsg, a.config.Tools, a.config.MaxIterations, wrappedHandler)
+	// 2. 构建用户消息（含记忆上下文和多模态内容）
+	userBlocks := channel.ParseFileMarkers(userMessage)
+	userBlocks = append(blocks, userBlocks...)
+	goBlocks := channelBlocksToAgentBlocks(userBlocks)
+
+	goMsg := goAgent.UserMsg(session.UserID, goBlocks)
+
+	// 3. 调用 go-agent 流式循环 → 同时收集回复 + 转发事件到前端
+	eventCh, err := a.goAgent.ReplyStream(ctx, goMsg)
 	if err != nil {
-		logger.Error("[Agent] Runtime执行失败", "err", err)
+		logger.Error("[Agent] go-agent ReplyStream 启动失败", "err", err)
 		return "", err
 	}
 
-	// 将内容块放到响应开头（确保 session 持久化包含图片等媒体信息）
-	// 然后追加 LLM 的文本响应
-	if len(contentBlocks) > 0 {
-		contentBlocks = append(contentBlocks, channel.NewTextBlock(finalResponse))
-	} else {
-		contentBlocks = channel.ContentBlocksFromText(finalResponse)
+	var finalResponse string
+	var replyMsg *goAgent.Msg
+	var currentToolName, currentToolArgs string
+
+	for event := range eventCh {
+		switch e := event.(type) {
+		case goAgent.ReplyStartEvent:
+			logger.Debug("[Agent] go-agent reply 开始", "session", e.SessionID)
+
+		case goAgent.TextBlockDeltaEvent:
+			finalResponse += e.Delta
+			if handler != nil {
+				handler(ToolEvent{Type: "text", Thinking: e.Delta})
+			}
+
+		case goAgent.ThinkingBlockDeltaEvent:
+			if handler != nil {
+				handler(ToolEvent{Type: "thinking", Thinking: e.Delta})
+			}
+
+		case goAgent.ToolCallStartEvent:
+			currentToolName = e.ToolCallName
+			currentToolArgs = ""
+
+		case goAgent.ToolCallDeltaEvent:
+			currentToolArgs += e.Delta
+
+		case goAgent.ToolCallEndEvent:
+			// 参数收集完毕，发送一次完整调用事件
+			if handler != nil {
+				handler(ToolEvent{Type: "calling", ToolName: currentToolName, Args: currentToolArgs})
+			}
+
+		case goAgent.ToolResultStartEvent:
+			// 工具开始执行
+
+		case goAgent.ToolResultTextDeltaEvent:
+			// 工具结果流式增量 —— 累积但不逐条推送（前端通过最终 result 事件获取）
+
+		case goAgent.ToolResultEndEvent:
+			if handler != nil {
+				// 从 go-agent session 中读回刚存的工具结果
+				resultText := goAgentGetLastToolResult(a.goAgent, e.ToolCallID)
+				evtType := "result"
+				if e.State == goAgent.ToolResultStateError {
+					evtType = "error"
+				}
+				handler(ToolEvent{Type: evtType, ToolName: currentToolName, Result: resultText})
+			}
+
+		case goAgent.ReplyEndEvent:
+			logger.Debug("[Agent] go-agent reply 结束")
+		}
 	}
 
-	// assistant 角色不存储图片 base64 数据（会撑大 session 文件且 LLM 无法处理）
-	contentBlocks = channel.StripImageBlocks(contentBlocks)
-	// 合并所有连续的 TextBlock 为一个（工具结果 + LLM 响应合并）
-	contentBlocks = channel.MergeTextBlocks(contentBlocks)
+	// 获取最终消息：从 go-agent session 找最后一条纯文本 assistant 消息
+	goSess := a.goAgent.GetSession()
+	history := goSess.GetHistory()
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == goAgent.RoleAssistant && !history[i].HasToolCalls() {
+			replyMsg = &history[i]
+			break
+		}
+	}
 
-	logger.Info("[Agent] Runtime执行完成", "response_len", len(finalResponse), "blocks_count", len(contentBlocks))
+	if finalResponse == "" && replyMsg != nil {
+		finalResponse = replyMsg.GetTextContent()
+	}
+	logger.Info("[Agent] go-agent 循环完成", "response_len", len(finalResponse))
+
+	// 合并 go-agent session 中的工具调用历史回 go-claw session
+	a.mergeGoAgentHistory(session, replyMsg)
 
 	// 存储记忆
 	if a.memory != nil {
@@ -301,28 +365,12 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		logger.Debug("[Agent] 对话已存入记忆")
 	}
 
-	session.AddMessage("assistant", contentBlocks)
-
-	// 将工具执行过程保存到 Metadata（供前端折叠显示）
-	if len(thinkingParts) > 0 || len(toolExecRecords) > 0 {
-		lastIdx := len(session.Messages) - 1
-		if lastIdx >= 0 && session.Messages[lastIdx].Role == "assistant" {
-			metadata := map[string]interface{}{}
-			if len(thinkingParts) > 0 {
-				metadata["thinking"] = strings.Join(thinkingParts, "\n\n")
-			}
-			if len(toolExecRecords) > 0 {
-				metadata["tool_calls"] = toolExecRecords
-			}
-			session.Messages[lastIdx].Metadata = metadata
-			// 触发持久化
-			session.Persist()
-		}
-	}
+	// mergeGoAgentHistory 已保存了完整的 assistant + tool 消息（含 metadata），
+	// 这里不再重复保存。
 
 	logger.Info("[Agent] 消息处理完成", "session", sessionID)
 
-	// 自动记忆提取：对话后提取关键信息存入长期记忆
+	// 自动记忆提取
 	go a.extractMemoryAsync(userMessage, finalResponse, sessionID, session.UserID)
 
 	return finalResponse, nil
@@ -483,4 +531,114 @@ type SessionSummary struct {
 	Channel   string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// goAgentGetLastToolResult 从 go-agent session 中获取指定 tool_call_id 的最后一条工具结果文本
+func goAgentGetLastToolResult(gag *goAgent.Agent, toolCallID string) string {
+	for _, m := range gag.GetSession().GetHistory() {
+		for _, b := range m.Content {
+			if b.Type == goAgent.BlockTypeToolResult && b.ToolCallID == toolCallID {
+				var texts []string
+				for _, out := range b.ToolResultOutput {
+					if out.Type == goAgent.BlockTypeText {
+						texts = append(texts, out.Text)
+					}
+				}
+				return strings.Join(texts, "\n")
+			}
+		}
+	}
+	return ""
+}
+
+// mergeGoAgentHistory 将 go-agent session 中本轮新增消息合并到 go-claw session。
+// 正确保留：文本、工具调用/结果 metadata、思考内容。
+func (a *Agent) mergeGoAgentHistory(clawSess *Session, replyMsg *goAgent.Msg) {
+	goHistory := a.goAgent.GetSession().GetHistory()
+	if len(goHistory) == 0 {
+		return
+	}
+
+	// 找到最后一条 user 消息之后的新增消息
+	startIdx := 0
+	for i := len(goHistory) - 1; i >= 0; i-- {
+		if goHistory[i].Role == goAgent.RoleUser {
+			startIdx = i + 1
+			break
+		}
+	}
+
+	// 合并所有新增消息：收集文本、思考、工具调用，产出单条完整的 assistant 消息
+	type tcRec struct {
+		Name   string `json:"name"`
+		Args   string `json:"args"`
+		Result string `json:"result,omitempty"`
+		Error  string `json:"error,omitempty"`
+		Status string `json:"status"`
+	}
+	var allThinkParts []string
+	var allTC []tcRec
+	var finalText string
+	var curName, curArgs string
+
+	for i := startIdx; i < len(goHistory); i++ {
+		m := goHistory[i]
+
+		for _, b := range m.Content {
+			switch b.Type {
+			case goAgent.BlockTypeText:
+				if b.Text != "" {
+					finalText += b.Text
+				}
+			case goAgent.BlockTypeThinking:
+				allThinkParts = append(allThinkParts, b.Thinking)
+			case goAgent.BlockTypeToolCall:
+				curName = b.ToolCallName
+				curArgs = b.ToolCallInput
+			case goAgent.BlockTypeToolResult:
+				var text string
+				for _, o := range b.ToolResultOutput {
+					if o.Type == goAgent.BlockTypeText {
+						text += o.Text
+					}
+				}
+				st := "success"
+				if b.ToolResultState == goAgent.ToolResultStateError {
+					st = "error"
+				} else if b.ToolResultState == goAgent.ToolResultStateDenied {
+					st = "guard"
+				}
+				allTC = append(allTC, tcRec{Name: curName, Args: curArgs, Result: text, Status: st})
+			}
+		}
+
+		// tool 角色消息单独追加
+		if m.Role == "tool" {
+			clawSess.AddTextMessage("tool", m.GetTextContent())
+			if last := len(clawSess.Messages) - 1; last >= 0 && m.Name != "" {
+				clawSess.Messages[last].Name = m.Name
+				clawSess.Messages[last].ToolCallID = m.Name
+			}
+		}
+	}
+
+	// 保存一条完整的 assistant 消息（文本 + thinking + tool_calls）
+	if finalText != "" || len(allTC) > 0 || len(allThinkParts) > 0 {
+		clawSess.AddTextMessage("assistant", finalText)
+		if last := len(clawSess.Messages) - 1; last >= 0 {
+			meta := map[string]interface{}{}
+			if len(allThinkParts) > 0 {
+				meta["thinking"] = strings.Join(allThinkParts, "")
+			}
+			if len(allTC) > 0 {
+				meta["tool_calls"] = allTC
+			}
+			if len(meta) > 0 {
+				clawSess.Messages[last].Metadata = meta
+			}
+		}
+	}
+
+	clawSess.Persist()
+	_ = replyMsg
 }

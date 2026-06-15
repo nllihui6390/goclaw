@@ -61,13 +61,14 @@ type Response struct {
 type ToolEventType string
 
 const (
-	ToolEventThinking ToolEventType = "thinking"  // Agent正在思考
-	ToolEventCalling  ToolEventType = "calling"   // 正在调用工具
-	ToolEventResult   ToolEventType = "result"    // 工具返回结果
-	ToolEventError    ToolEventType = "error"     // 工具执行出错
-	ToolEventFile    ToolEventType = "file"      // 文件发送事件（send_file 工具直接推送给前端）
-	ToolEventContent ToolEventType = "content"   // 结构化内容块事件（StructuredTool 返回结果）
-	ToolEventGuard   ToolEventType = "guard"     // 安全守卫拦截事件（审批通知，不受 ShowToolMessages 过滤）
+	ToolEventThinking ToolEventType = "thinking" // Agent正在思考
+	ToolEventCalling  ToolEventType = "calling"  // 正在调用工具
+	ToolEventResult   ToolEventType = "result"   // 工具返回结果
+	ToolEventError    ToolEventType = "error"    // 工具执行出错
+	ToolEventFile     ToolEventType = "file"     // 文件发送事件
+	ToolEventContent  ToolEventType = "content"  // 结构化内容块事件
+	ToolEventGuard    ToolEventType = "guard"    // 安全守卫拦截事件
+	ToolEventText     ToolEventType = "text"     // 流式文本增量（go-agent ReplyStream 逐 token 推送）
 )
 
 // ToolEvent 工具执行事件（用于实时输出工具调用过程）

@@ -55,6 +55,8 @@ export class HttpAdapter {
             yield { type: 'file', info: obj }
           } else if (eventLine === 'event: content') {
             yield { type: 'content', blocks: obj.blocks }
+          } else if (eventLine === 'event: text') {
+            yield { type: 'text', text: obj.text }
           } else if (eventLine === 'event: thinking') {
             yield { type: 'thinking', content: obj.thinking }
           } else if (eventLine === 'event: tool_call') {

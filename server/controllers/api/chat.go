@@ -179,6 +179,9 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 		keepaliveTicker := time.NewTicker(15 * time.Second)
 		defer keepaliveTicker.Stop()
 
+		// 若已通过 text 事件实时流式推送，不再发全量 chunk（避免前端重复显示）
+		hadTextEvents := false
+
 		for {
 			select {
 			case chunk, ok := <-streamCh:
@@ -187,9 +190,11 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 					flusher.Flush()
 					return
 				}
-				data, _ := json.Marshal(map[string]string{"content": chunk})
-				fmt.Fprintf(rw, "event: chunk\ndata: %s\n\n", data)
-				flusher.Flush()
+				if !hadTextEvents {
+					data, _ := json.Marshal(map[string]string{"content": chunk})
+					fmt.Fprintf(rw, "event: chunk\ndata: %s\n\n", data)
+					flusher.Flush()
+				}
 			case fileEvt := <-fileCh:
 				switch fileEvt.Type {
 				case channel.ToolEventFile:
@@ -243,6 +248,11 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 						"approval_state": fileEvt.ApprovalState,
 					})
 					fmt.Fprintf(rw, "event: guard\ndata: %s\n\n", guardData)
+					flusher.Flush()
+				case channel.ToolEventText:
+					hadTextEvents = true
+					textData, _ := json.Marshal(map[string]string{"text": fileEvt.Thinking})
+					fmt.Fprintf(rw, "event: text\ndata: %s\n\n", textData)
 					flusher.Flush()
 				}
 			case <-keepaliveTicker.C:

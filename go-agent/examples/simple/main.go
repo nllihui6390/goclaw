@@ -219,7 +219,7 @@ func agentExample() {
 	// 创建模型（需要真实 API Key）
 	llm := model.NewOpenAIModel(model.ModelConfig{
 		Model:   "deepseek-v4-oc",
-		APIKey:  "eyJraWQiOiIxNmQwYzdiMDI2ZTU0OGEyODk4Yjg0Nzc3YTdmNmNmZSIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJyb2xlIjoib3BlbkFwaSIsImNyZWF0ZVRpbWUiOjE3NzkwOTE2MzIxNDYsImNwVG9rZW4iOiI2ZDM1NTVmNzRlY2E0ZmM2YWYyNGM2Yzc3OGRjZTcxOSIsImlzcyI6ImN0Zy5lYWkifQ.7Jg5UCoPU0FdsJWAbzscIGm1krEdh7D-yvT7nGfbn28", // 替换为真实 API Key
+		APIKey:  "API Key", // 替换为真实 API Key
 		BaseURL: "https://eaichat.ctyun.cn/ai/platform/v2/cp",
 		Timeout: 30,
 	})

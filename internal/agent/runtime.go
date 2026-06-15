@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -13,28 +11,59 @@ import (
 	"go-claw/internal/token_usage"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	goModel "github.com/nllihui6390/go-agent/model"
 )
 
 // Runtime Agent运行时（处理LLM调用和工具执行）
+// LLM 调用通过 go-agent 的 model.ChatModel 接口完成
 type Runtime struct {
 	config       *AgentConfig
-	client       *http.Client
-	workspaceDir string // 用于缓存大工具结果
+	chatModel    goModel.ChatModel // go-agent 模型（替代手写 HTTP）
+	workspaceDir string            // 用于缓存大工具结果
 }
 
 // NewRuntime 创建运行时
 func NewRuntime(cfg *AgentConfig) *Runtime {
-	return &Runtime{
+	r := &Runtime{
 		config: cfg,
-		client: &http.Client{Timeout: 180 * time.Second},
 	}
+	r.chatModel = r.newChatModel()
+	return r
+}
+
+// newChatModel 从当前运行时配置创建 go-agent ChatModel
+func (r *Runtime) newChatModel() goModel.ChatModel {
+	rtCfg := r.getRuntimeConfig()
+	switch rtCfg.ProviderType {
+	case "ollama":
+		return goModel.NewOllamaModel(goModel.ModelConfig{
+			Model:   rtCfg.Model,
+			APIKey:  rtCfg.APIKey,
+			BaseURL: rtCfg.BaseURL,
+			Timeout: 180,
+		})
+	default:
+		return goModel.NewOpenAIModel(goModel.ModelConfig{
+			Model:   rtCfg.Model,
+			APIKey:  rtCfg.APIKey,
+			BaseURL: rtCfg.BaseURL,
+			Timeout: 180,
+		})
+	}
+}
+
+// refreshChatModel 根据动态配置刷新 ChatModel（热切换）
+func (r *Runtime) refreshChatModel() {
+	if r.config.ConfigProvider == nil {
+		return
+	}
+	r.chatModel = r.newChatModel()
 }
 
 // SetWorkspaceDir 设置工作空间目录（用于缓存文件）
@@ -561,202 +590,119 @@ func (r *Runtime) ExecuteStream(ctx context.Context, session *Session, tools []t
 	return "", nil
 }
 
-// callLLM 调用大模型API（阻塞版）
+// ─────────── go-agent ChatModel 桥接 ───────────
+
+// toAgentMessages 将 go-claw ChatMessage 转为 go-agent model.Msg
+func toAgentMessages(messages []ChatMessage) []goModel.Msg {
+	result := make([]goModel.Msg, len(messages))
+	for i, m := range messages {
+		result[i] = goModel.Msg{
+			Role:       m.Role,
+			Content:    m.Content,
+			Name:       m.Name,
+			ToolCallID: m.ToolCallID,
+		}
+		if len(m.ToolCalls) > 0 {
+			result[i].ToolCalls = make([]goModel.ToolCall, len(m.ToolCalls))
+			for j, tc := range m.ToolCalls {
+				var params map[string]interface{}
+				if tc.Function.Arguments != "" {
+					json.Unmarshal([]byte(tc.Function.Arguments), &params)
+				}
+				result[i].ToolCalls[j] = goModel.ToolCall{
+					ID:     tc.ID,
+					Name:   tc.Function.Name,
+					Params: params,
+				}
+			}
+		}
+	}
+	return result
+}
+
+// toClawMessage 将 go-agent 的 Response 转为 go-claw ChatMessage
+func toClawMessage(resp *goModel.Response) *ChatMessage {
+	msg := &ChatMessage{
+		Role:         "assistant",
+		Content:      resp.Content,
+		FinishReason: resp.StopReason,
+	}
+	if len(resp.ToolCalls) > 0 {
+		msg.ToolCalls = make([]ToolCall, len(resp.ToolCalls))
+		for i, tc := range resp.ToolCalls {
+			argsJSON, _ := json.Marshal(tc.Params)
+			msg.ToolCalls[i] = ToolCall{
+				ID:   tc.ID,
+				Type: "function",
+				Function: struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				}{Name: tc.Name, Arguments: string(argsJSON)},
+			}
+		}
+	}
+	return msg
+}
+
+// setToolsOnModel 将 go-claw 工具注入到 go-agent ChatModel
+func setToolsOnModel(m goModel.ChatModel, tools []tool.Tool) {
+	if setter, ok := m.(goModel.ToolSetter); ok {
+		defs := make([]goModel.ToolDefinition, len(tools))
+		for i, t := range tools {
+			defs[i] = goModel.ToolDefinition{
+				Type:        "function",
+				Name:        t.Name(),
+				Description: t.Description(),
+				Parameters:  t.Parameters(),
+			}
+		}
+		setter.SetTools(defs)
+	}
+}
+
+// callLLM 调用大模型API（通过 go-agent ChatModel）
 func (r *Runtime) callLLM(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
 	logger := glog.Logger()
 	rtCfg := r.getRuntimeConfig()
 	logger.Debug("[Runtime] callLLM", "provider", rtCfg.ProviderType, "model", rtCfg.Model, "messages", len(messages))
-	if rtCfg.ProviderType == "ollama" {
-		// Ollama 通过 OpenAI 兼容 API (/v1/chat/completions) 调用
-		savedURL := rtCfg.BaseURL
-		if !strings.HasSuffix(savedURL, "/v1") && !strings.HasSuffix(savedURL, "/v1/") {
-			rtCfg.BaseURL = strings.TrimRight(savedURL, "/") + "/v1"
-		}
-	}
-	return r.callOpenAIWithConfig(ctx, messages, tools, rtCfg)
-}
 
-// callLLMWithRetry 带重试的LLM调用（429/5xx自动重试 + 指数退避）
-func (r *Runtime) callLLMWithRetry(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
-	logger := glog.Logger()
-	maxRetries := 3
-	baseDelay := 1 * time.Second
-	maxDelay := 30 * time.Second
+	// 刷新 ChatModel（热切换支持）
+	r.refreshChatModel()
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		resp, err := r.callLLM(ctx, messages, tools)
-		if err == nil {
-			return resp, nil
-		}
+	// 注入工具定义
+	setToolsOnModel(r.chatModel, tools)
 
-		if !isRetryableError(err) || attempt == maxRetries {
-			return nil, err
-		}
+	// 转换消息格式
+	agentMsgs := toAgentMessages(messages)
 
-		delay := baseDelay * time.Duration(1<<uint(attempt))
-		if delay > maxDelay {
-			delay = maxDelay
-		}
-		logger.Warn("[Runtime] API调用失败，准备重试",
-			"attempt", attempt+1, "max", maxRetries, "delay", delay, "err", err)
-		time.Sleep(delay)
-	}
-	return nil, fmt.Errorf("重试次数耗尽")
-}
-
-// callOpenAIWithConfig OpenAI兼容API调用（使用动态获取的运行时配置）
-func (r *Runtime) callOpenAIWithConfig(ctx context.Context, messages []ChatMessage, tools []tool.Tool, rtCfg *runtimeConfig) (*ChatMessage, error) {
-	logger := glog.Logger()
-	reqBody := r.buildOpenAIRequestWithConfig(messages, tools, rtCfg)
-	jsonData, err := json.Marshal(reqBody)
+	// 调用 go-agent 的 ChatModel
+	resp, err := r.chatModel.Call(ctx, agentMsgs)
 	if err != nil {
-		logger.Error("[Runtime] 构建请求JSON失败", "err", err)
+		logger.Error("[Runtime] ChatModel 调用失败", "err", err)
 		return nil, err
 	}
 
-	url := rtCfg.BaseURL + "/chat/completions"
-	logger.Info("[Runtime] 发送OpenAI请求", "url", url, "model", rtCfg.Model, "request_len", len(jsonData))
-	logger.Debug("[Runtime] 请求体", "body", string(jsonData))
+	// 转换回 go-claw 格式
+	msg := toClawMessage(resp)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		logger.Error("[Runtime] 创建HTTP请求失败", "url", url, "err", err)
-		return nil, err
+	// 记录 Token 使用量
+	if resp.Usage.TotalTokens > 0 {
+		token_usage.Record(rtCfg.ProviderType, rtCfg.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	if rtCfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+rtCfg.APIKey)
-	}
-
-	startTime := time.Now()
-	resp, err := r.client.Do(req)
-	if err != nil {
-		logger.Error("[Runtime] HTTP请求失败", "url", url, "err", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(startTime)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Error("[Runtime] 读取响应体失败", "err", err)
-		return nil, err
-	}
-
-	logger.Info("[Runtime] HTTP响应收到", "status", resp.StatusCode, "elapsed_ms", elapsed.Milliseconds())
-	logger.Info("[Runtime] 响应体原始", "body", string(body))
-
-	if resp.StatusCode != 200 {
-		logger.Error("[Runtime] API返回非200状态码",
-			"status", resp.StatusCode,
-			"body", truncate(string(body), 500))
-		return nil, fmt.Errorf("API返回状态码 %d: %s", resp.StatusCode, truncate(string(body), 300))
-	}
-	// 定义解析大模型响应结构体
-	var llmResp struct {
-		Model   string `json:"model"`
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		Usage   struct {
-			PromptTokens            int `json:"prompt_tokens"`
-			CompletionTokens        int `json:"completion_tokens"`
-			TotalTokens             int `json:"total_tokens"`
-			CompletionTokensDetails struct {
-				ReasoningTokens int `json:"reasoning_tokens"`
-			} `json:"completion_tokens_details"`
-			PromptTokensDetails struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details"`
-		} `json:"usage"`
-		Choices []struct {
-			FinishReason string `json:"finish_reason"`
-			Message      struct {
-				Role             string     `json:"role"`
-				Content          string     `json:"content"`
-				ReasoningContent string     `json:"reasoning_content"` // DeepSeek 推理内容
-				ToolCalls        []ToolCall `json:"tool_calls"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
-	if err := json.Unmarshal(body, &llmResp); err != nil {
-		logger.Error("[Runtime] 解析响应JSON失败", "err", err, "body_len", len(body))
-		return nil, err
-	}
-
-	if len(llmResp.Choices) == 0 {
-		logger.Error("[Runtime] LLM返回空choices", "body", truncate(string(body), 500))
-		return nil, fmt.Errorf("no response from LLM: %s", truncate(string(body), 200))
-	}
-
-	msg := &ChatMessage{
-		Role:             llmResp.Choices[0].Message.Role,
-		Content:          llmResp.Choices[0].Message.Content,
-		ReasoningContent: llmResp.Choices[0].Message.ReasoningContent,
-		ToolCalls:        llmResp.Choices[0].Message.ToolCalls,
-		FinishReason:     llmResp.Choices[0].FinishReason,
-	}
-
-	// Fallback: 如果标准 tool_calls 为空，尝试从 content 中提取 XML 格式的工具调用
-	// 某些模型（如国产模型 MiniMax 等）不使用标准 OpenAI tool_calls 格式，
-	// 而是将工具调用以 XML 标签形式写入 content 字段
-	if len(msg.ToolCalls) == 0 {
-		hasXMLToolCall := strings.Contains(msg.Content, "<invoke") ||
-			strings.Contains(msg.Content, "<tool_use") ||
-			strings.Contains(msg.Content, "<tool_call>")
-		if hasXMLToolCall {
-			xmlToolCalls, cleanedContent := extractXMLToolCallsWithCleanup(msg.Content)
-			if len(xmlToolCalls) > 0 {
-				msg.ToolCalls = xmlToolCalls
-				msg.Content = cleanedContent
-				logger.Warn("[Runtime] 从 content 中提取到 XML 格式的工具调用（非标准格式）",
-					"count", len(xmlToolCalls),
-					"tools", func() []string {
-						names := make([]string, len(xmlToolCalls))
-						for i, tc := range xmlToolCalls {
-							names[i] = tc.Function.Name
-						}
-						return names
-					}())
-			}
-		}
-	}
-
-	logger.Info("[Runtime] OpenAI响应解析",
-		"model", llmResp.Model,
-		"id", llmResp.ID,
+	logger.Info("[Runtime] ChatModel 响应解析",
 		"content_len", len(msg.Content),
 		"tool_calls_count", len(msg.ToolCalls),
 		"content_preview", truncate(msg.Content, 200),
-		"usage_prompt", llmResp.Usage.PromptTokens,
-		"usage_completion", llmResp.Usage.CompletionTokens,
-		"usage_total", llmResp.Usage.TotalTokens,
-		"elapsed_ms", elapsed.Milliseconds())
-
-	// 记录 Token 使用量到管理器
-	if llmResp.Usage.PromptTokens > 0 || llmResp.Usage.CompletionTokens > 0 {
-		providerID := "default"
-		modelName := llmResp.Model
-		if modelName == "" {
-			modelName = rtCfg.Model
-		}
-		token_usage.Record(providerID, modelName, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens)
-	}
-
-	if len(msg.ToolCalls) > 0 {
-		for i, tc := range msg.ToolCalls {
-			logger.Info("[Runtime] tool_call详情",
-				"idx", i+1,
-				"id", tc.ID,
-				"name", tc.Function.Name,
-				"args_preview", truncate(tc.Function.Arguments, 200))
-		}
-	}
+		"usage_input", resp.Usage.InputTokens,
+		"usage_output", resp.Usage.OutputTokens)
 
 	return msg, nil
+}
+
+// callLLMWithRetry 带重试的LLM调用（go-agent ChatModel 内置重试，此处为兜底）
+func (r *Runtime) callLLMWithRetry(ctx context.Context, messages []ChatMessage, tools []tool.Tool) (*ChatMessage, error) {
+	return r.callLLM(ctx, messages, tools)
 }
 
 // buildOpenAIRequestWithConfig 构建 OpenAI 请求体（使用动态运行时配置）
@@ -914,84 +860,36 @@ func hasTextBlock(content []interface{}) bool {
 	return false
 }
 
-// callLLMStream 调用大模型API（流式版）
+// callLLMStream 调用大模型API（流式版，通过 go-agent ChatModel）
 func (r *Runtime) callLLMStream(ctx context.Context, messages []ChatMessage, cb StreamCallback) (strings.Builder, []ToolCall, error) {
 	logger := glog.Logger()
-	rtCfg := r.getRuntimeConfig()
-	reqBody := r.buildOpenAIRequestWithConfig(messages, nil, rtCfg)
-	reqBody["stream"] = true
-	jsonData, err := json.Marshal(reqBody)
+	r.refreshChatModel()
+
+	agentMsgs := toAgentMessages(messages)
+	chunkCh, err := r.chatModel.Stream(ctx, agentMsgs)
 	if err != nil {
+		logger.Error("[Runtime] ChatModel 流式调用失败", "err", err)
 		return strings.Builder{}, nil, err
 	}
-
-	url := rtCfg.BaseURL + "/chat/completions"
-	logger.Debug("[Runtime] 发送SSE流式请求", "url", url, "model", rtCfg.Model)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		logger.Error("[Runtime] 创建流式HTTP请求失败", "err", err)
-		return strings.Builder{}, nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	if rtCfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+rtCfg.APIKey)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-
-	startTime := time.Now()
-	resp, err := r.client.Do(req)
-	if err != nil {
-		logger.Error("[Runtime] 流式HTTP请求失败", "err", err)
-		return strings.Builder{}, nil, err
-	}
-	defer resp.Body.Close()
-
-	logger.Debug("[Runtime] SSE连接建立", "status", resp.StatusCode)
 
 	var fullContent strings.Builder
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			break
-		}
-
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-				FinishReason string `json:"finish_reason"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-
-		if len(chunk.Choices) > 0 {
-			content := chunk.Choices[0].Delta.Content
-			if content != "" {
-				fullContent.WriteString(content)
-				if cb != nil {
-					cb(content)
-				}
+	for chunk := range chunkCh {
+		switch chunk.Type {
+		case "content":
+			fullContent.WriteString(chunk.Content)
+			if cb != nil {
+				cb(chunk.Content)
 			}
-			if chunk.Choices[0].FinishReason != "" {
-				break
-			}
+		case "thinking":
+			// 思考内容暂不输出到流
+		case "error":
+			logger.Warn("[Runtime] 流式错误", "err", chunk.Error)
+		case "done":
+			// 流式结束
 		}
 	}
 
-	logger.Info("[Runtime] SSE流式响应完成",
-		"content_len", fullContent.Len(),
-		"elapsed_ms", time.Since(startTime).Milliseconds())
-
+	logger.Info("[Runtime] 流式响应完成", "content_len", fullContent.Len())
 	return fullContent, nil, nil
 }
 

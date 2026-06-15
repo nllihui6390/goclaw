@@ -5,68 +5,53 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	goAgentSec "github.com/nllihui6390/go-agent/security"
 )
 
-// Decision 安全决策
-type Decision string
+// ─────────── go-agent 类型别名（零成本） ───────────
+
+// Decision 安全决策（直接映射到 go-agent）
+type Decision = goAgentSec.Decision
 
 const (
-	DecisionApprove Decision = "approve" // 允许执行
-	DecisionGuard   Decision = "guard"   // 需要用户确认
-	DecisionDeny    Decision = "deny"    // 拒绝执行
+	DecisionApprove = goAgentSec.DecisionApprove
+	DecisionGuard   = goAgentSec.DecisionGuard
+	DecisionDeny    = goAgentSec.DecisionDeny
 )
 
-// GuardResult 守卫检查结果
-type GuardResult struct {
-	Decision Decision
-	Reason   string
-	Message  string // 给用户的提示消息
-}
+// GuardResult 直接使用 go-agent 的类型
+type GuardResult = goAgentSec.GuardResult
 
-// Guardian 守卫接口
-type Guardian interface {
-	Check(ctx context.Context, toolName string, params map[string]interface{}) GuardResult
-	Name() string
-}
+// Guardian 直接使用 go-agent 的接口
+type Guardian = goAgentSec.Guardian
 
-// ToolGuard 工具守卫引擎
+// ─────────── ToolGuard 引擎 ───────────
+
+// ToolGuard 工具守卫引擎（包装 go-agent security.Engine）。
 type ToolGuard struct {
-	guardians []Guardian
-	enabled   bool
+	*goAgentSec.Engine
 }
 
-// NewToolGuard 创建工具守卫
+// NewToolGuard 创建工具守卫引擎。
 func NewToolGuard() *ToolGuard {
-	return &ToolGuard{
-		guardians: make([]Guardian, 0),
-		enabled:   true,
-	}
+	return &ToolGuard{Engine: goAgentSec.NewEngine()}
 }
 
-// AddGuardian 添加守卫
+// AddGuardian 添加守卫（委托给 Engine）。
 func (tg *ToolGuard) AddGuardian(g Guardian) {
-	tg.guardians = append(tg.guardians, g)
+	tg.Engine.AddGuardian(g)
 }
 
-// SetEnabled 设置是否启用
+// SetEnabled 设置是否启用（委托给 Engine）。
 func (tg *ToolGuard) SetEnabled(enabled bool) {
-	tg.enabled = enabled
+	tg.Engine.SetEnabled(enabled)
 }
 
-// Check 检查工具调用
+// Check 检查工具调用（委托给 Engine，返回 go-agent GuardResult）。
+// 签名不再需要改为泛化 — 直接返回 goAgentSec.GuardResult。
 func (tg *ToolGuard) Check(ctx context.Context, toolName string, params map[string]interface{}) GuardResult {
-	if !tg.enabled {
-		return GuardResult{Decision: DecisionApprove}
-	}
-
-	for _, g := range tg.guardians {
-		result := g.Check(ctx, toolName, params)
-		if result.Decision != DecisionApprove {
-			return result
-		}
-	}
-
-	return GuardResult{Decision: DecisionApprove}
+	return tg.Engine.Check(ctx, toolName, params)
 }
 
 // ShellEvasionGuardian Shell 命令注入检测守卫

@@ -118,6 +118,20 @@ type Config struct {
 	UserID string
 	// AgentID Agent ID（用于状态持久化的键）
 	AgentID string
+
+	// --- 扩展字段（go-claw 兼容） ---
+	// PersonaLoader 人设文件加载器（AGENTS.md + SOUL.md + PROFILE.md）
+	PersonaLoader PersonaLoader
+	// WorkspaceDir 工作空间目录路径
+	WorkspaceDir string
+	// ConfigProvider 动态配置提供器（运行时切换模型/API Key）
+	ConfigProvider DynamicConfigProvider
+	// TokenRecorder Token 使用量记录器
+	TokenRecorder TokenRecorder
+	// SupportsImage 模型是否支持图片输入
+	SupportsImage bool
+	// SupportsVideo 模型是否支持视频输入
+	SupportsVideo bool
 }
 
 // DefaultConfig 创建带默认值的配置。
@@ -285,4 +299,140 @@ func (c *Config) WithStorage(storage StateStorage, userID, agentID string) *Conf
 	c.UserID = userID
 	c.AgentID = agentID
 	return c
+}
+
+// WithPersonaLoader 设置人设文件加载器（Builder 方法）。
+//
+// 人设加载器负责读取 AGENTS.md、SOUL.md、PROFILE.md 等文件，
+// 以及处理首次引导（BOOTSTRAP.md）和每日记忆。
+//
+// 参数：
+//   - loader: 人设文件加载器实现
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithPersonaLoader(loader PersonaLoader) *Config {
+	c.PersonaLoader = loader
+	return c
+}
+
+// WithWorkspaceDir 设置工作空间目录（Builder 方法）。
+//
+// 工作空间目录用于缓存文件、工具结果裁剪存储等。
+//
+// 参数：
+//   - dir: 工作空间目录路径
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithWorkspaceDir(dir string) *Config {
+	c.WorkspaceDir = dir
+	return c
+}
+
+// WithConfigProvider 设置动态配置提供器（Builder 方法）。
+//
+// ConfigProvider 允许在运行时动态切换模型/API Key/BaseURL/ProviderType，
+// 无需重启服务。每次调用 LLM 时优先使用此函数获取配置。
+//
+// 参数：
+//   - provider: 动态配置提供器实现
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithConfigProvider(provider DynamicConfigProvider) *Config {
+	c.ConfigProvider = provider
+	return c
+}
+
+// WithTokenRecorder 设置 Token 使用量记录器（Builder 方法）。
+//
+// TokenRecorder 在每次模型调用完成后记录 Token 使用量，
+// 用于统计和成本监控。
+//
+// 参数：
+//   - recorder: Token 记录器实现
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithTokenRecorder(recorder TokenRecorder) *Config {
+	c.TokenRecorder = recorder
+	return c
+}
+
+// WithSupportsImage 设置模型是否支持图片输入（Builder 方法）。
+//
+// 参数：
+//   - v: 是否支持图片
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithSupportsImage(v bool) *Config {
+	c.SupportsImage = v
+	return c
+}
+
+// WithSupportsVideo 设置模型是否支持视频输入（Builder 方法）。
+//
+// 参数：
+//   - v: 是否支持视频
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithSupportsVideo(v bool) *Config {
+	c.SupportsVideo = v
+	return c
+}
+
+// =============================================
+// 扩展接口定义（go-claw 兼容）
+// =============================================
+
+// PersonaLoader 人设文件加载器接口。
+//
+// 负责从工作空间目录加载人设文件（AGENTS.md、SOUL.md、PROFILE.md），
+// 处理首次引导（BOOTSTRAP.md），以及每日记忆（MEMORY.md）。
+type PersonaLoader interface {
+	// LoadSystemPrompt 加载并拼接所有人设文件内容
+	LoadSystemPrompt() string
+	// IsBootstrapNeeded 检查是否需要首次引导（BOOTSTRAP.md 存在且未完成）
+	IsBootstrapNeeded() bool
+	// MarkBootstrapCompleted 标记引导已完成（创建 .bootstrap_completed 标记文件）
+	MarkBootstrapCompleted() error
+	// GetBootstrapGuidance 获取引导提示词（用于注入到 system prompt）
+	GetBootstrapGuidance() string
+	// LoadDailyMemory 加载今日记忆（MEMORY.md）
+	LoadDailyMemory() string
+	// AppendDailyMemory 追加内容到今日记忆
+	AppendDailyMemory(content string) error
+}
+
+// DynamicConfigProvider 动态配置提供器接口。
+//
+// 允许在运行时动态获取模型配置（model、apiKey、baseURL、providerType），
+// 无需重启服务。每次调用 LLM 时优先使用此接口获取配置，
+// 降级使用 Config 的静态字段。
+type DynamicConfigProvider interface {
+	// GetConfig 获取当前运行时 LLM 配置
+	//
+	// 返回：
+	//   - model: 模型名称
+	//   - apiKey: API 密钥
+	//   - baseURL: API 基础 URL
+	//   - providerType: 供应商类型
+	GetConfig() (model, apiKey, baseURL, providerType string)
+}
+
+// TokenRecorder Token 使用量记录器接口。
+//
+// 在每次模型调用完成后记录 Token 使用量，用于统计和成本监控。
+type TokenRecorder interface {
+	// Record 记录一次模型调用的 Token 使用量
+	//
+	// 参数：
+	//   - providerID: 供应商标识
+	//   - modelName: 模型名称
+	//   - inputTokens: 输入 token 数
+	//   - outputTokens: 输出 token 数
+	Record(providerID, modelName string, inputTokens, outputTokens int)
 }

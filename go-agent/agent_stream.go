@@ -119,6 +119,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 
 		var fullContent string
 		var fullThinking string
+		var savedThinking string // thinking 可能被后续 content chunk 清空，提前保存
 		var toolCalls []model.ToolCall
 		blockID := generateID("blk")
 		thinkingBlockID := generateID("think")
@@ -139,6 +140,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 					output <- NewTextBlockEndEvent(replyID, blockID)
 					fullContent = ""
 				}
+				savedThinking = fullThinking
 				if fullThinking != "" {
 					// 思考快速结束事件
 					output <- NewThinkingBlockEndEvent(replyID, thinkingBlockID)
@@ -160,6 +162,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				output <- NewThinkingBlockDeltaEvent(replyID, thinkingBlockID, chunk.Thinking)
 			} else if chunk.Content != "" {
 				if fullThinking != "" {
+					savedThinking = fullThinking
 					output <- NewThinkingBlockEndEvent(replyID, thinkingBlockID)
 					fullThinking = ""
 				}
@@ -183,8 +186,8 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			if fullContent != "" {
 				assistantBlocks = append(assistantBlocks, NewTextBlock(fullContent))
 			}
-			if fullThinking != "" {
-				assistantBlocks = append(assistantBlocks, NewThinkingBlock(fullThinking))
+			if st := coalesce(savedThinking, fullThinking); st != "" {
+				assistantBlocks = append(assistantBlocks, NewThinkingBlock(st))
 			}
 
 			for _, tc := range toolCalls {
@@ -265,11 +268,18 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 
 			continue
 		}
+		blocks := make([]ContentBlock, 0, 2)
+		if st := coalesce(savedThinking, fullThinking); st != "" {
+			blocks = append(blocks, NewThinkingBlock(st))
+		}
+		if fullContent != "" {
+			blocks = append(blocks, NewTextBlock(fullContent))
+		}
 		finalMsg := &Msg{
 			ID:        replyID,
 			Name:      a.config.Name,
 			Role:      RoleAssistant,
-			Content:   []ContentBlock{NewTextBlock(fullContent)},
+			Content:   blocks,
 			CreatedAt: nowISO(),
 		}
 		finalMsg.SetFinished()
@@ -278,4 +288,12 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 		output <- NewReplyEndEvent(replyID, sessionID)
 		return
 	}
+}
+
+// coalesce 返回第一个非空字符串
+func coalesce(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

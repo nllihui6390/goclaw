@@ -148,6 +148,98 @@ func (m *SimpleMemory) Clear(ctx context.Context) error {
 	return nil
 }
 
+// ─────────── MemorySession 接口实现 ───────────
+
+// StoreEntry 按会话存储记忆项（实现 MemorySession 接口）。
+func (m *SimpleMemory) StoreEntry(ctx context.Context, sessionID, userID string, entry MemoryItem) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entry.CreatedAt = time.Now().Unix()
+	if entry.ID == "" {
+		entry.ID = generateMemoryID()
+	}
+
+	m.items = append(m.items, entry)
+	if len(m.items) > m.maxItems {
+		m.items = m.items[len(m.items)-m.maxItems:]
+	}
+	return nil
+}
+
+// RetrieveWithSession 按会话检索记忆（实现 MemorySession 接口）。
+func (m *SimpleMemory) RetrieveWithSession(ctx context.Context, query, sessionID string, limit int) ([]ScoredMemoryItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	keywords := extractKeywords(query)
+	results := make([]ScoredMemoryItem, 0)
+	for _, item := range m.items {
+		score := keywordMatchScore(item.Content, keywords)
+		if score > 0 {
+			results = append(results, ScoredMemoryItem{MemoryItem: item, Score: score})
+		}
+	}
+	sortByScore(results)
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+// GetRecentWithSession 按会话获取最近记忆（实现 MemorySession 接口）。
+func (m *SimpleMemory) GetRecentWithSession(ctx context.Context, sessionID string, limit int) ([]MemoryItem, error) {
+	return m.GetRecent(ctx, limit)
+}
+
+// GetByID 根据 ID 获取记忆项（实现 MemorySession 接口）。
+func (m *SimpleMemory) GetByID(ctx context.Context, id string) (*MemoryItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.items {
+		if m.items[i].ID == id {
+			copy := m.items[i]
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+// Update 更新记忆项（实现 MemorySession 接口）。
+func (m *SimpleMemory) Update(ctx context.Context, entry MemoryItem) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.items {
+		if m.items[i].ID == entry.ID {
+			m.items[i] = entry
+			return nil
+		}
+	}
+	return nil
+}
+
+// ClearSession 清除指定会话的所有记忆（实现 MemorySession 接口）。
+func (m *SimpleMemory) ClearSession(ctx context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	filtered := make([]MemoryItem, 0, len(m.items))
+	removed := 0
+	for _, item := range m.items {
+		if item.Metadata != nil {
+			if sid, ok := item.Metadata["session_id"].(string); ok && sid == sessionID {
+				removed++
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	m.items = filtered
+	return nil
+}
+
+// compile-time check
+var _ MemorySession = (*SimpleMemory)(nil)
+
 // GetAll 获取所有记忆
 func (m *SimpleMemory) GetAll() []MemoryItem {
 	m.mu.Lock()

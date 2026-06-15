@@ -4,19 +4,18 @@ import (
 	"context"
 
 	"go-claw/internal/channel"
+
+	// go-agent 的 Tool 接口直接作为 go-claw 的 Tool 类型
+	goAgentTool "github.com/nllihui6390/go-agent/tool"
 )
 
-// Tool 工具接口（返回纯文本）
-type Tool interface {
-	Name() string
-	Description() string
-	Parameters() map[string]interface{}
-	Execute(ctx context.Context, params map[string]interface{}) (string, error)
-}
+// Tool 工具接口（直接使用 go-agent 的类型）
+// go-agent/tool.Tool 签名完全兼容，使用类型别名消除桥接层
+type Tool = goAgentTool.Tool
 
 // StructuredTool 结构化工具接口（返回 ContentBlocks）
-// 工具可以同时实现 Tool 和 StructuredTool 接口
-// Runtime 会优先使用 StructuredTool 接口
+// go-claw 特有：返回 channel.ContentBlocks 而非 go-agent 的 []ContentBlock，
+// 因为 Session 持久化依赖 channel.ContentBlocks 的 JSON 序列化格式
 type StructuredTool interface {
 	Tool
 	ExecuteStructured(ctx context.Context, params map[string]interface{}) (channel.ContentBlocks, error)

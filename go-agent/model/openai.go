@@ -231,6 +231,17 @@ func (m *OpenAIModel) parseResponse(body io.Reader) (*Response, error) {
 		}
 	}
 
+	// Fallback: 从 content 中提取 XML 格式的工具调用
+	// 某些模型（如 MiniMax、Kimi 等）不使用标准 OpenAI tool_calls 格式，
+	// 而是将工具调用以 XML 标签形式写入 content 字段。
+	if len(response.ToolCalls) == 0 {
+		xmlCalls, cleaned := ExtractXMLToolCalls(response.Content)
+		if len(xmlCalls) > 0 {
+			response.ToolCalls = xmlCalls
+			response.Content = cleaned
+		}
+	}
+
 	return response, nil
 }
 

@@ -178,10 +178,16 @@ async function send() {
           files.push(event.info)
           ensureAssistantMsg()
           messages.value[messages.value.length - 1].files = [...files]
+        } else if (event.type === 'text') {
+          // 流式文本增量：拼接到 fullContent 并实时更新显示
+          fullContent += (event.text || '')
+          ensureAssistantMsg()
+          messages.value[messages.value.length - 1].content = fullContent
         } else if (event.type === 'content') {
           if (event.blocks && Array.isArray(event.blocks)) {
             contentBlocks.push(...event.blocks)
             files = []
+            fullContent = '' // content 事件表示结构化块已替代纯文本
             const finalContent = [...contentBlocks, { type: 'text', text: fullContent }]
             ensureAssistantMsg()
             messages.value[messages.value.length - 1].content = finalContent
@@ -249,14 +255,9 @@ async function send() {
           ensureAssistantMsg()
           messages.value[messages.value.length - 1].tool_calls = [...toolCalls]
         } else if (event.type === 'text') {
-          fullContent += event.content
-          const finalContent = contentBlocks.length > 0
-            ? [...contentBlocks, { type: 'text', text: fullContent }]
-            : fullContent
-          const finalFiles = contentBlocks.length > 0 ? [] : [...files]
+          fullContent += (event.text || '')
           ensureAssistantMsg()
-          messages.value[messages.value.length - 1].content = finalContent
-          messages.value[messages.value.length - 1].files = finalFiles
+          messages.value[messages.value.length - 1].content = fullContent
         }
         await nextTick()
         scrollBottom()

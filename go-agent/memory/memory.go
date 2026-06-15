@@ -111,6 +111,88 @@ type Memory interface {
 	Clear(ctx context.Context) error
 }
 
+// MemorySession 扩展 Memory 接口，支持按会话管理的记忆操作。
+//
+// go-claw 等需要多会话隔离的场景实现此接口。
+// 未实现此接口时，go-agent 使用全局无隔离模式。
+type MemorySession interface {
+	Memory
+
+	// StoreWithSession 按会话存储记忆项。
+	//
+	// 参数：
+	//   - ctx: 上下文
+	//   - sessionID: 会话标识
+	//   - userID: 用户标识
+	//   - entry: 记忆内容（含类型、重要性、元数据）
+	//
+	// 返回：
+	//   - error: 存储错误
+	StoreEntry(ctx context.Context, sessionID, userID string, entry MemoryItem) error
+
+	// RetrieveWithSession 在指定会话中检索相关记忆。
+	//
+	// 参数：
+	//   - ctx: 上下文
+	//   - query: 查询文本
+	//   - sessionID: 会话标识
+	//   - limit: 最大返回数量
+	//
+	// 返回：
+	//   - []ScoredMemoryItem: 带相关性分数的记忆列表
+	//   - error: 检索错误
+	RetrieveWithSession(ctx context.Context, query, sessionID string, limit int) ([]ScoredMemoryItem, error)
+
+	// GetRecentWithSession 获取指定会话的最近记忆。
+	//
+	// 参数：
+	//   - ctx: 上下文
+	//   - sessionID: 会话标识
+	//   - limit: 最大返回数量
+	//
+	// 返回：
+	//   - []MemoryItem: 最近记忆列表
+	//   - error: 检索错误
+	GetRecentWithSession(ctx context.Context, sessionID string, limit int) ([]MemoryItem, error)
+
+	// GetByID 根据 ID 获取记忆项。
+	//
+	// 参数：
+	//   - ctx: 上下文
+	//   - id: 记忆 ID
+	//
+	// 返回：
+	//   - *MemoryItem: 记忆项，不存在时返回 nil
+	//   - error: 检索错误
+	GetByID(ctx context.Context, id string) (*MemoryItem, error)
+
+	// Update 更新记忆项。
+	//
+	// 参数：
+	//   - ctx: 上下文
+	//   - entry: 新的记忆内容（按 ID 匹配）
+	//
+	// 返回：
+	//   - error: 更新错误
+	Update(ctx context.Context, entry MemoryItem) error
+
+	// ClearSession 清除指定会话的所有记忆。
+	//
+	// 参数：
+	//   - ctx: 上下文
+	//   - sessionID: 会话标识
+	//
+	// 返回：
+	//   - error: 清除错误
+	ClearSession(ctx context.Context, sessionID string) error
+}
+
+// IsSessionMem 检查 Memory 是否实现了 MemorySession 接口。
+func IsSessionMem(m Memory) bool {
+	_, ok := m.(MemorySession)
+	return ok
+}
+
 // =============================================
 // 辅助类型
 // =============================================

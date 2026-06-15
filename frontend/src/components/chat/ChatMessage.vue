@@ -368,7 +368,7 @@ async function handleDeny(approvalId) {
             <span class="thinking-label">💭 思考过程</span>
           </div>
           <div v-show="thinkingExpanded" class="collapsible-content thinking-content">
-            <div v-for="(t, i) in thinking" :key="i" class="thinking-text">{{ t }}</div>
+            <div class="thinking-text">{{ thinking.join('') }}</div>
           </div>
         </div>
 
