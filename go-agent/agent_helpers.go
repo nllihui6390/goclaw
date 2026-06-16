@@ -328,7 +328,33 @@ func (a *Agent) buildModelMessages() []model.Msg {
 		history = a.session.GetHistory()
 	}
 	for _, msg := range history {
-		messages = append(messages, msgToModelMsg(msg))
+		m := msgToModelMsg(msg)
+		// 如果消息同时有 tool_calls 和 tool_result，拆分为 assistant + tool 消息
+		if m.ToolCalls != nil && msg.GetToolResultContent() != "" {
+			// 1. Assistant 消息：只保留 tool_calls，不放 tool result
+			assistantMsg := m
+			assistantMsg.Content = msg.GetTextContent() // 仅文本，不含 tool result
+			messages = append(messages, assistantMsg)
+			// 2. 每个 tool call 对应一个 tool 消息（含结果）
+			for _, tcBlock := range msg.Content {
+				if tcBlock.Type == BlockTypeToolResult {
+					resultText := ""
+					for _, o := range tcBlock.ToolResultOutput {
+						if o.Type == BlockTypeText {
+							resultText += o.Text
+						}
+					}
+					messages = append(messages, model.Msg{
+						Role:       "tool",
+						Name:       tcBlock.ToolCallID,
+						ToolCallID: tcBlock.ToolCallID,
+						Content:    resultText,
+					})
+				}
+			}
+		} else {
+			messages = append(messages, m)
+		}
 	}
 
 	// 深拷贝消息列表，避免修改存储历史（ normalize_messages）
@@ -393,15 +419,6 @@ func msgToModelMsg(msg Msg) model.Msg {
 		Role:    string(msg.Role),
 		Content: msg.GetTextContent(),
 		Name:    msg.Name,
-	}
-
-	// 提取 ToolResult 内容到 Content（工具执行结果必须传递给模型）
-	if tr := msg.GetToolResultContent(); tr != "" {
-		if m.Content != "" {
-			m.Content += "\n" + tr
-		} else {
-			m.Content = tr
-		}
 	}
 
 	if msg.Role == "tool" {

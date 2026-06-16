@@ -211,7 +211,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 					output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
 					resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+err.Error())
 					resultBlock.ToolResultState = ToolResultStateError
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
+					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 					assistantBlocks = append(assistantBlocks, resultBlock)
 					continue
 				}
@@ -228,24 +228,24 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
 						resultBlock := NewToolResultTextBlock(tc.ID, "Error: "+err.Error())
 						resultBlock.ToolResultState = ToolResultStateError
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
+						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 						assistantBlocks = append(assistantBlocks, resultBlock)
 					} else {
 						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, result)
 						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateSuccess)
 						resultBlock := NewToolResultTextBlock(tc.ID, result)
 						resultBlock.ToolResultState = ToolResultStateSuccess
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
+						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 						assistantBlocks = append(assistantBlocks, resultBlock)
 					}
 
 				case tool.PermissionAsk:
 					output <- NewRequireUserConfirmEvent(replyID, []ContentBlock{
-						NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)),
+						NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
 					})
 					resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
 					resultBlock.ToolResultState = ToolResultStateDenied
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
+					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 					assistantBlocks = append(assistantBlocks, resultBlock)
 
 				case tool.PermissionDeny:
@@ -254,16 +254,16 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 					output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateDenied)
 					resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
 					resultBlock.ToolResultState = ToolResultStateDenied
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
+					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 					assistantBlocks = append(assistantBlocks, resultBlock)
 
 				case tool.PermissionExternal:
 					output <- NewRequireExternalExecutionEvent(replyID, []ContentBlock{
-						NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)),
+						NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
 					})
 					resultBlock := NewToolResultTextBlock(tc.ID, "External execution required")
 					resultBlock.ToolResultState = ToolResultStateDenied
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
+					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 					assistantBlocks = append(assistantBlocks, resultBlock)
 				}
 			}

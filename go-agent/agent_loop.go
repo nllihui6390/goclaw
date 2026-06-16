@@ -131,7 +131,7 @@ func (a *Agent) actingStep(ctx context.Context, tc model.ToolCall) (ContentBlock
 	}
 
 	// 将工具调用+结果存入 session（ finally 块：memory.add(tool_res_msg)）
-	tcBlock := NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params))
+	tcBlock := NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params))
 	assistantMsg := &Msg{
 		ID:        generateID("msg"),
 		Name:      a.config.Name,

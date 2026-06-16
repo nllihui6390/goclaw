@@ -42,6 +42,7 @@ const (
 	RoleUser      Role = "user"      // 用户角色
 	RoleAssistant Role = "assistant" // 助手角色
 	RoleSystem    Role = "system"    // 系统角色
+	RoleTool      Role = "tool"      // 工具角色（OpenAI API 格式的工具结果）
 )
 
 // =============================================
@@ -278,6 +279,18 @@ func NewThinkingBlock(thinking string) ContentBlock {
 // 示例：
 //
 //	block := agent.NewToolCallBlock("call_123", "search", `{"query": "golang"}`)
+// ParamsToJSON 将工具参数字典序列化为 JSON 字符串。
+func ParamsToJSON(params map[string]interface{}) string {
+	if params == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(params)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 func NewToolCallBlock(id, name, input string) ContentBlock {
 	return ContentBlock{
 		Type:          BlockTypeToolCall,
