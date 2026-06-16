@@ -172,6 +172,13 @@ func (m *OpenAIModel) buildRequest(messages []Msg, stream bool) map[string]inter
 		"stream":   stream,
 	}
 
+	// 流式请求时启用 usage 返回（OpenAI API 需要 stream_options.include_usage）
+	if stream {
+		req["stream_options"] = map[string]interface{}{
+			"include_usage": true,
+		}
+	}
+
 	if m.config.MaxTokens > 0 {
 		req["max_tokens"] = m.config.MaxTokens
 	}
@@ -316,6 +323,15 @@ func (m *OpenAIModel) parseStreamResponse(body io.Reader, output chan<- StreamCh
 		var chunk openAIStreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+		// 解析 usage（OpenAI stream_options.include_usage=true 时最后一个 chunk 包含 usage）
+		if chunk.Usage != nil {
+			output <- StreamChunk{
+				Type:         "usage",
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+			}
+			continue // usage chunk 通常没有 Choices，跳过后续处理
 		}
 
 		if len(chunk.Choices) == 0 {
@@ -472,4 +488,10 @@ type openAIStreamChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
+	// 流式响应的 usage 字段（stream_options.include_usage=true 时在最后一个 chunk 返回）
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
 }

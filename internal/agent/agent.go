@@ -13,6 +13,7 @@ import (
 	"go-claw/internal/security"
 	"go-claw/internal/skill"
 	"go-claw/internal/store"
+	"go-claw/internal/token_usage"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 
@@ -46,10 +47,10 @@ type AgentConfig struct {
 	WorkspaceLoader       WorkspaceLoader     // 工作空间人设文件加载器
 	WorkspaceDir          string              // 工作空间目录路径（用于缓存文件）
 	SkillRegistry         *skill.Registry     // 技能注册中心（用于系统提示词注入）
-	MaxContextMessages    int     // 未压缩消息数触发阈值，0=默认20
-	CompactThresholdRatio float64 // 压缩触发比例，0=不压缩（默认0.8）
-	ReserveThresholdRatio float64 // 压缩后保留比例（默认0.15）
-	ToolResultMaxBytes    int     // 工具结果最大字节数，0=不限（默认20000）
+	MaxContextMessages    int                 // 未压缩消息数触发阈值，0=默认20
+	CompactThresholdRatio float64             // 压缩触发比例，0=不压缩（默认0.8）
+	ReserveThresholdRatio float64             // 压缩后保留比例（默认0.15）
+	ToolResultMaxBytes    int                 // 工具结果最大字节数，0=不限（默认20000）
 	ToolResultExemptTools []string            // 裁剪豁免工具名列表
 	ToolResultExemptExts  []string            // 裁剪豁免文件扩展名列表
 	SupportsImage         bool                // 模型是否支持图片输入
@@ -208,12 +209,12 @@ func (a *Agent) SetSkillRegistry(reg *skill.Registry) {
 }
 
 // ProcessWithHandler 处理用户消息（带工具事件回调）
-func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage string, handler ToolEventHandler) (string, error) {
+func (a *Agent) ProcessWithHandler(ctx context.Context, sessionID, userMessage string, handler channel.ToolEventHandler) (string, error) {
 	return a.ProcessWithBlocks(ctx, sessionID, userMessage, nil, handler)
 }
 
 // ProcessWithBlocks 处理用户消息，支持传入结构化内容块（多模态：图片/文件等）
-func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage string, blocks channel.ContentBlocks, handler ToolEventHandler) (string, error) {
+func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage string, blocks channel.ContentBlocks, handler channel.ToolEventHandler) (string, error) {
 	logger := glog.Logger()
 	logger.Info("[Agent] 开始处理消息",
 		"agent", a.config.Name,
@@ -263,6 +264,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	goMsg := goAgent.UserMsg(session.UserID, goBlocks)
 
 	// 3. 调用 go-agent 流式循环 → 同时收集回复 + 转发事件到前端
+	startHistoryLen := len(a.goAgent.GetSession().GetHistory()) // 记录循环开始前的消息数，用于计算 token 增量
 	eventCh, err := a.goAgent.ReplyStream(ctx, goMsg)
 	if err != nil {
 		logger.Error("[Agent] go-agent ReplyStream 启动失败", "err", err)
@@ -281,12 +283,12 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		case goAgent.TextBlockDeltaEvent:
 			finalResponse += e.Delta
 			if handler != nil {
-				handler(ToolEvent{Type: "text", Thinking: e.Delta})
+				handler(channel.ToolEvent{Type: channel.ToolEventText, Thinking: e.Delta})
 			}
 
 		case goAgent.ThinkingBlockDeltaEvent:
 			if handler != nil {
-				handler(ToolEvent{Type: "thinking", Thinking: e.Delta})
+				handler(channel.ToolEvent{Type: channel.ToolEventThinking, Thinking: e.Delta})
 			}
 
 		case goAgent.ToolCallStartEvent:
@@ -299,7 +301,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		case goAgent.ToolCallEndEvent:
 			// 参数收集完毕，发送一次完整调用事件
 			if handler != nil {
-				handler(ToolEvent{Type: "calling", ToolName: currentToolName, Args: currentToolArgs})
+				handler(channel.ToolEvent{Type: channel.ToolEventCalling, ToolName: currentToolName, Args: currentToolArgs})
 			}
 
 		case goAgent.ToolResultStartEvent:
@@ -312,11 +314,11 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			if handler != nil {
 				// 从 go-agent session 中读回刚存的工具结果
 				resultText := goAgentGetLastToolResult(a.goAgent, e.ToolCallID)
-				evtType := "result"
+				evtType := channel.ToolEventResult
 				if e.State == goAgent.ToolResultStateError {
-					evtType = "error"
+					evtType = channel.ToolEventError
 				}
-				handler(ToolEvent{Type: evtType, ToolName: currentToolName, Result: resultText})
+				handler(channel.ToolEvent{Type: evtType, ToolName: currentToolName, Result: resultText})
 			}
 
 		case goAgent.ReplyEndEvent:
@@ -338,6 +340,27 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		finalResponse = replyMsg.GetTextContent()
 	}
 	logger.Info("[Agent] go-agent 循环完成", "response_len", len(finalResponse))
+
+	// ─────────── Token 使用量统计 ───────────
+	// 从 go-agent session history 累计本轮新增消息的 token 使用量
+	totalInputTokens := 0
+	totalOutputTokens := 0
+	for i := startHistoryLen; i < len(goSess.GetHistory()); i++ {
+		msg := goSess.GetHistory()[i]
+		if msg.Role == goAgent.RoleAssistant && msg.Usage != nil {
+			totalInputTokens += msg.Usage.InputTokens
+			totalOutputTokens += msg.Usage.OutputTokens
+		}
+	}
+	if totalInputTokens > 0 || totalOutputTokens > 0 {
+		rtCfg := getRuntimeConfig(a.config)
+		token_usage.Record(rtCfg.ProviderType, rtCfg.Model, totalInputTokens, totalOutputTokens)
+		logger.Info("[Agent] Token 使用量",
+			"provider", rtCfg.ProviderType,
+			"model", rtCfg.Model,
+			"input_tokens", totalInputTokens,
+			"output_tokens", totalOutputTokens)
+	}
 
 	// 合并 go-agent session 中的工具调用历史回 go-claw session
 	a.mergeGoAgentHistory(session, replyMsg)

@@ -397,24 +397,12 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 			msgCtx = agent.WithUser(msgCtx, msg.From)
 
 			var hadTextStream bool
-			handler := func(event agent.ToolEvent) {
-				if event.Type == "text" {
+			handler := func(event channel.ToolEvent) {
+				if event.Type == channel.ToolEventText {
 					hadTextStream = true
 				}
-				ch.SendToolEvent(channel.ToolEvent{
-					Type:     channel.ToolEventType(event.Type),
-					ToolName: event.ToolName,
-					Args:     event.Args,
-					Result:   event.Result,
-					Error:    event.Error,
-					Thinking: event.Thinking,
-					Content:  event.Content,
-					To:       msg.From,
-						GuardReason:   event.GuardReason,
-						GuardMessage:  event.GuardMessage,
-						ApprovalID:    event.ApprovalID,
-						ApprovalState: event.ApprovalState,
-				})
+				event.To = msg.From
+				ch.SendToolEvent(event)
 			}
 
 			response, err := ag.ProcessWithBlocks(msgCtx, sessionID, msg.Content, msg.Blocks, handler)

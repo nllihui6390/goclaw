@@ -121,6 +121,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 		var fullThinking string
 		var savedThinking string // thinking 可能被后续 content chunk 清空，提前保存
 		var toolCalls []model.ToolCall
+		var totalInputTokens, totalOutputTokens int // 累积本轮 token 使用量
 		blockID := generateID("blk")
 		thinkingBlockID := generateID("think")
 		// 创建文本块开始事件
@@ -129,6 +130,12 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 		for chunk := range stream {
 			if chunk.Error != nil {
 				break
+			}
+
+			// 累积 token 使用量
+			if chunk.InputTokens > 0 || chunk.OutputTokens > 0 {
+				totalInputTokens += chunk.InputTokens
+				totalOutputTokens += chunk.OutputTokens
 			}
 
 			if chunk.ToolCall != nil {
@@ -169,6 +176,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				fullContent += chunk.Content
 				output <- NewTextBlockDeltaEvent(replyID, blockID, chunk.Content)
 			}
+			
 		}
 
 		if fullThinking != "" {
@@ -178,7 +186,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			output <- NewTextBlockEndEvent(replyID, blockID)
 		}
 		// 创建模型调用结束事件
-		output <- NewModelCallEndEvent(replyID, 0, 0)
+		output <- NewModelCallEndEvent(replyID, totalInputTokens, totalOutputTokens)
 
 		if len(toolCalls) > 0 {
 			// 构建助手消息中的内容块（工具调用 + 工具结果）
@@ -263,6 +271,11 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				Role:      RoleAssistant,
 				Content:   assistantBlocks,
 				CreatedAt: nowISO(),
+					Usage: &Usage{
+						InputTokens:  totalInputTokens,
+						OutputTokens: totalOutputTokens,
+						TotalTokens:  totalInputTokens + totalOutputTokens,
+					},
 			}
 			a.session.AddMessage(assistantMsg)
 
@@ -281,6 +294,11 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			Role:      RoleAssistant,
 			Content:   blocks,
 			CreatedAt: nowISO(),
+				Usage: &Usage{
+					InputTokens:  totalInputTokens,
+					OutputTokens: totalOutputTokens,
+					TotalTokens:  totalInputTokens + totalOutputTokens,
+				},
 		}
 		finalMsg.SetFinished()
 		a.session.AddMessage(*finalMsg)

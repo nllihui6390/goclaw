@@ -157,11 +157,13 @@ type Usage struct {
 //   - ToolCall: 工具调用（Type="tool_call" 时）
 //   - Error: 错误（Type="error" 时）
 type StreamChunk struct {
-	Type     string    // 块类型
-	Content  string    // 增量文本
-	Thinking string    // 思考内容增量（DeepSeek reasoning）
-	ToolCall *ToolCall // 工具调用
-	Error    error     // 错误
+	Type         string    // 块类型
+	Content      string    // 增量文本
+	Thinking     string    // 思考内容增量（DeepSeek reasoning）
+	ToolCall     *ToolCall // 工具调用
+	Error        error     // 错误
+	InputTokens  int       // 输入 token 数（流结束时有效）
+	OutputTokens int       // 输出 token 数（流结束时有效）
 }
 
 // ToolDefinition 工具定义（OpenAI API 格式）。

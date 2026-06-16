@@ -8,6 +8,8 @@ import (
 	"go-claw/internal/channel"
 	"go-claw/internal/memory"
 	"go-claw/internal/store"
+
+	glog "go-claw/pkg/log"
 )
 
 // SupervisorConfig 监督者配置
@@ -17,6 +19,7 @@ type SupervisorConfig struct {
 	Model         string
 	APIKey        string
 	BaseURL       string
+	ProviderType  string
 	MaxIterations int
 	Memory        memory.Memory
 	Store         store.Store
@@ -37,9 +40,10 @@ func NewSupervisorAgent(cfg *SupervisorConfig) *SupervisorAgent {
 	s := &SupervisorAgent{
 		config: cfg,
 		runtime: NewRuntime(&AgentConfig{
-			Model:   cfg.Model,
-			APIKey:  cfg.APIKey,
-			BaseURL: cfg.BaseURL,
+			Model:        cfg.Model,
+			APIKey:       cfg.APIKey,
+			BaseURL:      cfg.BaseURL,
+			ProviderType: cfg.ProviderType,
 		}),
 		sessionMgr: NewSessionManager(cfg.Store),
 		memory:     cfg.Memory,
@@ -77,6 +81,8 @@ func (s *SupervisorAgent) Process(ctx context.Context, sessionID, userMessage st
 }
 
 func (s *SupervisorAgent) routeToAgent(ctx context.Context, userMessage string) (*Agent, error) {
+	logger := glog.Logger()
+
 	// 构建路由提示词
 	var sb strings.Builder
 	sb.WriteString("你是一个任务分类器。根据用户的消息，判断应该由哪个子Agent处理。\n")
@@ -85,21 +91,17 @@ func (s *SupervisorAgent) routeToAgent(ctx context.Context, userMessage string) 
 		sb.WriteString(fmt.Sprintf("- %s: %s\n", name, ag.config.SystemPrompt))
 	}
 	sb.WriteString("\n请只返回Agent名称，不要返回其他内容。\n")
-	sb.WriteString("用户消息: " + userMessage)
 
-	// 调用LLM判断
-	msgs := []ChatMessage{
-		{Role: "system", Content: sb.String()},
-	}
-
-	resp, err := s.runtime.callLLM(ctx, msgs, nil)
+	// 使用 runtime.CallLLM 进行意图路由
+	resp, err := s.runtime.CallLLM(ctx, sb.String(), userMessage)
 	if err != nil {
+		logger.Warn("[Supervisor] 路由 LLM 调用失败", "err", err)
 		return nil, err
 	}
 
 	// 匹配Agent名称
 	for name := range s.subAgents {
-		if strings.Contains(strings.ToLower(resp.Content), strings.ToLower(name)) {
+		if strings.Contains(strings.ToLower(resp), strings.ToLower(name)) {
 			return s.subAgents[name], nil
 		}
 	}
@@ -108,23 +110,28 @@ func (s *SupervisorAgent) routeToAgent(ctx context.Context, userMessage string) 
 }
 
 func (s *SupervisorAgent) processSelf(ctx context.Context, session *Session, userMessage string) (string, error) {
-	messages := []ChatMessage{
-		{Role: "system", Content: s.config.SystemPrompt},
-	}
-
+	// 构建消息列表
+	var msgTexts []string
+	msgTexts = append(msgTexts, "系统提示: "+s.config.SystemPrompt)
 	for _, msg := range session.Messages {
-		messages = append(messages, ChatMessage{
-			Role:    msg.Role,
-			Content: channel.TextOnlyContent(msg.Content),
-		})
+		msgTexts = append(msgTexts, msg.Role+": "+channel.TextOnlyContent(msg.Content))
 	}
 
-	resp, err := s.runtime.callLLM(ctx, messages, nil)
+	// 使用 runtime.CallLLM 处理
+	systemPrompt := s.config.SystemPrompt
+	userPrompt := userMessage
+	for _, msg := range session.Messages {
+		if msg.Role == "user" {
+			userPrompt = channel.TextOnlyContent(msg.Content)
+		}
+	}
+
+	resp, err := s.runtime.CallLLM(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
 
-	return resp.Content, nil
+	return resp, nil
 }
 
 // ListSubAgents 列出子Agent
