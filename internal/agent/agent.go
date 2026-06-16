@@ -13,7 +13,6 @@ import (
 	"go-claw/internal/security"
 	"go-claw/internal/skill"
 	"go-claw/internal/store"
-	"go-claw/internal/token_usage"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
 
@@ -264,8 +263,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	goMsg := goAgent.UserMsg(session.UserID, goBlocks)
 
 	// 3. 调用 go-agent 流式循环 → 同时收集回复 + 转发事件到前端
-	startHistoryLen := len(a.goAgent.GetSession().GetHistory()) // 记录循环开始前的消息数，用于计算 token 增量
-	eventCh, err := a.goAgent.ReplyStream(ctx, goMsg)
+		eventCh, err := a.goAgent.ReplyStream(ctx, goMsg)
 	if err != nil {
 		logger.Error("[Agent] go-agent ReplyStream 启动失败", "err", err)
 		return "", err
@@ -278,7 +276,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	for event := range eventCh {
 		switch e := event.(type) {
 		case goAgent.ReplyStartEvent:
-			logger.Debug("[Agent] go-agent reply 开始", "session", e.SessionID)
+			logger.Info("[Agent] ReplyStart", "replyID", e.ReplyID, "session", e.SessionID)
 
 		case goAgent.TextBlockDeltaEvent:
 			finalResponse += e.Delta
@@ -292,6 +290,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			}
 
 		case goAgent.ToolCallStartEvent:
+			logger.Info("[Agent] ToolCallStart", "tool", e.ToolCallName)
 			currentToolName = e.ToolCallName
 			currentToolArgs = ""
 
@@ -299,20 +298,20 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			currentToolArgs += e.Delta
 
 		case goAgent.ToolCallEndEvent:
-			// 参数收集完毕，发送一次完整调用事件
+			logger.Info("[Agent] ToolCallEnd", "tool", currentToolName, "args", currentToolArgs)
 			if handler != nil {
 				handler(channel.ToolEvent{Type: channel.ToolEventCalling, ToolName: currentToolName, Args: currentToolArgs})
 			}
 
 		case goAgent.ToolResultStartEvent:
-			// 工具开始执行
+			logger.Info("[Agent] ToolResultStart", "tool", e.ToolCallName)
 
 		case goAgent.ToolResultTextDeltaEvent:
-			// 工具结果流式增量 —— 累积但不逐条推送（前端通过最终 result 事件获取）
+			// 工具结果流式增量 —— 不逐条推送
 
 		case goAgent.ToolResultEndEvent:
+			logger.Info("[Agent] ToolResultEnd", "tool", currentToolName, "state", e.State)
 			if handler != nil {
-				// 从 go-agent session 中读回刚存的工具结果
 				resultText := goAgentGetLastToolResult(a.goAgent, e.ToolCallID)
 				evtType := channel.ToolEventResult
 				if e.State == goAgent.ToolResultStateError {
@@ -322,7 +321,18 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			}
 
 		case goAgent.ReplyEndEvent:
-			logger.Debug("[Agent] go-agent reply 结束")
+			logger.Info("[Agent] ReplyEnd", "replyID", e.ReplyID, "session", e.SessionID,
+				"totalInputTokens", e.TotalInputTokens, "totalOutputTokens", e.TotalOutputTokens)
+			// Token 使用量由 TokenRecordingModel 在每次模型调用时自动记录，此处仅日志输出
+
+		case goAgent.ModelCallStartEvent:
+			logger.Info("[Agent] ModelCallStart", "model", e.ModelName)
+
+		case goAgent.ModelCallEndEvent:
+			logger.Info("[Agent] ModelCallEnd", "inputTokens", e.InputTokens, "outputTokens", e.OutputTokens)
+
+		default:
+			logger.Debug("[Agent] 未知事件", "type", fmt.Sprintf("%T", e))
 		}
 	}
 
@@ -340,27 +350,6 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		finalResponse = replyMsg.GetTextContent()
 	}
 	logger.Info("[Agent] go-agent 循环完成", "response_len", len(finalResponse))
-
-	// ─────────── Token 使用量统计 ───────────
-	// 从 go-agent session history 累计本轮新增消息的 token 使用量
-	totalInputTokens := 0
-	totalOutputTokens := 0
-	for i := startHistoryLen; i < len(goSess.GetHistory()); i++ {
-		msg := goSess.GetHistory()[i]
-		if msg.Role == goAgent.RoleAssistant && msg.Usage != nil {
-			totalInputTokens += msg.Usage.InputTokens
-			totalOutputTokens += msg.Usage.OutputTokens
-		}
-	}
-	if totalInputTokens > 0 || totalOutputTokens > 0 {
-		rtCfg := getRuntimeConfig(a.config)
-		token_usage.Record(rtCfg.ProviderType, rtCfg.Model, totalInputTokens, totalOutputTokens)
-		logger.Info("[Agent] Token 使用量",
-			"provider", rtCfg.ProviderType,
-			"model", rtCfg.Model,
-			"input_tokens", totalInputTokens,
-			"output_tokens", totalOutputTokens)
-	}
 
 	// 合并 go-agent session 中的工具调用历史回 go-claw session
 	a.mergeGoAgentHistory(session, replyMsg)

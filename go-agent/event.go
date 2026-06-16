@@ -179,9 +179,13 @@ func NewReplyStartEvent(replyID, sessionID, name string) ReplyStartEvent {
 // 字段：
 //   - ReplyID: 回复消息 ID
 //   - SessionID: 会话 ID
+//   - TotalInputTokens: 本次回复累计输入 token 数（所有迭代的总和）
+//   - TotalOutputTokens: 本次回复累计输出 token 数（所有迭代的总和）
 type ReplyEndEvent struct {
 	Event
-	SessionID string `json:"session_id"` // 会话 ID
+	SessionID         string `json:"session_id"`          // 会话 ID
+	TotalInputTokens  int    `json:"total_input_tokens"`  // 累计输入 token
+	TotalOutputTokens int    `json:"total_output_tokens"` // 累计输出 token
 }
 
 // NewReplyEndEvent 创建回复结束事件。
@@ -196,6 +200,16 @@ func NewReplyEndEvent(replyID, sessionID string) ReplyEndEvent {
 	return ReplyEndEvent{
 		Event:     newEvent(replyID),
 		SessionID: sessionID,
+	}
+}
+
+// NewReplyEndEventWithTokens 创建带 token 统计的回复结束事件。
+func NewReplyEndEventWithTokens(replyID, sessionID string, totalInputTokens, totalOutputTokens int) ReplyEndEvent {
+	return ReplyEndEvent{
+		Event:             newEvent(replyID),
+		SessionID:         sessionID,
+		TotalInputTokens:  totalInputTokens,
+		TotalOutputTokens: totalOutputTokens,
 	}
 }
 

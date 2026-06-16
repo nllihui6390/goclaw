@@ -11,10 +11,28 @@ import (
 	glog "go-claw/pkg/log"
 )
 
+// tokenUsageRecorder 实现 go-agent 的 TokenRecorder 接口
+// 将 token 使用量记录到 go-claw 的 token_usage 系统
+type tokenUsageRecorder struct {
+	config *AgentConfig
+}
+
+func (r *tokenUsageRecorder) Record(providerID, modelName string, inputTokens, outputTokens int) {
+	if inputTokens > 0 || outputTokens > 0 {
+		token_usage.Record(providerID, modelName, inputTokens, outputTokens)
+		glog.Logger().Info("[TokenRecorder] 记录 token 使用量",
+			"provider", providerID,
+			"model", modelName,
+			"input_tokens", inputTokens,
+			"output_tokens", outputTokens)
+	}
+}
+
 // Runtime Agent运行时（仅管理 ChatModel，所有 Agent 循环逻辑由 go-agent 处理）
 type Runtime struct {
 	config       *AgentConfig
-	chatModel    goModel.ChatModel // go-agent 模型
+	chatModel    goModel.ChatModel // go-agent 模型（带 token 记录包装）
+	rawModel     goModel.ChatModel // 原始模型（用于 CallLLM 等不需要 token 记录的场景）
 	workspaceDir string            // 用于缓存大工具结果
 }
 
@@ -23,11 +41,12 @@ func NewRuntime(cfg *AgentConfig) *Runtime {
 	r := &Runtime{
 		config: cfg,
 	}
-	r.chatModel = newChatModel(cfg)
+	r.rawModel = newChatModel(cfg)
+	r.chatModel = newTokenRecordingModel(r.rawModel, cfg)
 	return r
 }
 
-// newChatModel 从当前运行时配置创建 go-agent ChatModel
+// newChatModel 从当前运行时配置创建 go-agent ChatModel（原始模型，不带包装）
 func newChatModel(cfg *AgentConfig) goModel.ChatModel {
 	rtCfg := getRuntimeConfig(cfg)
 	switch rtCfg.ProviderType {
@@ -48,12 +67,20 @@ func newChatModel(cfg *AgentConfig) goModel.ChatModel {
 	}
 }
 
+// newTokenRecordingModel 创建带 token 记录功能的模型包装器
+func newTokenRecordingModel(raw goModel.ChatModel, cfg *AgentConfig) goModel.ChatModel {
+	rtCfg := getRuntimeConfig(cfg)
+	recorder := &tokenUsageRecorder{config: cfg}
+	return goModel.NewTokenRecordingModel(raw, recorder, rtCfg.ProviderType)
+}
+
 // refreshChatModel 根据动态配置刷新 ChatModel（热切换）
 func (r *Runtime) refreshChatModel() {
 	if r.config.ConfigProvider == nil {
 		return
 	}
-	r.chatModel = newChatModel(r.config)
+	r.rawModel = newChatModel(r.config)
+	r.chatModel = newTokenRecordingModel(r.rawModel, r.config)
 }
 
 // SetWorkspaceDir 设置工作空间目录（用于缓存文件）
@@ -95,8 +122,8 @@ func getRuntimeConfig(cfg *AgentConfig) *runtimeConfig {
 
 // ─────────── 通用 LLM 调用（供 supervisor/dream/memory 使用） ───────────
 
-// CallLLM 通用 LLM 调用（简化版，直接使用 go-agent ChatModel）
-// 供 SupervisorAgent 路由、DreamOptimizer 记忆整理、ExtractMemory 使用
+// CallLLM 通用 LLM 调用（使用带 token 记录的包装模型）
+// Token 使用量自动通过 TokenRecordingModel 记录
 func (r *Runtime) CallLLM(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	logger := glog.Logger()
 	rtCfg := getRuntimeConfig(r.config)
@@ -115,16 +142,10 @@ func (r *Runtime) CallLLM(ctx context.Context, systemPrompt, userPrompt string) 
 		return "", err
 	}
 
-	// 记录 Token 使用量
-	if resp.Usage.TotalTokens > 0 {
-		token_usage.Record(rtCfg.ProviderType, rtCfg.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
-	}
-
 	return resp.Content, nil
 }
 
-// CallLLMWithMessages 通用 LLM 调用（带完整消息列表）
-// 供 SupervisorAgent 路由使用，支持自定义消息格式
+// CallLLMWithMessages 通用 LLM 调用（带完整消息列表，使用包装模型）
 func (r *Runtime) CallLLMWithMessages(ctx context.Context, messages []goModel.Msg) (string, error) {
 	logger := glog.Logger()
 
@@ -142,6 +163,7 @@ func (r *Runtime) CallLLMWithMessages(ctx context.Context, messages []goModel.Ms
 // ─────────── 记忆提取（使用 go-agent ChatModel） ───────────
 
 // ExtractMemory 调用 LLM 提取对话中的关键信息
+// Token 使用量自动通过 TokenRecordingModel 记录
 func (r *Runtime) ExtractMemory(ctx context.Context, userMsg, assistantMsg string) string {
 	logger := glog.Logger()
 
@@ -174,6 +196,7 @@ func (r *Runtime) ExtractMemory(ctx context.Context, userMsg, assistantMsg strin
 	logger.Info("[Runtime] 记忆提取完成", "len", len(content))
 	return content
 }
+
 
 // stripThinkTags 剥离 DeepSeek 等模型的内部推理标签
 func stripThinkTags(content string) string {

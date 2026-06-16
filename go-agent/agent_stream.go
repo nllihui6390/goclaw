@@ -85,10 +85,12 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 	}
 
 	iterCount := 0
+	totalReplyInputTokens := 0
+	totalReplyOutputTokens := 0
 	for {
 		if iterCount >= a.config.ReActConfig.MaxIters {
 			output <- NewExceedMaxItersEvent(replyID, a.config.Name)
-			output <- NewReplyEndEvent(replyID, sessionID)
+			output <- NewReplyEndEventWithTokens(replyID, sessionID, totalReplyInputTokens, totalReplyOutputTokens)
 			return
 		}
 		iterCount++
@@ -112,7 +114,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			}
 			if err != nil {
 				// 创建回复结束事件
-				output <- NewReplyEndEvent(replyID, sessionID)
+				output <- NewReplyEndEventWithTokens(replyID, sessionID, totalReplyInputTokens, totalReplyOutputTokens)
 				return
 			}
 		}
@@ -187,6 +189,8 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 		}
 		// 创建模型调用结束事件
 		output <- NewModelCallEndEvent(replyID, totalInputTokens, totalOutputTokens)
+		totalReplyInputTokens += totalInputTokens
+		totalReplyOutputTokens += totalOutputTokens
 
 		if len(toolCalls) > 0 {
 			// 构建助手消息中的内容块（工具调用 + 工具结果）
@@ -303,7 +307,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 		finalMsg.SetFinished()
 		a.session.AddMessage(*finalMsg)
 		// 创建回复结束事件
-		output <- NewReplyEndEvent(replyID, sessionID)
+		output <- NewReplyEndEventWithTokens(replyID, sessionID, totalReplyInputTokens, totalReplyOutputTokens)
 		return
 	}
 }
