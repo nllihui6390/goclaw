@@ -143,10 +143,13 @@ function formatCompact(num) {
   return num.toString()
 }
 
-// 日期格式化
+// 日期格式化（使用本地时间，避免 UTC 时区偏移导致日期差一天）
 function formatDate(date) {
   const d = new Date(date)
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 // 加载数据

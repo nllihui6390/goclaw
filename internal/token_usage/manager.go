@@ -10,17 +10,17 @@ import (
 
 // Manager Token 使用量管理器（单例模式）
 type Manager struct {
-	buffer   *Buffer
-	storage  *Storage
-	mu       sync.RWMutex
+	buffer  *Buffer
+	storage *Storage
+	mu      sync.RWMutex
 
-	once     sync.Once
-	stopCh   chan struct{}
+	once   sync.Once
+	stopCh chan struct{}
 }
 
 var (
-	instance    *Manager
-	instMu      sync.Mutex
+	instance *Manager
+	instMu   sync.Mutex
 	// globalRecorder 全局记录函数（由外部设置，避免 import cycle）
 	globalRecorder func(providerID, modelName string, promptTokens, completionTokens int)
 )
@@ -70,12 +70,12 @@ func GetManager() *Manager {
 // Record 记录一次 LLM 调用的 Token 使用量（fire-and-forget，不阻塞）
 func (m *Manager) Record(providerID, modelName string, promptTokens, completionTokens int) {
 	event := UsageEvent{
-		ProviderID:      providerID,
-		ModelName:       modelName,
+		ProviderID:       providerID,
+		ModelName:        modelName,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
-		DateStr:         time.Now().Format("2006-01-02"),
-		Timestamp:       time.Now().Format(time.RFC3339),
+		DateStr:          time.Now().Format("2006-01-02"),
+		Timestamp:        time.Now().Format(time.RFC3339),
 	}
 	m.buffer.Enqueue(event)
 	glog.Logger().Debug("token_usage: 记录事件",
@@ -119,9 +119,9 @@ func (m *Manager) GetDetails(startDate, endDate string, modelName, providerID st
 			}
 
 			records = append(records, TokenUsageRecord{
-				Date:            dateStr,
-				ProviderID:      entry.ProviderID,
-				Model:           recModel,
+				Date:             dateStr,
+				ProviderID:       entry.ProviderID,
+				Model:            recModel,
 				PromptTokens:     entry.PromptTokens,
 				CompletionTokens: entry.CompletionTokens,
 				CallCount:        entry.CallCount,
@@ -158,8 +158,8 @@ func (m *Manager) GetSummary(startDate, endDate string, modelName, providerID st
 			summary.ByModel[modelKey] = existing
 		} else {
 			summary.ByModel[modelKey] = TokenUsageByModel{
-				ProviderID:      r.ProviderID,
-				Model:           r.Model,
+				ProviderID:       r.ProviderID,
+				Model:            r.Model,
 				PromptTokens:     r.PromptTokens,
 				CompletionTokens: r.CompletionTokens,
 				CallCount:        r.CallCount,

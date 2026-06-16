@@ -33,10 +33,12 @@ func NewBuffer(storage *Storage) *Buffer {
 
 // Start 启动后台消费者和刷新任务
 func (b *Buffer) Start() {
+	// 同步加载磁盘缓存，避免与前端请求竞态导致空数据
+	b.seedCache()
 	b.wg.Add(2)
 	go b.consumerLoop()
 	go b.flushLoop()
-	glog.Logger().Info("token_usage: 缓冲区已启动")
+	glog.Logger().Info("token_usage: 缓冲区已启动", "days_loaded", len(b.diskCache))
 }
 
 // Stop 停止缓冲区

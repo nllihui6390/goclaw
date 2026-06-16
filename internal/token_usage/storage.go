@@ -30,10 +30,12 @@ func (s *Storage) Load() map[string]map[string]UsageEntry {
 		if !os.IsNotExist(err) {
 			glog.Logger().Warn("token_usage: 读取文件失败", "path", s.path, "err", err)
 		}
+		glog.Logger().Info("token_usage: 文件不存在或读取失败", "path", s.path)
 		return make(map[string]map[string]UsageEntry)
 	}
 
 	if len(data) == 0 {
+		glog.Logger().Info("token_usage: 文件为空", "path", s.path)
 		return make(map[string]map[string]UsageEntry)
 	}
 
@@ -43,6 +45,12 @@ func (s *Storage) Load() map[string]map[string]UsageEntry {
 		return make(map[string]map[string]UsageEntry)
 	}
 
+	dayCount := len(result)
+	totalEntries := 0
+	for _, dayData := range result {
+		totalEntries += len(dayData)
+	}
+	glog.Logger().Info("token_usage: 文件加载成功", "path", s.path, "days", dayCount, "entries", totalEntries)
 	return result
 }
 
