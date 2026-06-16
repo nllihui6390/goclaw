@@ -141,7 +141,7 @@ func NewAgent(cfg Config) *Agent {
 		middlewareChain.Add(m)
 	}
 
-	maxTokens := 4096 // TODO: 从 cfg.Model 获取实际的最大上下文长度
+	maxTokens := 200000 // 默认 200K 上下文
 
 	contextMgr := NewContextManager(cfg.ContextConfig, maxTokens, cfg.Offloader)
 

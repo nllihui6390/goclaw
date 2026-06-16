@@ -89,7 +89,7 @@ func (r *Runtime) SetWorkspaceDir(dir string) {
 }
 
 // SetSkillRegistry 设置技能注册中心（用于热重载）
-func (r *Runtime) SetSkillRegistry(reg *skill.Registry) {
+func (r *Runtime) SetSkillRegistry(reg *skill.SkillRegistry) {
 	r.config.SkillRegistry = reg
 }
 
@@ -196,7 +196,6 @@ func (r *Runtime) ExtractMemory(ctx context.Context, userMsg, assistantMsg strin
 	logger.Info("[Runtime] 记忆提取完成", "len", len(content))
 	return content
 }
-
 
 // stripThinkTags 剥离 DeepSeek 等模型的内部推理标签
 func stripThinkTags(content string) string {

@@ -132,6 +132,9 @@ func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, root
 		agentSkillReg.LoadEnabled(filepath.Join(app.DataDir, "skills"), enabledSkills)
 	}
 
+	// Skills 通过 system prompt 注入（对标 QwenPaw），无需额外工具
+	app.logger.Info("Skills 已配置", "count", len(enabledSkills))
+
 	ag := agent.NewAgent(&agent.AgentConfig{
 		Name:                  agentName,
 		SystemPrompt:          agentCfg.SystemPrompt,

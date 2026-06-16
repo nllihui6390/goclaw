@@ -395,6 +395,15 @@ func msgToModelMsg(msg Msg) model.Msg {
 		Name:    msg.Name,
 	}
 
+	// 提取 ToolResult 内容到 Content（工具执行结果必须传递给模型）
+	if tr := msg.GetToolResultContent(); tr != "" {
+		if m.Content != "" {
+			m.Content += "\n" + tr
+		} else {
+			m.Content = tr
+		}
+	}
+
 	if msg.Role == "tool" {
 		m.ToolCallID = msg.Name
 	}

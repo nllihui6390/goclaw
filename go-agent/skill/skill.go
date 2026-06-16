@@ -17,7 +17,10 @@
 //	skills.GetPrompt() // 注入到 system prompt
 package skill
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // =============================================
 // Skill — 技能定义
@@ -184,12 +187,31 @@ func (r *Registry) GetPrompt() string {
 	if len(r.skills) == 0 {
 		return ""
 	}
+	// 对标 QwenPaw 的 _DEFAULT_AGENT_SKILL_INSTRUCTION 格式：
+	// "# Agent Skills\n...If you want to use a skill, you MUST read its SKILL.md file carefully."
 	var prompt string
-	prompt += "You have access to the following skills:\n\n"
+	prompt += "# Agent Skills\n\n"
+	prompt += "The agent skills are a collection of folders of instructions, scripts, and resources that you can use to improve performance on specialized tasks. Each agent skill has a `SKILL.md` file in its folder that describes how to use the skill. If you want to use a skill, you MUST read its `SKILL.md` file carefully.\n\n"
 	for _, skill := range r.skills {
-		prompt += formatSkillPrompt(skill) + "\n"
+		prompt += formatSkillBrief(skill) + "\n"
 	}
 	return prompt
+}
+
+// formatSkillBrief 对标 QwenPaw 的 _DEFAULT_AGENT_SKILL_TEMPLATE：
+// "## {name}\n{description}\nCheck \"{dir}/SKILL.md\" for how to use this skill"
+func formatSkillBrief(skill *Skill) string {
+	emoji := skill.Emoji
+	if emoji == "" {
+		emoji = "🔧"
+	}
+	dir := ""
+	if v, ok := skill.Metadata["skill_path"]; ok {
+		if s, ok := v.(string); ok {
+			dir = s
+		}
+	}
+	return fmt.Sprintf("## %s %s\n%s\nCheck \"%s/SKILL.md\" for how to use this skill", emoji, skill.Name, skill.Description, dir)
 }
 
 // GetSkillPrompt 获取单个技能的提示词。
@@ -279,6 +301,10 @@ func formatSkillPrompt(skill *Skill) string {
 		prompt += skill.Emoji + " "
 	}
 	prompt += skill.Description + "\n\n"
+	// Prompt 包含核心能力描述（优先展示，直接注入避免读文件）
+	if skill.Prompt != "" {
+		prompt += skill.Prompt + "\n\n"
+	}
 	if skill.Workflow != "" {
 		prompt += "**Workflow:**\n" + skill.Workflow + "\n\n"
 	}

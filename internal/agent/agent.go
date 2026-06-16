@@ -43,19 +43,19 @@ type AgentConfig struct {
 	MaxTokens             int // 最大上下文 Token 数，0=不限（默认32000）
 	Memory                memory.Memory
 	Store                 store.Store
-	WorkspaceLoader       WorkspaceLoader     // 工作空间人设文件加载器
-	WorkspaceDir          string              // 工作空间目录路径（用于缓存文件）
-	SkillRegistry         *skill.Registry     // 技能注册中心（用于系统提示词注入）
-	MaxContextMessages    int                 // 未压缩消息数触发阈值，0=默认20
-	CompactThresholdRatio float64             // 压缩触发比例，0=不压缩（默认0.8）
-	ReserveThresholdRatio float64             // 压缩后保留比例（默认0.15）
-	ToolResultMaxBytes    int                 // 工具结果最大字节数，0=不限（默认20000）
-	ToolResultExemptTools []string            // 裁剪豁免工具名列表
-	ToolResultExemptExts  []string            // 裁剪豁免文件扩展名列表
-	SupportsImage         bool                // 模型是否支持图片输入
-	SupportsVideo         bool                // 模型是否支持视频输入
-	ToolGuard             *security.ToolGuard // 工具安全守卫
-	InboxStore            *inbox.Store        // Inbox 事件通知存储
+	WorkspaceLoader       WorkspaceLoader      // 工作空间人设文件加载器
+	WorkspaceDir          string               // 工作空间目录路径（用于缓存文件）
+	SkillRegistry         *skill.SkillRegistry // 技能注册中心（用于系统提示词注入）
+	MaxContextMessages    int                  // 未压缩消息数触发阈值，0=默认20
+	CompactThresholdRatio float64              // 压缩触发比例，0=不压缩（默认0.8）
+	ReserveThresholdRatio float64              // 压缩后保留比例（默认0.15）
+	ToolResultMaxBytes    int                  // 工具结果最大字节数，0=不限（默认20000）
+	ToolResultExemptTools []string             // 裁剪豁免工具名列表
+	ToolResultExemptExts  []string             // 裁剪豁免文件扩展名列表
+	SupportsImage         bool                 // 模型是否支持图片输入
+	SupportsVideo         bool                 // 模型是否支持视频输入
+	ToolGuard             *security.ToolGuard  // 工具安全守卫
+	InboxStore            *inbox.Store         // Inbox 事件通知存储
 	// ConfigProvider 动态配置提供器：每次调用 LLM 时获取最新 model/apiKey/baseURL/providerType
 	// 优先使用此函数，降级使用 Model/APIKey/BaseURL/ProviderType 字段
 	ConfigProvider func() (model, apiKey, baseURL, providerType string)
@@ -111,7 +111,7 @@ func (a *Agent) initGoAgent() {
 		agentCfg = agentCfg.WithMemory(memory.AsAgentMem(cfg.Memory))
 	}
 	if cfg.SkillRegistry != nil {
-		agentCfg.WithSkills(nil)
+		agentCfg = agentCfg.WithSkills(skill.ConvertToGoAgentRegistry(cfg.SkillRegistry))
 	}
 	if cfg.WorkspaceLoader != nil {
 		agentCfg = agentCfg.WithPersonaLoader(cfg.WorkspaceLoader)
@@ -202,9 +202,14 @@ func (a *Agent) GetInfo() string {
 }
 
 // SetSkillRegistry 设置技能注册中心（用于热重载）
-func (a *Agent) SetSkillRegistry(reg *skill.Registry) {
+func (a *Agent) SetSkillRegistry(reg *skill.SkillRegistry) {
 	a.config.SkillRegistry = reg
 	a.runtime.SetSkillRegistry(reg)
+
+	// 同步更新 go-agent 的 Skills 配置
+	a.goAgentMu.Lock()
+	a.goAgent.GetConfig().Skills = skill.ConvertToGoAgentRegistry(reg)
+	a.goAgentMu.Unlock()
 }
 
 // ProcessWithHandler 处理用户消息（带工具事件回调）
@@ -263,7 +268,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	goMsg := goAgent.UserMsg(session.UserID, goBlocks)
 
 	// 3. 调用 go-agent 流式循环 → 同时收集回复 + 转发事件到前端
-		eventCh, err := a.goAgent.ReplyStream(ctx, goMsg)
+	eventCh, err := a.goAgent.ReplyStream(ctx, goMsg)
 	if err != nil {
 		logger.Error("[Agent] go-agent ReplyStream 启动失败", "err", err)
 		return "", err

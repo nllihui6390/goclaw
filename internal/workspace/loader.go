@@ -31,6 +31,7 @@ type Loader struct {
 	workspaceDir     string
 	agentName        string // Agent 名称，用于身份标识
 	heartbeatEnabled bool   // 是否启用 heartbeat（影响 AGENTS.md 内容）
+	cachedPrompt     string // 缓存的 system prompt（避免每次请求重新读取文件）
 }
 
 // GetWorkspaceDir 获取工作空间目录
@@ -60,9 +61,14 @@ var systemPromptFiles = []string{"AGENTS.md", "SOUL.md", "PROFILE.md"}
 var heartbeatBlockRe = regexp.MustCompile(`(?s)<!-- heartbeat:start -->.*?<!-- heartbeat:end -->`)
 var memoryBlockRe = regexp.MustCompile(`(?s)<!-- memory:start -->.*?<!-- memory:end -->`)
 
-// LoadSystemPrompt 加载工作空间人设文件拼接成 system prompt 部分
+// LoadSystemPrompt 加载工作空间人设文件拼接成 system prompt 部分（内部缓存）
 // 加载顺序: Agent Identity (如有) → AGENTS.md → SOUL.md → PROFILE.md
 func (l *Loader) LoadSystemPrompt() string {
+	// 使用缓存，避免每次请求重新读取文件
+	if l.cachedPrompt != "" {
+		return l.cachedPrompt
+	}
+
 	logger := glog.Logger()
 	var parts []string
 
@@ -94,9 +100,9 @@ func (l *Loader) LoadSystemPrompt() string {
 		return ""
 	}
 
-	result := strings.Join(parts, "\n\n")
-	logger.Info("[Workspace] 人设文件已加载", "files_count", len(parts), "total_len", len(result))
-	return result
+	l.cachedPrompt = strings.Join(parts, "\n\n")
+	logger.Info("[Workspace] 人设文件已加载", "files_count", len(parts), "total_len", len(l.cachedPrompt))
+	return l.cachedPrompt
 }
 
 // processConditionalBlocks 处理 AGENTS.md 中的条件区块

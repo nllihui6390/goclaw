@@ -10,32 +10,32 @@ import (
 )
 
 // Registry Skill 注册和加载中心
-type Registry struct {
+type SkillRegistry struct {
 	skills   map[string]*Skill // name -> Skill
 	skillDir string            // Skill 主目录路径（全局唯一）
 }
 
 // NewRegistry 创建 Skill 注册中心
-func NewRegistry(skillDir string) *Registry {
-	return &Registry{
+func NewRegistry(skillDir string) *SkillRegistry {
+	return &SkillRegistry{
 		skills:   make(map[string]*Skill),
 		skillDir: skillDir,
 	}
 }
 
 // Clear 清空所有已加载的 Skill
-func (r *Registry) Clear() {
+func (r *SkillRegistry) Clear() {
 	r.skills = make(map[string]*Skill)
 }
 
 // ReloadAll 清空并重新从 skillDir 加载所有 Skill
-func (r *Registry) ReloadAll() error {
+func (r *SkillRegistry) ReloadAll() error {
 	r.Clear()
 	return r.LoadFromDir(r.skillDir)
 }
 
 // LoadFromDir 从指定目录加载所有 Skill（追加到已有 skills，不覆盖）
-func (r *Registry) LoadFromDir(dir string) error {
+func (r *SkillRegistry) LoadFromDir(dir string) error {
 	logger := glog.Logger()
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -78,7 +78,7 @@ func (r *Registry) LoadFromDir(dir string) error {
 }
 
 // LoadEnabled 按启用列表从 skillDir 加载指定技能
-func (r *Registry) LoadEnabled(skillDir string, enabledList []string) error {
+func (r *SkillRegistry) LoadEnabled(skillDir string, enabledList []string) error {
 	logger := glog.Logger()
 
 	for _, name := range enabledList {
@@ -128,13 +128,13 @@ func (r *Registry) LoadEnabled(skillDir string, enabledList []string) error {
 }
 
 // Get 获取指定 Skill
-func (r *Registry) Get(name string) (*Skill, bool) {
+func (r *SkillRegistry) Get(name string) (*Skill, bool) {
 	s, exists := r.skills[name]
 	return s, exists
 }
 
 // List 列出所有已加载 Skill
-func (r *Registry) List() []*Skill {
+func (r *SkillRegistry) List() []*Skill {
 	var list []*Skill
 	for _, s := range r.skills {
 		list = append(list, s)
@@ -143,7 +143,7 @@ func (r *Registry) List() []*Skill {
 }
 
 // SkillSummary Skill 概要信息
-func (r *Registry) SkillSummary() string {
+func (r *SkillRegistry) SkillSummary() string {
 	var lines []string
 	for _, s := range r.skills {
 		lines = append(lines, fmt.Sprintf("%s %s - %s", s.Emoji(), s.Name, truncate(s.Description, 60)))
@@ -152,7 +152,7 @@ func (r *Registry) SkillSummary() string {
 }
 
 // GetSkillPrompt 生成用于系统提示词注入的技能信息
-func (r *Registry) GetSkillPrompt() string {
+func (r *SkillRegistry) GetSkillPrompt() string {
 	logger := glog.Logger()
 	if len(r.skills) == 0 {
 		return ""

@@ -53,7 +53,7 @@ func DefaultContextConfig() *ContextConfig {
 	return &ContextConfig{
 		TriggerRatio:    0.8,
 		ReserveRatio:    0.1,
-		ToolResultLimit: 3000,
+		ToolResultLimit: 100000, // 不限制工具结果长度（足够容纳完整的 SKILL.md）
 		CompressionPrompt: `请对以下对话历史进行摘要，保留关键信息。输出 JSON 格式：
 {"task_overview":"...","current_state":"...","important_discoveries":[...],"next_steps":[...],"context_to_preserve":"..."}`,
 		SummaryTemplate: `<summary>

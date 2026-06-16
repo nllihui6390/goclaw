@@ -753,6 +753,31 @@ func contentToBlocks(content interface{}, role Role) []ContentBlock {
 // 示例：
 //
 //	text := msg.GetTextContent()
+
+// GetToolResultContent 提取消息中所有 ToolResult 块的文本内容。
+// 工具执行结果（如 read_file 返回的文件内容）存储在 ToolResultOutput 中，
+// 必须通过此方法提取。GetTextContent() 只提取纯文本块。
+func (m *Msg) GetToolResultContent() string {
+	var texts []string
+	for _, block := range m.Content {
+		if block.Type == BlockTypeToolResult {
+			for _, output := range block.ToolResultOutput {
+				if output.Type == BlockTypeText {
+					texts = append(texts, output.Text)
+				}
+			}
+		}
+	}
+	if len(texts) == 0 {
+		return ""
+	}
+	result := texts[0]
+	for i := 1; i < len(texts); i++ {
+		result += "\n" + texts[i]
+	}
+	return result
+}
+
 func (m *Msg) GetTextContent() string {
 	var texts []string
 	for _, block := range m.Content {

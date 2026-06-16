@@ -34,6 +34,7 @@ type Skill struct {
 	ErrorHandling     string
 	Examples          string
 	Notes             string
+	RawBody           string // 完整 Markdown 正文（用于 fallback）
 
 	// 运行时信息
 	SkillPath string   // Skill 目录路径
@@ -71,6 +72,7 @@ func ParseSkill(skillPath string) (*Skill, error) {
 
 	// 解析 Markdown 正文
 	markdownBody := parts[2]
+	skill.RawBody = strings.TrimSpace(markdownBody) // 保存完整正文
 	skill.parseMarkdownSections(markdownBody)
 
 	// 加载 scripts 目录下的脚本

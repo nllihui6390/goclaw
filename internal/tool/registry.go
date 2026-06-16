@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"go-claw/internal/skill"
 )
 
 // Skill 技能分组：一组相关工具的集合
@@ -113,6 +115,16 @@ func (r *ToolRegistry) ListSkills() []*Skill {
 		skills = append(skills, s)
 	}
 	return skills
+}
+
+// RegisterSkillUseFactory 动态注册 skill_use 工具工厂（由 bootstrap 在技能加载后调用）
+func (r *ToolRegistry) RegisterSkillUseFactory(skillDir string, reg any) {
+	r.Register("skill_use", func() Tool {
+		if sr, ok := reg.(*skill.SkillRegistry); ok {
+			return NewSkillUseTool(skillDir, sr)
+		}
+		return NewSkillUseTool(skillDir, nil)
+	})
 }
 
 // GlobalRegistry 全局工具注册表
