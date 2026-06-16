@@ -160,6 +160,18 @@ func containsColon(s string) bool {
 	return false
 }
 
+// isBotLikeChannel 判断是否为 Bot 渠道（企微/钉钉/飞书等）
+// 这些渠道的流式协议与 SSE 不同，文本应通过最终帧发送
+func isBotLikeChannel(channelName string) bool {
+	botNames := []string{"wecom", "dingtalk", "lark", "wechat"}
+	for _, name := range botNames {
+		if channelName == name || strings.HasSuffix(channelName, ":"+name) {
+			return true
+		}
+	}
+	return false
+}
+
 // NewGateway 创建网关
 func NewGateway() *Gateway {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -397,11 +409,20 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 			msgCtx = agent.WithUser(msgCtx, msg.From)
 
 			var hadTextStream bool
+			isBot := isBotLikeChannel(msg.Channel)
+			var accumulatedThinking string // Bot 渠道 thinking 累加
 			handler := func(event channel.ToolEvent) {
+				event.To = msg.From
 				if event.Type == channel.ToolEventText {
+					if isBot {
+						return // Bot 渠道不流式发送文本，在最终帧发
+					}
 					hadTextStream = true
 				}
-				event.To = msg.From
+				if isBot && event.Type == channel.ToolEventThinking {
+					accumulatedThinking += event.Thinking
+					event.Thinking = accumulatedThinking
+				}
 				ch.SendToolEvent(event)
 			}
 

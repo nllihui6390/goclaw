@@ -283,8 +283,22 @@ func (w *WeComChannel) handleFrame(data []byte) {
 	}
 
 	// 无 cmd 的帧：认证响应、心跳响应、回复回执或上传响应
-	headers, _ := frame["headers"].(map[string]any)
-	reqID, _ := headers["req_id"].(string)
+	headersRaw, _ := frame["headers"]
+	headers, ok := headersRaw.(map[string]any)
+	if !ok {
+		log.Logger().Warn("[WeCom] headers类型断言失败", "headers_type", fmt.Sprintf("%T", headersRaw))
+		headers = nil
+	}
+	reqID := ""
+	if headers != nil {
+		reqIDRaw, _ := headers["req_id"]
+		reqID, ok = reqIDRaw.(string)
+		if !ok {
+			log.Logger().Warn("[WeCom] req_id类型断言失败", "req_id_type", fmt.Sprintf("%T", reqIDRaw), "req_id_raw", reqIDRaw)
+		}
+	}
+
+	log.Logger().Debug("[WeCom] 无cmd帧解析", "req_id", reqID, "errcode", frame["errcode"])
 
 	// 检查是否是上传响应
 	w.pendingUploadResponsesMu.Lock()
@@ -318,6 +332,12 @@ func (w *WeComChannel) handleFrame(data []byte) {
 	// 心跳响应: req_id 以 "ping" 开头
 	if len(reqID) >= len(WsCmdHeartbeat) && reqID[:len(WsCmdHeartbeat)] == WsCmdHeartbeat {
 		w.handleHeartbeatResponse(frame)
+		return
+	}
+
+	// 成功回执（errcode=0）：中间帧的 ack，无需警告
+	if errcode, _ := frame["errcode"].(float64); errcode == 0 {
+		log.Logger().Debug("[WeCom] 中间帧回执", "req_id", reqID)
 		return
 	}
 
@@ -720,7 +740,7 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 		},
 	}
 
-	log.Logger().Info("[WeCom] 发送最终响应", "user", resp.To, "content_len", len(sendContent))
+	log.Logger().Info("[WeCom] 发送最终响应", "user", resp.To, "content_len", len(sendContent), "req_id", reqID)
 	return w.sendAndWaitAck(reqID, frame)
 }
 
@@ -1042,7 +1062,7 @@ func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
 		},
 	}
 
-	log.Logger().Debug("[WeCom] 发送中间帧", "type", event.Type, "content", content)
+	log.Logger().Debug("[WeCom] 发送中间帧", "type", event.Type, "content_len", len(content), "content_preview", truncateStr(content, 80))
 	return w.sendFrame(frame) // 中间帧不等 ack
 }
 
@@ -1052,6 +1072,7 @@ func (w *WeComChannel) sendAndWaitAck(reqID string, frame map[string]any) error 
 
 	w.pendingAcksMu.Lock()
 	w.pendingAcks[reqID] = ackChan
+	log.Logger().Info("[WeCom] 注册ack等待", "req_id", reqID)
 	w.pendingAcksMu.Unlock()
 
 	if err := w.sendFrame(frame); err != nil {

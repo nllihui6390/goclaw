@@ -83,6 +83,13 @@ func (r *Renderer) RenderToolEvent(event ToolEvent) string {
 
 	case ToolEventContent:
 		return "" // 结构化内容块不渲染为文本
+
+	case ToolEventText:
+		// 流式文本增量：直接返回文本内容
+		if event.Thinking != "" {
+			return event.Thinking
+		}
+		return ""
 	}
 
 	return ""
