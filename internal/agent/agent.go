@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -306,6 +307,27 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			logger.Info("[Agent] ToolCallEnd", "tool", currentToolName, "args", currentToolArgs)
 			if handler != nil {
 				handler(channel.ToolEvent{Type: channel.ToolEventCalling, ToolName: currentToolName, Args: currentToolArgs})
+				// 检查是否为 StructuredTool，如果是则执行 ExecuteStructured 并发送内容事件
+				for _, t := range a.config.Tools {
+					if t.Name() == currentToolName {
+						if st := tool.AsStructuredTool(t); st != nil {
+							// 解析参数
+							var params map[string]interface{}
+							if currentToolArgs != "" {
+								if err := json.Unmarshal([]byte(currentToolArgs), &params); err != nil {
+									params = map[string]interface{}{"input": currentToolArgs}
+								}
+							}
+							// 执行 ExecuteStructured 获取结构化内容
+							blocks, err := st.ExecuteStructured(ctx, params)
+							if err == nil && len(blocks) > 0 {
+								// 发送结构化内容事件（图片/文件等）
+								handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
+							}
+						}
+						break
+					}
+				}
 			}
 
 		case goAgent.ToolResultStartEvent:
