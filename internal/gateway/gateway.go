@@ -410,19 +410,43 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 
 			var hadTextStream bool
 			isBot := isBotLikeChannel(msg.Channel)
-			var accumulatedThinking string // Bot 渠道 thinking 累加
+			isStreamBot := msg.Channel == "wecom" || strings.HasSuffix(msg.Channel, ":wecom")
+			var accumulatedThinking string
+			var thinkingSent bool
 			handler := func(event channel.ToolEvent) {
 				event.To = msg.From
+
 				if event.Type == channel.ToolEventText {
 					if isBot {
-						return // Bot 渠道不流式发送文本，在最终帧发
+						// 所有 Bot：文本不逐条发，最终帧发完整体
+						// 非流式 Bot 首次遇到 text 时发送累积的完整思考
+						if !isStreamBot && !thinkingSent && accumulatedThinking != "" {
+							thinkingSent = true
+							ch.SendToolEvent(channel.ToolEvent{
+								Type:     channel.ToolEventThinking,
+								Thinking: accumulatedThinking,
+								To:       msg.From,
+							})
+						}
+						return
 					}
 					hadTextStream = true
 				}
-				if isBot && event.Type == channel.ToolEventThinking {
-					accumulatedThinking += event.Thinking
-					event.Thinking = accumulatedThinking
+
+				if event.Type == channel.ToolEventThinking {
+					if isStreamBot {
+						// 企微流式：累加后逐帧更新同一条消息
+						accumulatedThinking += event.Thinking
+						event.Thinking = accumulatedThinking
+					} else if isBot {
+						// 钉钉/飞书：攒完整思考，等文本开始时一次性发送
+						if !thinkingSent {
+							accumulatedThinking += event.Thinking
+						}
+						return
+					}
 				}
+
 				ch.SendToolEvent(event)
 			}
 
