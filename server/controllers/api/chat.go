@@ -151,6 +151,69 @@ func isAgentConsoleEnabled(agentName string) bool {
 	return config.IsAgentChannelEnabled(workspaceDir, agentName, "console")
 }
 
+// writeFileEvent 处理并写入单个工具事件到 SSE 流
+func writeFileEvent(rw http.ResponseWriter, flusher http.Flusher, hadTextEvents *bool, fileEvt channel.ToolEvent) {
+	switch fileEvt.Type {
+	case channel.ToolEventFile:
+		fileData, _ := json.Marshal(map[string]interface{}{
+			"fileType": fileEvt.Args,
+			"path":     fileEvt.Result,
+			"filename": fileEvt.ToolName,
+			"size":     0,
+		})
+		fmt.Fprintf(rw, "event: file\ndata: %s\n\n", fileData)
+		flusher.Flush()
+	case channel.ToolEventContent:
+		contentData, _ := json.Marshal(map[string]interface{}{
+			"blocks": fileEvt.Content,
+		})
+		fmt.Fprintf(rw, "event: content\ndata: %s\n\n", contentData)
+		flusher.Flush()
+	case channel.ToolEventThinking:
+		thinkData, _ := json.Marshal(map[string]interface{}{
+			"thinking": fileEvt.Thinking,
+		})
+		fmt.Fprintf(rw, "event: thinking\ndata: %s\n\n", thinkData)
+		flusher.Flush()
+	case channel.ToolEventCalling:
+		callData, _ := json.Marshal(map[string]interface{}{
+			"tool_name": fileEvt.ToolName,
+			"args":      fileEvt.Args,
+		})
+		fmt.Fprintf(rw, "event: tool_call\ndata: %s\n\n", callData)
+		flusher.Flush()
+	case channel.ToolEventResult:
+		resultData, _ := json.Marshal(map[string]interface{}{
+			"tool_name": fileEvt.ToolName,
+			"result":    fileEvt.Result,
+		})
+		fmt.Fprintf(rw, "event: tool_result\ndata: %s\n\n", resultData)
+		flusher.Flush()
+	case channel.ToolEventError:
+		errorData, _ := json.Marshal(map[string]interface{}{
+			"tool_name": fileEvt.ToolName,
+			"error":     fileEvt.Error,
+		})
+		fmt.Fprintf(rw, "event: tool_error\ndata: %s\n\n", errorData)
+		flusher.Flush()
+	case channel.ToolEventGuard:
+		guardData, _ := json.Marshal(map[string]interface{}{
+			"tool_name":      fileEvt.ToolName,
+			"args":           fileEvt.Args,
+			"guard_message":  fileEvt.GuardMessage,
+			"approval_id":    fileEvt.ApprovalID,
+			"approval_state": fileEvt.ApprovalState,
+		})
+		fmt.Fprintf(rw, "event: guard\ndata: %s\n\n", guardData)
+		flusher.Flush()
+	case channel.ToolEventText:
+		*hadTextEvents = true
+		textData, _ := json.Marshal(map[string]string{"text": fileEvt.Thinking})
+		fmt.Fprintf(rw, "event: text\ndata: %s\n\n", textData)
+		flusher.Flush()
+	}
+}
+
 func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agentName string, stream bool, rw http.ResponseWriter, r *http.Request) {
 	// 渠道配置关闭流式输出时，强制走阻塞模式
 	if stream && !ch.GetDisplay().StreamOutput {
@@ -186,6 +249,10 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 			select {
 			case chunk, ok := <-streamCh:
 				if !ok {
+					// streamCh 已关闭 → 先清空 fileCh 中所有剩余事件，再发 done
+					for remainingEvt := range fileCh {
+						writeFileEvent(rw, flusher, &hadTextEvents, remainingEvt)
+					}
 					fmt.Fprintf(rw, "event: done\ndata: {}\n\n")
 					flusher.Flush()
 					return
@@ -196,65 +263,7 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 					flusher.Flush()
 				}
 			case fileEvt := <-fileCh:
-				switch fileEvt.Type {
-				case channel.ToolEventFile:
-					fileData, _ := json.Marshal(map[string]interface{}{
-						"fileType": fileEvt.Args,
-						"path":     fileEvt.Result,
-						"filename": fileEvt.ToolName,
-						"size":     0,
-					})
-					fmt.Fprintf(rw, "event: file\ndata: %s\n\n", fileData)
-					flusher.Flush()
-				case channel.ToolEventContent:
-					contentData, _ := json.Marshal(map[string]interface{}{
-						"blocks": fileEvt.Content,
-					})
-					fmt.Fprintf(rw, "event: content\ndata: %s\n\n", contentData)
-					flusher.Flush()
-				case channel.ToolEventThinking:
-					thinkData, _ := json.Marshal(map[string]interface{}{
-						"thinking": fileEvt.Thinking,
-					})
-					fmt.Fprintf(rw, "event: thinking\ndata: %s\n\n", thinkData)
-					flusher.Flush()
-				case channel.ToolEventCalling:
-					callData, _ := json.Marshal(map[string]interface{}{
-						"tool_name": fileEvt.ToolName,
-						"args":      fileEvt.Args,
-					})
-					fmt.Fprintf(rw, "event: tool_call\ndata: %s\n\n", callData)
-					flusher.Flush()
-				case channel.ToolEventResult:
-					resultData, _ := json.Marshal(map[string]interface{}{
-						"tool_name": fileEvt.ToolName,
-						"result":    fileEvt.Result,
-					})
-					fmt.Fprintf(rw, "event: tool_result\ndata: %s\n\n", resultData)
-					flusher.Flush()
-				case channel.ToolEventError:
-					errorData, _ := json.Marshal(map[string]interface{}{
-						"tool_name": fileEvt.ToolName,
-						"error":     fileEvt.Error,
-					})
-					fmt.Fprintf(rw, "event: tool_error\ndata: %s\n\n", errorData)
-					flusher.Flush()
-				case channel.ToolEventGuard:
-					guardData, _ := json.Marshal(map[string]interface{}{
-						"tool_name":      fileEvt.ToolName,
-						"args":           fileEvt.Args,
-						"guard_message":  fileEvt.GuardMessage,
-						"approval_id":    fileEvt.ApprovalID,
-						"approval_state": fileEvt.ApprovalState,
-					})
-					fmt.Fprintf(rw, "event: guard\ndata: %s\n\n", guardData)
-					flusher.Flush()
-				case channel.ToolEventText:
-					hadTextEvents = true
-					textData, _ := json.Marshal(map[string]string{"text": fileEvt.Thinking})
-					fmt.Fprintf(rw, "event: text\ndata: %s\n\n", textData)
-					flusher.Flush()
-				}
+				writeFileEvent(rw, flusher, &hadTextEvents, fileEvt)
 			case <-keepaliveTicker.C:
 				// SSE 注释作为心跳，保持连接活跃（不触发前端 event handler）
 				fmt.Fprintf(rw, ": keepalive\n\n")

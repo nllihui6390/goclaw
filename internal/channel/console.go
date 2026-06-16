@@ -66,7 +66,7 @@ func (w *ConsoleChannel) PushMessage(msg Message) bool {
 // PrepareStream 注册流式 SSE 响应通道，返回 cleanup 用于请求结束时清理
 func (w *ConsoleChannel) PrepareStream(session string) (streamCh chan string, fileCh chan ToolEvent, cleanup func()) {
 	streamCh = make(chan string, 32)
-	fileCh = make(chan ToolEvent, 8)
+	fileCh = make(chan ToolEvent, 100) // 增大缓冲区，避免事件密集发送时丢失
 	w.mu.Lock()
 	w.streamResps[session] = streamCh
 	w.fileEvents[session] = fileCh
@@ -120,10 +120,16 @@ func (w *ConsoleChannel) Send(ctx context.Context, resp Response) error {
 	w.mu.Lock()
 	ch, exists := w.responses[resp.To]
 	streamCh := w.streamResps[resp.To]
+	fileCh := w.fileEvents[resp.To]
 	if streamCh != nil {
 		delete(w.streamResps, resp.To)
 		streamCh <- resp.Content
 		close(streamCh)
+	}
+	// 关闭 fileCh 以确保 SSE handler 能通过 range 退出
+	if fileCh != nil {
+		delete(w.fileEvents, resp.To)
+		close(fileCh)
 	}
 	w.mu.Unlock()
 
@@ -172,9 +178,16 @@ func (w *ConsoleChannel) SendToolEvent(event ToolEvent) error {
 	ch := w.fileEvents[event.To]
 	w.mu.RUnlock()
 	if ch != nil {
+		// channel 可能已被 Send() 关闭，用 recover 防止 panic
+		defer func() {
+			if recover() != nil {
+			}
+		}()
+		// 带超时的阻塞发送，避免缓冲区满时丢失事件
 		select {
 		case ch <- event:
-		default:
+		case <-time.After(5 * time.Second):
+			// 超时丢弃（极端情况：SSE handler 卡住超过5秒）
 		}
 	}
 	return nil

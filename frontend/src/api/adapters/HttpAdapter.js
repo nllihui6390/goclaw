@@ -36,7 +36,50 @@ export class HttpAdapter {
     let buffer = ''
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        // Stream 结束时，处理 buffer 中剩余的数据
+        if (buffer.trim()) {
+          const parts = buffer.split('\n\n').filter(p => p.trim())
+          for (const part of parts) {
+            const dataLine = part.split('\n').find(l => l.startsWith('data: '))
+            const eventLine = part.split('\n').find(l => l.startsWith('event: '))
+            if (!dataLine || eventLine === 'event: start' || eventLine === 'event: done') continue
+            const json = dataLine.slice(6)
+            try {
+              const obj = JSON.parse(json)
+              if (eventLine === 'event: file') {
+                yield { type: 'file', info: obj }
+              } else if (eventLine === 'event: content') {
+                yield { type: 'content', blocks: obj.blocks }
+              } else if (eventLine === 'event: text') {
+                yield { type: 'text', text: obj.text }
+              } else if (eventLine === 'event: thinking') {
+                yield { type: 'thinking', content: obj.thinking }
+              } else if (eventLine === 'event: tool_call') {
+                yield { type: 'tool_call', tool_name: obj.tool_name, args: obj.args }
+              } else if (eventLine === 'event: tool_result') {
+                yield { type: 'tool_result', tool_name: obj.tool_name, result: obj.result }
+              } else if (eventLine === 'event: tool_error') {
+                yield { type: 'tool_error', tool_name: obj.tool_name, error: obj.error }
+              } else if (eventLine === 'event: guard') {
+                yield {
+                  type: 'guard',
+                  tool_name: obj.tool_name,
+                  args: obj.args,
+                  guard_message: obj.guard_message,
+                  approval_id: obj.approval_id,
+                  approval_state: obj.approval_state
+                }
+              } else if (obj.content) {
+                yield { type: 'text', content: obj.content }
+              }
+            } catch {
+              yield { type: 'text', content: json }
+            }
+          }
+        }
+        break
+      }
       buffer += decoder.decode(value, { stream: true })
 
       // SSE 格式: "event: <type>\ndata: <json>\n\n"
