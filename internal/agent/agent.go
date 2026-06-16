@@ -147,7 +147,51 @@ func (a *Agent) loadSessionToGoAgent(session *Session) {
 		msgs = msgs[:len(msgs)-1]
 	}
 
-	for _, msg := range msgs {
+	// 限制历史消息数量：只保留最近 maxHistoryMessages 条消息，
+	// 超出的部分摘要为一条简短提示，避免上下文被过长历史污染
+	maxHistoryMessages := 20
+	if a.config.MaxContextMessages > 0 {
+		maxHistoryMessages = a.config.MaxContextMessages
+	}
+
+	var trimmedMsgs []Message
+	if len(msgs) > maxHistoryMessages {
+		// 保留最近 maxHistoryMessages 条消息
+		trimmedMsgs = msgs[len(msgs)-maxHistoryMessages:]
+
+		// 对更早的消息添加一条简短摘要提示，帮助模型了解之前的对话主题
+		earlierMsgs := msgs[:len(msgs)-maxHistoryMessages]
+		var earlierTopics []string
+		for _, m := range earlierMsgs {
+			if m.Role == "user" {
+				text := channel.ExtractPlainTextFromBlocks(m.Content)
+				if text != "" && len(text) > 50 {
+					text = text[:50] + "..."
+				}
+				if text != "" {
+					earlierTopics = append(earlierTopics, text)
+				}
+			}
+		}
+		if len(earlierTopics) > 0 {
+			topCount := 3
+			if len(earlierTopics) < topCount {
+				topCount = len(earlierTopics)
+			}
+			summaryText := fmt.Sprintf("[之前对话摘要：用户曾讨论过 %d 个话题，包括：%s 等。请关注当前最新请求，不要被历史内容误导。]",
+				len(earlierTopics), strings.Join(earlierTopics[:topCount], "、"))
+			goSession.AddMessage(goAgent.Msg{
+				ID:        "msg_earlier_summary",
+				Role:      goAgent.RoleSystem,
+				Content:   []goAgent.ContentBlock{goAgent.NewTextBlock(summaryText)},
+				CreatedAt: msgs[len(msgs)-maxHistoryMessages].Timestamp.Format(time.RFC3339),
+			})
+		}
+	} else {
+		trimmedMsgs = msgs
+	}
+
+	for _, msg := range trimmedMsgs {
 		goMsg := goAgent.Msg{
 			ID:        fmt.Sprintf("msg_%s_%d", msg.Role, len(goSession.GetHistory())),
 			Name:      a.config.Name,

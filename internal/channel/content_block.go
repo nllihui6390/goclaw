@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 )
 
 // ContentType 内容块类型
@@ -325,4 +326,14 @@ func ParseFileMarkers(text string) ContentBlocks {
 	}
 
 	return blocks
+}
+// ExtractPlainTextFromBlocks 从 ContentBlocks 中提取纯文本内容
+func ExtractPlainTextFromBlocks(blocks ContentBlocks) string {
+	var texts []string
+	for _, b := range blocks {
+		if tb, ok := b.(*TextBlock); ok {
+			texts = append(texts, tb.Text)
+		}
+	}
+	return strings.Join(texts, " ")
 }
