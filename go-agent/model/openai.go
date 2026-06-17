@@ -74,6 +74,15 @@ func NewOllamaModel(config ModelConfig) *OpenAIModel {
 
 // Call 同步调用
 func (m *OpenAIModel) Call(ctx context.Context, messages []Msg) (*Response, error) {
+	// 速率限制
+	if m.rateLimiter != nil {
+		_, err := m.rateLimiter.Acquire(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("rate limiter acquire: %w", err)
+		}
+		defer m.rateLimiter.Release()
+	}
+
 	reqBody := m.buildRequest(messages, false)
 
 	reqBytes, err := json.Marshal(reqBody)
@@ -107,6 +116,15 @@ func (m *OpenAIModel) Call(ctx context.Context, messages []Msg) (*Response, erro
 
 // Stream 流式调用
 func (m *OpenAIModel) Stream(ctx context.Context, messages []Msg) (<-chan StreamChunk, error) {
+	// 速率限制
+	if m.rateLimiter != nil {
+		_, err := m.rateLimiter.Acquire(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("rate limiter acquire: %w", err)
+		}
+		defer m.rateLimiter.Release()
+	}
+
 	reqBody := m.buildRequest(messages, true)
 
 	reqBytes, err := json.Marshal(reqBody)

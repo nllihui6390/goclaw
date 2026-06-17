@@ -49,21 +49,37 @@ func NewRuntime(cfg *AgentConfig) *Runtime {
 // newChatModel 从当前运行时配置创建 go-agent ChatModel（原始模型，不带包装）
 func newChatModel(cfg *AgentConfig) goModel.ChatModel {
 	rtCfg := getRuntimeConfig(cfg)
+
+	// 构建速率限制配置（-1=不限制，0=默认值，>0=自定义）
+	rlConfig := goModel.DefaultRateLimitConfig()
+	if cfg.RateLimitMaxConcurrent == -1 && cfg.RateLimitMaxQPM == -1 {
+		rlConfig.MaxQPM = 0     // 全不限制
+		rlConfig.MaxConcurrent = 0
+	} else {
+		if cfg.RateLimitMaxConcurrent > 0 {
+			rlConfig.MaxConcurrent = cfg.RateLimitMaxConcurrent
+		}
+		if cfg.RateLimitMaxQPM > 0 {
+			rlConfig.MaxQPM = cfg.RateLimitMaxQPM
+		}
+		if cfg.RateLimitAcquireTimeout > 0 {
+			rlConfig.AcquireTimeout = cfg.RateLimitAcquireTimeout
+		}
+	}
+
+	modelCfg := goModel.ModelConfig{
+		Model:           rtCfg.Model,
+		APIKey:          rtCfg.APIKey,
+		BaseURL:         rtCfg.BaseURL,
+		Timeout:         180,
+		RateLimitConfig: rlConfig,
+	}
+
 	switch rtCfg.ProviderType {
 	case "ollama":
-		return goModel.NewOllamaModel(goModel.ModelConfig{
-			Model:   rtCfg.Model,
-			APIKey:  rtCfg.APIKey,
-			BaseURL: rtCfg.BaseURL,
-			Timeout: 180,
-		})
+		return goModel.NewOllamaModel(modelCfg)
 	default:
-		return goModel.NewOpenAIModel(goModel.ModelConfig{
-			Model:   rtCfg.Model,
-			APIKey:  rtCfg.APIKey,
-			BaseURL: rtCfg.BaseURL,
-			Timeout: 180,
-		})
+		return goModel.NewOpenAIModel(modelCfg)
 	}
 }
 

@@ -60,6 +60,10 @@ type AgentConfig struct {
 	// ConfigProvider 动态配置提供器：每次调用 LLM 时获取最新 model/apiKey/baseURL/providerType
 	// 优先使用此函数，降级使用 Model/APIKey/BaseURL/ProviderType 字段
 	ConfigProvider func() (model, apiKey, baseURL, providerType string)
+	// RateLimit 速率限制配置（防 429）：0=使用默认值，-1=不限制
+	RateLimitMaxConcurrent  int // 最大并发请求数（默认 10）
+	RateLimitMaxQPM         int // 每分钟最大请求数（默认 60）
+	RateLimitAcquireTimeout int // 获取槽位超时秒数（默认 30）
 }
 
 // Agent AI智能体
@@ -323,49 +327,51 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	var replyMsg *goAgent.Msg
 	var currentToolName, currentToolArgs string
 
+	// ─────────── 使用 go-agent AppendEvent 增量重建消息 ───────────
 	for event := range eventCh {
 		switch e := event.(type) {
 		case goAgent.ReplyStartEvent:
 			logger.Info("[Agent] ReplyStart", "replyID", e.ReplyID, "session", e.SessionID)
-
+			replyMsg = &goAgent.Msg{
+				ID:      e.ReplyID,
+				Name:    e.Name,
+				Role:    goAgent.Role(e.Role),
+				Content: []goAgent.ContentBlock{},
+			}
 		case goAgent.TextBlockDeltaEvent:
 			finalResponse += e.Delta
 			if handler != nil {
 				handler(channel.ToolEvent{Type: channel.ToolEventText, Thinking: e.Delta})
 			}
-
 		case goAgent.ThinkingBlockDeltaEvent:
 			if handler != nil {
 				handler(channel.ToolEvent{Type: channel.ToolEventThinking, Thinking: e.Delta})
 			}
-
 		case goAgent.ToolCallStartEvent:
 			logger.Info("[Agent] ToolCallStart", "tool", e.ToolCallName)
 			currentToolName = e.ToolCallName
 			currentToolArgs = ""
-
 		case goAgent.ToolCallDeltaEvent:
 			currentToolArgs += e.Delta
-
-		case goAgent.ToolCallEndEvent:
-			logger.Info("[Agent] ToolCallEnd", "tool", currentToolName, "args", currentToolArgs)
+			// 前端增量更新（参数逐步显示）
 			if handler != nil {
 				handler(channel.ToolEvent{Type: channel.ToolEventCalling, ToolName: currentToolName, Args: currentToolArgs})
-				// 检查是否为 StructuredTool，如果是则执行 ExecuteStructured 并发送内容事件
+			}
+		case goAgent.ToolCallEndEvent:
+			logger.Info("[Agent] ToolCallEnd", "tool", currentToolName)
+			// 检查是否为 StructuredTool，如果是则执行 ExecuteStructured 并发送内容事件
+			if handler != nil {
 				for _, t := range a.config.Tools {
 					if t.Name() == currentToolName {
 						if st := tool.AsStructuredTool(t); st != nil {
-							// 解析参数
 							var params map[string]interface{}
 							if currentToolArgs != "" {
 								if err := json.Unmarshal([]byte(currentToolArgs), &params); err != nil {
 									params = map[string]interface{}{"input": currentToolArgs}
 								}
 							}
-							// 执行 ExecuteStructured 获取结构化内容
 							blocks, err := st.ExecuteStructured(ctx, params)
 							if err == nil && len(blocks) > 0 {
-								// 发送结构化内容事件（图片/文件等）
 								handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
 							}
 						}
@@ -373,52 +379,51 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 					}
 				}
 			}
-
 		case goAgent.ToolResultStartEvent:
 			logger.Info("[Agent] ToolResultStart", "tool", e.ToolCallName)
 
-		case goAgent.ToolResultTextDeltaEvent:
-			// 工具结果流式增量 —— 不逐条推送
-
 		case goAgent.ToolResultEndEvent:
-			logger.Info("[Agent] ToolResultEnd", "tool", currentToolName, "state", e.State)
 			if handler != nil {
-				resultText := goAgentGetLastToolResult(a.goAgent, e.ToolCallID)
+				// 从重建的 replyMsg 中提取工具结果文本
+				resultText := extractToolResultFromMsg(replyMsg, e.ToolCallID)
 				evtType := channel.ToolEventResult
 				if e.State == goAgent.ToolResultStateError {
 					evtType = channel.ToolEventError
 				}
 				handler(channel.ToolEvent{Type: evtType, ToolName: currentToolName, Result: resultText})
 			}
-
 		case goAgent.ReplyEndEvent:
 			logger.Info("[Agent] ReplyEnd", "replyID", e.ReplyID, "session", e.SessionID,
 				"totalInputTokens", e.TotalInputTokens, "totalOutputTokens", e.TotalOutputTokens)
-			// Token 使用量由 TokenRecordingModel 在每次模型调用时自动记录，此处仅日志输出
-
 		case goAgent.ModelCallStartEvent:
 			logger.Info("[Agent] ModelCallStart", "model", e.ModelName)
-
 		case goAgent.ModelCallEndEvent:
 			logger.Info("[Agent] ModelCallEnd", "inputTokens", e.InputTokens, "outputTokens", e.OutputTokens)
-
 		default:
 			logger.Debug("[Agent] 未知事件", "type", fmt.Sprintf("%T", e))
 		}
-	}
 
-	// 获取最终消息：从 go-agent session 找最后一条纯文本 assistant 消息
-	goSess := a.goAgent.GetSession()
-	history := goSess.GetHistory()
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == goAgent.RoleAssistant && !history[i].HasToolCalls() {
-			replyMsg = &history[i]
-			break
+		// 增量应用到重建的消息（ReplyStart 已手动初始化 Msg，跳过重复构造）
+		if replyMsg != nil {
+			if _, isReplyStart := event.(goAgent.ReplyStartEvent); !isReplyStart {
+				replyMsg.AppendEvent(event)
+			}
 		}
 	}
 
 	if finalResponse == "" && replyMsg != nil {
-		finalResponse = replyMsg.GetTextContent()
+		// 无纯文本回复时，从重建的消息中查找最后一条无工具调用的 assistant 消息
+		goSess := a.goAgent.GetSession()
+		history := goSess.GetHistory()
+		for i := len(history) - 1; i >= 0; i-- {
+			if history[i].Role == goAgent.RoleAssistant && !history[i].HasToolCalls() {
+				replyMsg = &history[i]
+				break
+			}
+		}
+		if replyMsg != nil {
+			finalResponse = replyMsg.GetTextContent()
+		}
 	}
 	logger.Info("[Agent] go-agent 循环完成", "response_len", len(finalResponse))
 
@@ -616,7 +621,27 @@ type SessionSummary struct {
 	UpdatedAt time.Time
 }
 
+// extractToolResultFromMsg 从已重建的 replyMsg 中获取指定 toolCallID 的工具结果文本。
+func extractToolResultFromMsg(msg *goAgent.Msg, toolCallID string) string {
+	if msg == nil {
+		return ""
+	}
+	for _, b := range msg.Content {
+		if b.Type == goAgent.BlockTypeToolResult && b.ToolCallID == toolCallID {
+			var texts []string
+			for _, out := range b.ToolResultOutput {
+				if out.Type == goAgent.BlockTypeText {
+					texts = append(texts, out.Text)
+				}
+			}
+			return strings.Join(texts, "\n")
+		}
+	}
+	return ""
+}
+
 // goAgentGetLastToolResult 从 go-agent session 中获取指定 tool_call_id 的最后一条工具结果文本
+// （旧版实现，现已被 extractToolResultFromMsg 取代，保留以兼容其他调用点）
 func goAgentGetLastToolResult(gag *goAgent.Agent, toolCallID string) string {
 	for _, m := range gag.GetSession().GetHistory() {
 		for _, b := range m.Content {

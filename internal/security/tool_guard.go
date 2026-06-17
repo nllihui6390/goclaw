@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strings"
 
 	goAgentSec "github.com/nllihui6390/go-agent/security"
+	goAgentTool "github.com/nllihui6390/go-agent/tool"
 )
 
 // ─────────── go-agent 类型别名（零成本） ───────────
@@ -130,26 +130,11 @@ func (g *ShellEvasionGuardian) Check(_ context.Context, toolName string, params 
 }
 
 // FileGuardian 文件访问守卫
-type FileGuardian struct {
-	protectedPaths []string
-	allowedPaths   []string
-}
+type FileGuardian struct{}
 
 // NewFileGuardian 创建文件访问守卫
 func NewFileGuardian() *FileGuardian {
-	return &FileGuardian{
-		protectedPaths: []string{
-			"/etc/passwd",
-			"/etc/shadow",
-			"/etc/hosts",
-			"~/.ssh/id_rsa",
-			"~/.ssh/authorized_keys",
-			".env",
-			"credentials",
-			"secrets",
-		},
-		allowedPaths: []string{},
-	}
+	return &FileGuardian{}
 }
 
 func (g *FileGuardian) Name() string {
@@ -166,15 +151,11 @@ func (g *FileGuardian) Check(_ context.Context, toolName string, params map[stri
 		return GuardResult{Decision: DecisionApprove}
 	}
 
-	pathLower := strings.ToLower(path)
-
-	for _, protected := range g.protectedPaths {
-		if strings.Contains(pathLower, strings.ToLower(protected)) {
-			return GuardResult{
-				Decision: DecisionDeny,
-				Reason:   fmt.Sprintf("禁止访问受保护路径: %s", protected),
-				Message:  fmt.Sprintf("禁止访问敏感文件: %s", path),
-			}
+	if isDanger, match := goAgentTool.IsDangerousPath(path); isDanger {
+		return GuardResult{
+			Decision: DecisionDeny,
+			Reason:   fmt.Sprintf("禁止访问受保护路径: %s", match),
+			Message:  fmt.Sprintf("禁止访问敏感文件: %s（匹配规则: %s）", path, match),
 		}
 	}
 
