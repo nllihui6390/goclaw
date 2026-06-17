@@ -326,6 +326,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	var finalResponse string
 	var replyMsg *goAgent.Msg
 	var currentToolName, currentToolArgs string
+	var structuredBlocks channel.ContentBlocks // 收集 StructuredTool 返回的图片/文件块
 
 	// ─────────── 使用 go-agent AppendEvent 增量重建消息 ───────────
 	for event := range eventCh {
@@ -373,6 +374,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 							blocks, err := st.ExecuteStructured(ctx, params)
 							if err == nil && len(blocks) > 0 {
 								handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
+								structuredBlocks = append(structuredBlocks, blocks...)
 							}
 						}
 						break
@@ -383,6 +385,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			logger.Info("[Agent] ToolResultStart", "tool", e.ToolCallName)
 
 		case goAgent.ToolResultEndEvent:
+			logger.Info("[Agent] ToolResultEnd", "tool", currentToolName, "state", e.State)
 			if handler != nil {
 				// 从重建的 replyMsg 中提取工具结果文本
 				resultText := extractToolResultFromMsg(replyMsg, e.ToolCallID)
@@ -429,6 +432,15 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 
 	// 合并 go-agent session 中的工具调用历史回 go-claw session
 	a.mergeGoAgentHistory(session, replyMsg)
+
+	// 追加 StructuredTool 返回的图片/文件块到 assistant 消息
+	if len(structuredBlocks) > 0 {
+		if last := len(session.Messages) - 1; last >= 0 && session.Messages[last].Role == "assistant" {
+			// 将 structuredBlocks 插入到 content 最前面（图片在文本前）
+			session.Messages[last].Content = append(structuredBlocks, session.Messages[last].Content...)
+			session.Persist()
+		}
+	}
 
 	// 存储记忆
 	if a.memory != nil {
@@ -688,6 +700,7 @@ func (a *Agent) mergeGoAgentHistory(clawSess *Session, replyMsg *goAgent.Msg) {
 	var allTC []tcRec
 	var finalText string
 	var curName, curArgs string
+	var allDataBlocks []channel.ContentBlock // 收集图片/文件数据块
 
 	for i := startIdx; i < len(goHistory); i++ {
 		m := goHistory[i]
@@ -708,6 +721,20 @@ func (a *Agent) mergeGoAgentHistory(clawSess *Session, replyMsg *goAgent.Msg) {
 				for _, o := range b.ToolResultOutput {
 					if o.Type == goAgent.BlockTypeText {
 						text += o.Text
+					} else if o.Type == goAgent.BlockTypeData {
+						// 工具结果中的数据块（如 send_file 返回的图片）保存到历史
+						if o.Source != nil {
+							switch o.MediaType {
+							case "image/png", "image/jpeg", "image/gif", "image/webp":
+								allDataBlocks = append(allDataBlocks, channel.NewImageBlockURL(o.Source.URL))
+							case "video/mp4", "video/webm":
+								allDataBlocks = append(allDataBlocks, channel.NewVideoBlockURL(o.Source.URL))
+							case "audio/mpeg", "audio/wav":
+								allDataBlocks = append(allDataBlocks, channel.NewAudioBlockURL(o.Source.URL))
+							default:
+								allDataBlocks = append(allDataBlocks, channel.NewFileBlockURL(o.Source.URL, ""))
+							}
+						}
 					}
 				}
 				st := "success"
@@ -730,9 +757,15 @@ func (a *Agent) mergeGoAgentHistory(clawSess *Session, replyMsg *goAgent.Msg) {
 		}
 	}
 
-	// 保存一条完整的 assistant 消息（文本 + thinking + tool_calls）
-	if finalText != "" || len(allTC) > 0 || len(allThinkParts) > 0 {
-		clawSess.AddTextMessage("assistant", finalText)
+	// 保存一条完整的 assistant 消息（文本 + thinking + tool_calls + 数据块）
+	if finalText != "" || len(allTC) > 0 || len(allThinkParts) > 0 || len(allDataBlocks) > 0 {
+		// 构建完整的 content：数据块在前，文本在后
+		var content channel.ContentBlocks
+		content = append(content, allDataBlocks...)
+		if finalText != "" {
+			content = append(content, channel.NewTextBlock(finalText))
+		}
+		clawSess.AddMessage("assistant", content)
 		if last := len(clawSess.Messages) - 1; last >= 0 {
 			meta := map[string]interface{}{}
 			if len(allThinkParts) > 0 {

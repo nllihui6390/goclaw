@@ -179,19 +179,46 @@ async function send() {
           ensureAssistantMsg()
           messages.value[messages.value.length - 1].files = [...files]
         } else if (event.type === 'text') {
-          // 流式文本增量：拼接到 fullContent 并实时更新显示
+          // 流式文本增量：拼接到 fullContent
           fullContent += (event.text || '')
           ensureAssistantMsg()
-          messages.value[messages.value.length - 1].content = fullContent
+          // 如果已有结构化 blocks（含图片），追加/更新 text block 而不是覆盖
+          const lastMsg = messages.value[messages.value.length - 1]
+          if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+            // 找到最后一个 text block，更新它的 text
+            let lastTextBlock = null
+            for (let i = lastMsg.content.length - 1; i >= 0; i--) {
+              if (lastMsg.content[i].type === 'text') {
+                lastTextBlock = lastMsg.content[i]
+                break
+              }
+            }
+            if (lastTextBlock) {
+              lastTextBlock.text = fullContent
+            } else {
+              // 没有找到 text block，追加一个
+              lastMsg.content.push({ type: 'text', text: fullContent })
+            }
+          } else {
+            // 没有结构化 blocks，直接用纯文本
+            lastMsg.content = fullContent
+          }
         } else if (event.type === 'content') {
           if (event.blocks && Array.isArray(event.blocks)) {
             contentBlocks.push(...event.blocks)
             files = []
-            fullContent = '' // content 事件表示结构化块已替代纯文本
-            const finalContent = [...contentBlocks, { type: 'text', text: fullContent }]
+            // content 事件：结构化块（含图片）替代纯文本，保留之前的 text block
             ensureAssistantMsg()
+            // 如果已有 text 内容，保留它
+            const existingText = fullContent || ''
+            const finalContent = [...contentBlocks]
+            if (existingText) {
+              finalContent.push({ type: 'text', text: existingText })
+            }
             messages.value[messages.value.length - 1].content = finalContent
             messages.value[messages.value.length - 1].files = []
+            // 重置 contentBlocks 以便后续 text 事件追加
+            contentBlocks = []
           }
         } else if (event.type === 'thinking') {
           // 处理思考内容
