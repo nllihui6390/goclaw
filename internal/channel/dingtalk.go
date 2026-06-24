@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -618,6 +619,32 @@ func (d *DingTalkChannel) SendToolEvent(event ToolEvent) error {
 
 	if event.To == "" {
 		return nil
+	}
+
+	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
+	if event.Type == ToolEventContent && len(event.Content) > 0 {
+		for _, block := range event.Content {
+			switch b := block.(type) {
+			case *ImageBlock:
+				if b.Source.Type == "url" && strings.HasPrefix(b.Source.URL, "file://") {
+					localPath := FileURLToLocalPath(b.Source.URL)
+					filename := filepath.Base(localPath)
+					info := &FileBlockInfo{
+						Filename: filename,
+						FileType: "file",
+						Path:     localPath,
+					}
+					supported, err := d.SendFile(context.Background(), event.To, info)
+					if supported && err == nil {
+						log.Logger().Info("[DingTalk] 通过 ContentBlock 发送图片成功", "user", event.To, "filename", filename)
+						return nil
+					}
+					if err != nil {
+						log.Logger().Warn("[DingTalk] 通过 ContentBlock 发送图片失败", "user", event.To, "filename", filename, "err", err)
+					}
+				}
+			}
+		}
 	}
 
 	d.sessionWebhooksMu.RLock()

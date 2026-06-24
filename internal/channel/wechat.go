@@ -648,6 +648,32 @@ func (w *WeChatChannel) SendProactive(ctx context.Context, userID, content strin
 }
 
 func (w *WeChatChannel) SendToolEvent(event ToolEvent) error {
+	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
+	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
+		for _, block := range event.Content {
+			switch b := block.(type) {
+			case *ImageBlock:
+				if b.Source.Type == "url" && strings.HasPrefix(b.Source.URL, "file://") {
+					localPath := FileURLToLocalPath(b.Source.URL)
+					filename := filepath.Base(localPath)
+					info := &FileBlockInfo{
+						Filename: filename,
+						FileType: "file",
+						Path:     localPath,
+					}
+					supported, err := w.SendFile(context.Background(), event.To, info)
+					if supported && err == nil {
+						log.Logger().Info("[WeChat] 通过 ContentBlock 发送图片成功", "user", event.To, "filename", filename)
+						return nil
+					}
+					if err != nil {
+						log.Logger().Warn("[WeChat] 通过 ContentBlock 发送图片失败", "user", event.To, "filename", filename, "err", err)
+					}
+				}
+			}
+		}
+	}
+
 	return nil // 微信不支持工具事件显示
 }
 

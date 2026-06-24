@@ -82,6 +82,8 @@ type WeComChannel struct {
 	// 文件上传相关（WebSocket 分片上传）
 	pendingUploadResponses   map[string]chan map[string]any
 	pendingUploadResponsesMu sync.Mutex
+	// 文件上传互斥锁：防止并发上传触发 45033 限流
+	uploadMu sync.Mutex
 }
 
 type sessionData struct {
@@ -814,6 +816,10 @@ func (w *WeComChannel) SendFile(ctx context.Context, to string, info *FileBlockI
 // uploadFileWithType 上传文件到企业微信（通过 WebSocket 分片上传），返回 media_id
 // uploadType: "file" 或 "image"
 func (w *WeComChannel) uploadFileWithType(filePath string, uploadType string) (string, error) {
+	// 串行化文件上传，避免并发触发 WeCom 45033 限流
+	w.uploadMu.Lock()
+	defer w.uploadMu.Unlock()
+
 	// 读取文件
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -1036,6 +1042,33 @@ func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
 	// 工具结果不发送中间帧，避免过长
 	if event.Type == ToolEventResult {
 		return nil
+	}
+
+	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
+	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
+		bgCtx := context.Background()
+		for _, block := range event.Content {
+			switch b := block.(type) {
+			case *ImageBlock:
+				if b.Source.Type == "url" && strings.HasPrefix(b.Source.URL, "file://") {
+					localPath := FileURLToLocalPath(b.Source.URL)
+					filename := filepath.Base(localPath)
+					info := &FileBlockInfo{
+						Filename: filename,
+						FileType: "file",
+						Path:     localPath,
+					}
+					supported, err := w.SendFile(bgCtx, event.To, info)
+					if supported && err == nil {
+						log.Logger().Info("[WeCom] 通过 ContentBlock 发送图片成功", "user", event.To, "filename", filename)
+						return nil
+					}
+					if err != nil {
+						log.Logger().Warn("[WeCom] 通过 ContentBlock 发送图片失败", "user", event.To, "filename", filename, "err", err)
+					}
+				}
+			}
+		}
 	}
 
 	renderer := Renderer{Style: RenderStyle{

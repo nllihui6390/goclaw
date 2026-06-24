@@ -3,14 +3,19 @@ package tool
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"go-claw/internal/channel"
+	"go-claw/internal/media"
 )
 
 // AgnesImageTool 图像生成工具（Agnes-Image-2.0-Flash）
@@ -27,7 +32,7 @@ func NewAgnesImageTool() *AgnesImageTool {
 		apiKey:  os.Getenv("AGNES_API_KEY"),
 		baseURL: "https://apihub.agnes-ai.com",
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second, // 图片生成可能较慢
+			Timeout: 5 * time.Minute, // 图片生成可能较慢
 		},
 	}
 }
@@ -61,7 +66,7 @@ func (t *AgnesImageTool) Parameters() map[string]interface{} {
 				"items": map[string]interface{}{
 					"type": "string",
 				},
-				"description": "输入图片URL数组（可选）。图生图/编辑/多图合成时必填，支持公网URL或Data URI Base64。文生图时不需要此参数",
+				"description": "输入图片URL/Base64/本地路径数组（可选）。支持公网URL、Data URI Base64、或本地文件路径（如 D:/path/to/image.png）。文生图时不需要此参数",
 			},
 			"size": map[string]interface{}{
 				"type":        "string",
@@ -114,6 +119,14 @@ func (t *AgnesImageTool) Execute(ctx context.Context, params map[string]interfac
 		"prompt": prompt,
 		"size":   size,
 	}
+
+	// 将 images 中的本地路径转换为 Data URI Base64
+	resolvedImages := make([]string, 0, len(images))
+	for _, img := range images {
+		resolved := resolveImagePath(img)
+		resolvedImages = append(resolvedImages, resolved)
+	}
+	images = resolvedImages
 
 	if len(images) > 0 {
 		reqBody["extra_body"] = map[string]interface{}{
@@ -208,6 +221,76 @@ func (t *AgnesImageTool) ExecuteStructured(ctx context.Context, params map[strin
 		blocks = append(blocks, channel.NewImageBlockURL(u))
 	}
 	return blocks, nil
+}
+
+// resolveImagePath 将图片路径解析为 API 可用的格式
+// - 本地文件路径 → Data URI Base64
+// - Data URI → 原样返回
+// - 公网 URL → 原样返回
+func resolveImagePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return path
+	}
+
+	// 已经是 Data URI，原样返回
+	if strings.HasPrefix(path, "data:image/") {
+		return path
+	}
+
+	// 是 HTTP(S) URL，原样返回
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+
+	// 尝试作为本地文件路径解析
+	localPath := path
+	// 处理 Windows 绝对路径（如 D:/xxx 或 D:\xxx）
+	if matched, _ := regexp.MatchString(`^[A-Za-z]:[/\\]`, path); matched {
+		localPath = path
+	} else if filepath.IsAbs(path) {
+		localPath = path
+	} else {
+		// 相对路径，相对于 clawdata 目录查找
+		candidates := []string{
+			filepath.Join(media.DefaultMediaDir, path),
+			filepath.Join(".", path),
+			path,
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				localPath = c
+				break
+			}
+		}
+	}
+
+	// 验证文件是否存在
+	info, err := os.Stat(localPath)
+	if err != nil || info.IsDir() {
+		// 无法找到文件，原样返回让 API 处理
+		return path
+	}
+
+	// 验证是否为图片文件
+	ext := strings.ToLower(filepath.Ext(localPath))
+	validExts := map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+		".webp": true, ".bmp": true, ".svg": true,
+	}
+	if !validExts[ext] {
+		return path
+	}
+
+	// 读取文件并转为 Data URI
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		return path
+	}
+
+	mimeType := media.GetMediaType(localPath)
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
 }
 
 func init() {
