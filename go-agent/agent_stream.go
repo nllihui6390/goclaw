@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nllihui6390/go-agent/model"
@@ -232,9 +233,15 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 						assistantBlocks = append(assistantBlocks, resultBlock)
 					} else {
 						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, result)
-						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateSuccess)
 						resultBlock := NewToolResultTextBlock(tc.ID, result)
 						resultBlock.ToolResultState = ToolResultStateSuccess
+						// 截断工具结果（前端通过 SSE 已收到全量文本，此处仅影响 session 存储）
+						keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
+							a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
+						if truncated {
+							resultBlock = keepResult
+						}
+						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateSuccess)
 						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
 						assistantBlocks = append(assistantBlocks, resultBlock)
 					}
@@ -285,6 +292,196 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 
 			continue
 		}
+
+		// === 模型返回纯文本，没有工具调用 ===
+		// 判断：是首轮纯文本（简单对话）还是工具后纯文本（需 autoContinue 判断）
+		isFirstIteration := iterCount == 1
+		if !isFirstIteration && a.config.ReActConfig.AutoContinueEnabled {
+			// 工具执行后返回纯文本 → 注入 hint 让模型自我审查是否需要继续调工具
+			tailText := fullContent
+			if len(tailText) > 600 {
+				tailText = tailText[len(tailText)-600:]
+			}
+			tailText = strings.TrimSpace(tailText)
+
+			hintBody := "<system-hint>上轮助手仅文字、未调工具。请结合上下文与下方 <previous-assistant-tail> 在本轮推理中判断：仍需执行则立刻调用工具；已完结则简短收尾回复。需要操作时勿只输出计划或代码块。</system-hint>"
+			if tailText != "" {
+				hintBody += "\n\n<previous-assistant-tail>\n" + tailText + "\n</previous-assistant-tail>"
+			}
+			a.session.AddHintMessage(hintBody)
+
+			// 额外一次推理，看模型是否会调工具
+			modelMessages := a.buildModelMessages()
+			a.injectToolsToModel()
+			output <- NewModelCallStartEvent(replyID, a.config.Model.GetName())
+
+			stream, err := a.config.Model.Stream(ctx, modelMessages)
+			if err != nil {
+				// 处理重试逻辑
+				for retry := 0; retry < a.config.ModelConfig.MaxRetries; retry++ {
+					time.Sleep(time.Duration(a.config.ModelConfig.RetryDelay) * time.Millisecond)
+					stream, err = a.config.Model.Stream(ctx, modelMessages)
+					if err == nil {
+						break
+					}
+				}
+				if err != nil {
+					// hint 推理失败，用原纯文本作为最终回复
+					a.session.ClearHintMessages()
+					goto finalReply
+				}
+			}
+
+			var extraContent string
+			var extraToolCalls []model.ToolCall
+			extraBlockID := generateID("blk")
+			extraThinkingBlockID := generateID("think")
+			extraFullThinking := ""
+			var extraSavedThinking string
+
+			output <- NewTextBlockStartEvent(replyID, extraBlockID)
+			for chunk := range stream {
+				if chunk.Error != nil {
+					break
+				}
+				if chunk.ToolCall != nil {
+					tcID := chunk.ToolCall.ID
+					output <- NewTextBlockEndEvent(replyID, extraBlockID)
+					output <- NewToolCallStartEvent(replyID, tcID, chunk.ToolCall.Name)
+					if extraFullThinking != "" {
+						output <- NewThinkingBlockEndEvent(replyID, extraThinkingBlockID)
+					}
+					if paramsJSON, err := model.ParamsToJSON(chunk.ToolCall.Params); err == nil {
+						output <- NewToolCallDeltaEvent(replyID, tcID, paramsJSON)
+					}
+					output <- NewToolCallEndEvent(replyID, tcID)
+					extraToolCalls = append(extraToolCalls, *chunk.ToolCall)
+				} else if chunk.Thinking != "" {
+					if extraFullThinking == "" {
+						output <- NewThinkingBlockStartEvent(replyID, extraThinkingBlockID)
+					}
+					extraFullThinking += chunk.Thinking
+					output <- NewThinkingBlockDeltaEvent(replyID, extraThinkingBlockID, chunk.Thinking)
+				} else if chunk.Content != "" {
+					if extraFullThinking != "" {
+						extraSavedThinking = extraFullThinking
+						output <- NewThinkingBlockEndEvent(replyID, extraThinkingBlockID)
+						extraFullThinking = ""
+					}
+					extraContent += chunk.Content
+					output <- NewTextBlockDeltaEvent(replyID, extraBlockID, chunk.Content)
+				}
+			}
+			if extraFullThinking != "" {
+				output <- NewThinkingBlockEndEvent(replyID, extraThinkingBlockID)
+			}
+			if extraSavedThinking != "" && extraFullThinking == "" {
+				extraFullThinking = extraSavedThinking
+			}
+			output <- NewTextBlockEndEvent(replyID, extraBlockID)
+			output <- NewModelCallEndEvent(replyID, 0, 0)
+			a.session.ClearHintMessages()
+
+			if len(extraToolCalls) > 0 {
+				// 模型被提示后决定调用工具 → 执行工具并继续循环
+				assistantBlocks := []ContentBlock{}
+				if extraContent != "" {
+					assistantBlocks = append(assistantBlocks, NewTextBlock(extraContent))
+				}
+				if st := coalesce(extraSavedThinking, extraFullThinking); st != "" {
+					assistantBlocks = append(assistantBlocks, NewThinkingBlock(st))
+				}
+
+				for _, tc := range extraToolCalls {
+					t, _ := a.config.Tools.Get(tc.Name)
+					decision, cerr := a.config.Permission.Check(ctx, t, tc.Params, nil)
+					if cerr != nil {
+						output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
+						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Permission check error: "+cerr.Error())
+						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
+						resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+cerr.Error())
+						resultBlock.ToolResultState = ToolResultStateError
+						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
+						assistantBlocks = append(assistantBlocks, resultBlock)
+						continue
+					}
+
+					switch decision.Action {
+					case tool.PermissionAllow:
+						output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
+						result, terr := a.executeTool(ctx, tc)
+						if a.config.OnToolCall != nil {
+							a.config.OnToolCall(tc.Name, tc.Params, result)
+						}
+						if terr != nil {
+							output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Error: "+terr.Error())
+							output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
+							resultBlock := NewToolResultTextBlock(tc.ID, "Error: "+terr.Error())
+							resultBlock.ToolResultState = ToolResultStateError
+							assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
+							assistantBlocks = append(assistantBlocks, resultBlock)
+						} else {
+							output <- NewToolResultTextDeltaEvent(replyID, tc.ID, result)
+							resultBlock := NewToolResultTextBlock(tc.ID, result)
+							resultBlock.ToolResultState = ToolResultStateSuccess
+							keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
+								a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
+							if truncated {
+								resultBlock = keepResult
+							}
+							output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateSuccess)
+							assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
+							assistantBlocks = append(assistantBlocks, resultBlock)
+						}
+
+					case tool.PermissionAsk:
+						output <- NewRequireUserConfirmEvent(replyID, []ContentBlock{
+							NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
+						})
+						resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
+						resultBlock.ToolResultState = ToolResultStateDenied
+						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
+						assistantBlocks = append(assistantBlocks, resultBlock)
+
+					case tool.PermissionDeny:
+						output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
+						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Permission denied")
+						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateDenied)
+						resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
+						resultBlock.ToolResultState = ToolResultStateDenied
+						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
+						assistantBlocks = append(assistantBlocks, resultBlock)
+
+					case tool.PermissionExternal:
+						output <- NewRequireExternalExecutionEvent(replyID, []ContentBlock{
+							NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
+						})
+						resultBlock := NewToolResultTextBlock(tc.ID, "External execution required")
+						resultBlock.ToolResultState = ToolResultStateDenied
+						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
+						assistantBlocks = append(assistantBlocks, resultBlock)
+					}
+				}
+
+				assistantMsg := Msg{
+					ID:        generateID("msg"),
+					Name:      a.config.Name,
+					Role:      RoleAssistant,
+					Content:   assistantBlocks,
+					CreatedAt: nowISO(),
+					Usage: &Usage{
+						InputTokens:  totalInputTokens,
+						OutputTokens: totalOutputTokens,
+						TotalTokens:  totalInputTokens + totalOutputTokens,
+					},
+				}
+				a.session.AddMessage(assistantMsg)
+				continue
+			}
+			// 模型确认不需要继续调工具 → 用原纯文本作为最终回复
+		}
+
+	finalReply:
 		blocks := make([]ContentBlock, 0, 2)
 		if st := coalesce(savedThinking, fullThinking); st != "" {
 			blocks = append(blocks, NewThinkingBlock(st))
