@@ -48,6 +48,9 @@ function isLocalPath(url) {
 function getDisplayUrl(url) {
   if (!url) return ''
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
+  // file:// URL → 转为 preview API 路径（去掉 file:// 前缀）
+  if (url.startsWith('file:///')) return `/api/v1/files/preview?path=${encodeURIComponent(url.slice(8))}`
+  if (url.startsWith('file://')) return `/api/v1/files/preview?path=${encodeURIComponent(url.slice(7))}`
   if (isWails && blobUrls.value[url]) return blobUrls.value[url]
   return `/api/v1/files/preview?path=${encodeURIComponent(url)}`
 }

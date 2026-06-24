@@ -181,6 +181,11 @@ func init() {
 		Description: "浏览器自动化操作（导航、点击、输入、截图等）",
 		ToolNames:   []string{"browser_use"},
 	})
+	GlobalRegistry.RegisterSkill(Skill{
+		Name:        "image",
+		Description: "AI图像生成（文生图、图生图、图像编辑、多图合成）",
+		ToolNames:   []string{"generate_image"},
+	})
 
 	// 注册默认工具（所有 Agent 自动加载，无需在 tools 中显式声明）
 	// 系统/时间类

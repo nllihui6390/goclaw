@@ -37,6 +37,7 @@ var toolDescriptions = map[string]string{
 	"read_pdf":           "读取PDF",
 	"ocr_image":          "OCR图像识别",
 	"generate_image":     "生成图像",
+	"agnes_image":        "AI图像生成（文生图、图生图、图像编辑、多图合成）",
 	"database_query":     "数据库查询",
 	"manage_config":      "管理配置",
 }

@@ -27,6 +27,7 @@ export const useToolsStore = defineStore('tools', () => {
     read_pdf:          { icon: '📄', desc: '读取 PDF 文件' },
     ocr_image:         { icon: '👁️', desc: '图片文字识别 (OCR)' },
     generate_image:    { icon: '🖼️', desc: '生成图片' },
+    agnes_image:       { icon: '🎨', desc: 'AI图像生成（文生图、图生图、图像编辑、多图合成）' },
     // 数据库类
     database_query:    { icon: '🗄️', desc: '数据库查询' },
   }

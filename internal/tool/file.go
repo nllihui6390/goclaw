@@ -447,12 +447,19 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 		}
 	}
 
-	// 返回 JSON 格式
+	// 返回结构化 JSON，包含 display_url 供前端直接使用
+	displayURL := path
+	if !isURL {
+		displayURL = channel.PathToFileURL(path)
+	}
+
 	result := map[string]interface{}{
 		"status":     "success",
 		"path":       path,
-		"session_id": sessionID,
+		"display_url": displayURL,
 		"filename":   filename,
+		"is_url":     isURL,
+		"session_id": sessionID,
 	}
 	jsonData, _ := json.MarshalIndent(result, "", "  ")
 	return string(jsonData), nil

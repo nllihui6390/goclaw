@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"go-claw/internal/channel"
 	"go-claw/internal/inbox"
+	"go-claw/internal/media"
 	"go-claw/internal/memory"
 	"go-claw/internal/security"
 	"go-claw/internal/skill"
@@ -340,7 +342,6 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	var finalResponse string
 	var replyMsg *goAgent.Msg
 	var currentToolName, currentToolArgs string
-	var structuredBlocks channel.ContentBlocks // 收集 StructuredTool 返回的图片/文件块
 
 	// ─────────── 使用 go-agent AppendEvent 增量重建消息 ───────────
 	for event := range eventCh {
@@ -374,27 +375,6 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 			}
 		case goAgent.ToolCallEndEvent:
 			logger.Info("[Agent] ToolCallEnd", "tool", currentToolName)
-			// 检查是否为 StructuredTool，如果是则执行 ExecuteStructured 并发送内容事件
-			if handler != nil {
-				for _, t := range a.config.Tools {
-					if t.Name() == currentToolName {
-						if st := tool.AsStructuredTool(t); st != nil {
-							var params map[string]interface{}
-							if currentToolArgs != "" {
-								if err := json.Unmarshal([]byte(currentToolArgs), &params); err != nil {
-									params = map[string]interface{}{"input": currentToolArgs}
-								}
-							}
-							blocks, err := st.ExecuteStructured(ctx, params)
-							if err == nil && len(blocks) > 0 {
-								handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
-								structuredBlocks = append(structuredBlocks, blocks...)
-							}
-						}
-						break
-					}
-				}
-			}
 		case goAgent.ToolResultStartEvent:
 			logger.Info("[Agent] ToolResultStart", "tool", e.ToolCallName)
 
@@ -407,7 +387,72 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 				if e.State == goAgent.ToolResultStateError {
 					evtType = channel.ToolEventError
 				}
-				handler(channel.ToolEvent{Type: evtType, ToolName: currentToolName, Result: resultText})
+
+				evt := channel.ToolEvent{Type: evtType, ToolName: currentToolName, Result: resultText}
+
+				// 解析 agnes_image 和 send_file 的 JSON 结果，额外推送图片块
+				// 保留 tool_result 事件（更新状态），同时发送 content 事件（推送图片）
+				if resultText != "" {
+					// agnes_image: {"success":true,"urls":["..."]}
+					if currentToolName == "agnes_image" {
+						var ir tool.AgnesImageResult
+						if err := json.Unmarshal([]byte(resultText), &ir); err == nil && ir.Success && len(ir.URLs) > 0 {
+							var blocks channel.ContentBlocks
+							for _, u := range ir.URLs {
+								blocks = append(blocks, channel.NewImageBlockURL(u))
+							}
+							handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
+						}
+					}
+					// send_file: {"status":"success","display_url":"...","filename":"...","is_url":true/false}
+					if currentToolName == "send_file" {
+						var sfResult struct {
+							Status     string `json:"status"`
+							DisplayURL string `json:"display_url"`
+							Filename   string `json:"filename"`
+							IsURL      bool   `json:"is_url"`
+						}
+						if err := json.Unmarshal([]byte(resultText), &sfResult); err == nil && sfResult.Status == "success" && sfResult.DisplayURL != "" {
+							var block channel.ContentBlock
+							isRemote := strings.HasPrefix(sfResult.DisplayURL, "http://") || strings.HasPrefix(sfResult.DisplayURL, "https://")
+							isFile := strings.HasPrefix(sfResult.DisplayURL, "file://")
+							filename := sfResult.Filename
+							if filename == "" {
+								filename = filepath.Base(sfResult.DisplayURL)
+							}
+							if isFile {
+								mime := media.GetMediaType(filename)
+								switch media.IsMediaType(mime) {
+								case "image":
+									block = channel.NewImageBlockURL(sfResult.DisplayURL)
+								case "video":
+									block = channel.NewVideoBlockURL(sfResult.DisplayURL)
+								case "audio":
+									block = channel.NewAudioBlockURL(sfResult.DisplayURL)
+								default:
+									block = channel.NewFileBlockURL(sfResult.DisplayURL, filename)
+								}
+							} else if isRemote {
+								ext := strings.ToLower(filepath.Ext(sfResult.DisplayURL))
+								switch ext {
+								case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico":
+									block = channel.NewImageBlockURL(sfResult.DisplayURL)
+								case ".mp4", ".webm", ".mov":
+									block = channel.NewVideoBlockURL(sfResult.DisplayURL)
+								case ".mp3", ".wav", ".ogg":
+									block = channel.NewAudioBlockURL(sfResult.DisplayURL)
+								default:
+									block = channel.NewFileBlockURL(sfResult.DisplayURL, filename)
+								}
+							}
+							if block != nil {
+								handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: channel.ContentBlocks{block}})
+							}
+						}
+					}
+				}
+
+				handler(evt)
 			}
 		case goAgent.ReplyEndEvent:
 			logger.Info("[Agent] ReplyEnd", "replyID", e.ReplyID, "session", e.SessionID,
@@ -446,15 +491,6 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 
 	// 合并 go-agent session 中的工具调用历史回 go-claw session
 	a.mergeGoAgentHistory(session, replyMsg)
-
-	// 追加 StructuredTool 返回的图片/文件块到 assistant 消息
-	if len(structuredBlocks) > 0 {
-		if last := len(session.Messages) - 1; last >= 0 && session.Messages[last].Role == "assistant" {
-			// 将 structuredBlocks 插入到 content 最前面（图片在文本前）
-			session.Messages[last].Content = append(structuredBlocks, session.Messages[last].Content...)
-			session.Persist()
-		}
-	}
 
 	// 存储记忆
 	if a.memory != nil {
@@ -748,6 +784,75 @@ func (a *Agent) mergeGoAgentHistory(clawSess *Session, replyMsg *goAgent.Msg) {
 							default:
 								allDataBlocks = append(allDataBlocks, channel.NewFileBlockURL(o.Source.URL, ""))
 							}
+						}
+					}
+				}
+				// 从文本结果中提取图片 URL（如 agnes_image 返回的 JSON）
+				// 注意：不在此处添加图片，图片由 send_file 统一添加到聊天记录
+				// 从 send_file 结果中提取文件路径，转为 ContentBlock
+				// 注意：如果前面 agnes_image 已经添加了同名 URL，这里跳过避免重复
+				if text != "" && curName == "send_file" {
+					var sfResult struct {
+						Status     string `json:"status"`
+						DisplayURL string `json:"display_url"`
+						Path       string `json:"path"`
+						Filename   string `json:"filename"`
+						IsURL      bool   `json:"is_url"`
+					}
+					if err := json.Unmarshal([]byte(text), &sfResult); err == nil && sfResult.Status == "success" && sfResult.DisplayURL != "" {
+						// 检查是否已经在 allDataBlocks 中存在相同 URL
+						found := false
+						for _, existing := range allDataBlocks {
+							if img, ok := existing.(*channel.ImageBlock); ok {
+								if img.Source.Type == "url" && img.Source.URL == sfResult.DisplayURL {
+									found = true
+									break
+								}
+							}
+						}
+						if found {
+							continue
+						}
+						displayURL := sfResult.DisplayURL
+						filename := sfResult.Filename
+						if filename == "" {
+							filename = filepath.Base(sfResult.Path)
+						}
+						// 判断 URL 类型
+						isRemoteURL := strings.HasPrefix(sfResult.DisplayURL, "http://") || strings.HasPrefix(sfResult.DisplayURL, "https://")
+						isFileURL := strings.HasPrefix(sfResult.DisplayURL, "file://")
+
+						var block channel.ContentBlock
+						if isFileURL {
+							// file:// URL：从 path 判断文件类型
+							mime := media.GetMediaType(filename)
+							asType := media.IsMediaType(mime)
+							switch asType {
+							case "image":
+								block = channel.NewImageBlockURL(displayURL)
+							case "video":
+								block = channel.NewVideoBlockURL(displayURL)
+							case "audio":
+								block = channel.NewAudioBlockURL(displayURL)
+							default:
+								block = channel.NewFileBlockURL(displayURL, filename)
+							}
+						} else if isRemoteURL {
+							// 远程 URL：直接从 URL 后缀判断
+							ext := strings.ToLower(filepath.Ext(sfResult.DisplayURL))
+							switch ext {
+							case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico":
+								block = channel.NewImageBlockURL(displayURL)
+							case ".mp4", ".webm", ".mov":
+								block = channel.NewVideoBlockURL(displayURL)
+							case ".mp3", ".wav", ".ogg":
+								block = channel.NewAudioBlockURL(displayURL)
+							default:
+								block = channel.NewFileBlockURL(displayURL, filename)
+							}
+						}
+						if block != nil {
+							allDataBlocks = append(allDataBlocks, block)
 						}
 					}
 				}
