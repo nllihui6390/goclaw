@@ -36,6 +36,9 @@ type DingTalkChannel struct {
 	// 每个用户的 sessionWebhook（用于发回复）
 	sessionWebhooks   map[string]dingtalkSession
 	sessionWebhooksMu sync.RWMutex
+	// 已发送文件路径去重
+	sentFiles   map[string]bool
+	sentFilesMu sync.Mutex
 }
 
 type dingtalkSession struct {
@@ -53,6 +56,7 @@ func NewDingTalkChannel(clientID, clientSecret, botPrefix string, display Displa
 		botPrefix:        botPrefix,
 		stopChan:         make(chan struct{}),
 		sessionWebhooks:  make(map[string]dingtalkSession),
+		sentFiles:        make(map[string]bool),
 	}
 }
 
@@ -622,27 +626,64 @@ func (d *DingTalkChannel) SendToolEvent(event ToolEvent) error {
 	}
 
 	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
-	if event.Type == ToolEventContent && len(event.Content) > 0 {
+	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
 		for _, block := range event.Content {
+			var localPath, filename string
 			switch b := block.(type) {
 			case *ImageBlock:
-				if b.Source.Type == "url" && strings.HasPrefix(b.Source.URL, "file://") {
-					localPath := FileURLToLocalPath(b.Source.URL)
-					filename := filepath.Base(localPath)
-					info := &FileBlockInfo{
-						Filename: filename,
-						FileType: "file",
-						Path:     localPath,
-					}
-					supported, err := d.SendFile(context.Background(), event.To, info)
-					if supported && err == nil {
-						log.Logger().Info("[DingTalk] 通过 ContentBlock 发送图片成功", "user", event.To, "filename", filename)
-						return nil
-					}
-					if err != nil {
-						log.Logger().Warn("[DingTalk] 通过 ContentBlock 发送图片失败", "user", event.To, "filename", filename, "err", err)
-					}
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
 				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = filepath.Base(localPath)
+			case *VideoBlock:
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
+				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = filepath.Base(localPath)
+			case *AudioBlock:
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
+				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = filepath.Base(localPath)
+			case *FileBlock:
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
+				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = b.Filename
+				if filename == "" {
+					filename = filepath.Base(localPath)
+				}
+			default:
+				continue
+			}
+
+			info := &FileBlockInfo{
+				Filename: filename,
+				FileType: "file",
+				Path:     localPath,
+			}
+			// 去重
+			dedupeKey := event.To + "|" + localPath
+			d.sentFilesMu.Lock()
+			if d.sentFiles[dedupeKey] {
+				d.sentFilesMu.Unlock()
+				log.Logger().Debug("[DingTalk] 跳过重复发送的文件", "user", event.To, "filename", filename)
+				return nil
+			}
+			d.sentFiles[dedupeKey] = true
+			d.sentFilesMu.Unlock()
+
+			supported, err := d.SendFile(context.Background(), event.To, info)
+			if supported && err == nil {
+				log.Logger().Info("[DingTalk] 通过 ContentBlock 发送文件成功", "user", event.To, "filename", filename, "type", block.Type())
+				return nil
+			}
+			if err != nil {
+				log.Logger().Warn("[DingTalk] 通过 ContentBlock 发送文件失败", "user", event.To, "filename", filename, "err", err)
 			}
 		}
 	}

@@ -44,6 +44,8 @@ type LarkChannel struct {
 	sessionInfoMu      sync.RWMutex
 	pendingReactions   map[string]string // open_id -> message_id (用于处理后清除 reaction)
 	pendingReactionsMu sync.Mutex
+	sentFiles          map[string]bool
+	sentFilesMu        sync.Mutex
 }
 
 type larkSession struct {
@@ -60,6 +62,7 @@ func NewLarkChannel(appID, appSecret, botPrefix string, display DisplayConfig) *
 		stopChan:         make(chan struct{}),
 		sessionInfo:      make(map[string]larkSession),
 		pendingReactions: make(map[string]string),
+			sentFiles:        make(map[string]bool),
 		// larkClient 在 Start() 中创建（需要屏蔽 SDK 日志）
 	}
 }
@@ -616,27 +619,64 @@ func (l *LarkChannel) SendToolEvent(event ToolEvent) error {
 	}
 
 	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
-	if event.Type == ToolEventContent && len(event.Content) > 0 {
+	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
 		for _, block := range event.Content {
+			var localPath, filename string
 			switch b := block.(type) {
 			case *ImageBlock:
-				if b.Source.Type == "url" && strings.HasPrefix(b.Source.URL, "file://") {
-					localPath := FileURLToLocalPath(b.Source.URL)
-					filename := filepath.Base(localPath)
-					info := &FileBlockInfo{
-						Filename: filename,
-						FileType: "file",
-						Path:     localPath,
-					}
-					supported, err := l.SendFile(context.Background(), event.To, info)
-					if supported && err == nil {
-						log.Logger().Info("[Lark] 通过 ContentBlock 发送图片成功", "user", event.To, "filename", filename)
-						return nil
-					}
-					if err != nil {
-						log.Logger().Warn("[Lark] 通过 ContentBlock 发送图片失败", "user", event.To, "filename", filename, "err", err)
-					}
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
 				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = filepath.Base(localPath)
+			case *VideoBlock:
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
+				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = filepath.Base(localPath)
+			case *AudioBlock:
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
+				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = filepath.Base(localPath)
+			case *FileBlock:
+				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
+					continue
+				}
+				localPath = FileURLToLocalPath(b.Source.URL)
+				filename = b.Filename
+				if filename == "" {
+					filename = filepath.Base(localPath)
+				}
+			default:
+				continue
+			}
+
+			info := &FileBlockInfo{
+				Filename: filename,
+				FileType: "file",
+				Path:     localPath,
+			}
+			// 去重
+			dedupeKey := event.To + "|" + localPath
+			l.sentFilesMu.Lock()
+			if l.sentFiles[dedupeKey] {
+				l.sentFilesMu.Unlock()
+				log.Logger().Debug("[Lark] 跳过重复发送的文件", "user", event.To, "filename", filename)
+				return nil
+			}
+			l.sentFiles[dedupeKey] = true
+			l.sentFilesMu.Unlock()
+
+			supported, err := l.SendFile(context.Background(), event.To, info)
+			if supported && err == nil {
+				log.Logger().Info("[Lark] 通过 ContentBlock 发送文件成功", "user", event.To, "filename", filename, "type", block.Type())
+				return nil
+			}
+			if err != nil {
+				log.Logger().Warn("[Lark] 通过 ContentBlock 发送文件失败", "user", event.To, "filename", filename, "err", err)
 			}
 		}
 	}

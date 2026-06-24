@@ -404,6 +404,17 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 							handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
 						}
 					}
+					// agnes_video: {"success":true,"urls":["..."]}
+					if currentToolName == "agnes_video" {
+						var vr tool.VideoResult
+						if err := json.Unmarshal([]byte(resultText), &vr); err == nil && vr.Success && len(vr.URLs) > 0 {
+							var blocks channel.ContentBlocks
+							for _, u := range vr.URLs {
+								blocks = append(blocks, channel.NewVideoBlockURL(u))
+							}
+							handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: blocks})
+						}
+					}
 					// send_file: {"status":"success","display_url":"...","filename":"...","is_url":true/false}
 					if currentToolName == "send_file" {
 						var sfResult struct {

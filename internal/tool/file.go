@@ -454,12 +454,14 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 	}
 
 	result := map[string]interface{}{
-		"status":     "success",
-		"path":       path,
-		"display_url": displayURL,
-		"filename":   filename,
-		"is_url":     isURL,
-		"session_id": sessionID,
+		"status":           "success",
+		"path":             path,
+		"display_url":      displayURL,
+		"filename":         filename,
+		"is_url":           isURL,
+		"session_id":       sessionID,
+		"sent_via_channel": true,
+		"_message":         fmt.Sprintf("文件 %s 已通过渠道原生方式发送给用户，不要再调用 send_file。", filename),
 	}
 	jsonData, _ := json.MarshalIndent(result, "", "  ")
 	return string(jsonData), nil
