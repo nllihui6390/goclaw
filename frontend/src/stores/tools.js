@@ -28,6 +28,7 @@ export const useToolsStore = defineStore('tools', () => {
     ocr_image:         { icon: '👁️', desc: '图片文字识别 (OCR)' },
     generate_image:    { icon: '🖼️', desc: '生成图片' },
     agnes_image:       { icon: '🎨', desc: 'AI图像生成（文生图、图生图、图像编辑、多图合成）' },
+    agnes_video:       { icon: '🎬', desc: 'AI视频生成（文生视频、图生视频、多图视频、关键帧动画）' },
     // 数据库类
     database_query:    { icon: '🗄️', desc: '数据库查询' },
   }
