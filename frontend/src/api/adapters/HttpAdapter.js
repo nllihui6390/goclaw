@@ -47,6 +47,11 @@ export class HttpAdapter {
             const json = dataLine.slice(6)
             try {
               const obj = JSON.parse(json)
+              // chunk 事件：后端整段最终回复（当 text 事件未流式推送时）
+              if (eventLine === 'event: chunk') {
+                yield { type: 'text', text: obj.content || '' }
+                continue
+              }
               if (eventLine === 'event: file') {
                 yield { type: 'file', info: obj }
               } else if (eventLine === 'event: content') {
@@ -93,6 +98,11 @@ export class HttpAdapter {
         const json = dataLine.slice(6)
         try {
           const obj = JSON.parse(json)
+          // chunk 事件：后端整段最终回复（当 text 事件未流式推送时）
+          if (eventLine === 'event: chunk') {
+            yield { type: 'text', text: obj.content || '' }
+            continue
+          }
           // 文件事件
           if (eventLine === 'event: file') {
             yield { type: 'file', info: obj }

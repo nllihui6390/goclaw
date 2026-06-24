@@ -311,9 +311,15 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			a.session.AddHintMessage(hintBody)
 
 			// 额外一次推理，看模型是否会调工具
+			// ★ 缓冲所有事件，不直接发送到前端 ★
+			// 规则：连续2次无工具调用时，只显示第一次（已流式发送的）结果，
+			// 第二次（本次额外推理）的结果被忽略。
+			// 如果本次推理产生了工具调用，则刷新缓冲并继续循环。
 			modelMessages := a.buildModelMessages()
 			a.injectToolsToModel()
-			output <- NewModelCallStartEvent(replyID, a.config.Model.GetName())
+
+			var bufferedEvents []interface{} // 缓冲的事件，仅在检测到工具调用时刷新
+			bufferedEvents = append(bufferedEvents, NewModelCallStartEvent(replyID, a.config.Model.GetName()))
 
 			stream, err := a.config.Model.Stream(ctx, modelMessages)
 			if err != nil {
@@ -339,51 +345,56 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			extraFullThinking := ""
 			var extraSavedThinking string
 
-			output <- NewTextBlockStartEvent(replyID, extraBlockID)
+			bufferedEvents = append(bufferedEvents, NewTextBlockStartEvent(replyID, extraBlockID))
 			for chunk := range stream {
 				if chunk.Error != nil {
 					break
 				}
 				if chunk.ToolCall != nil {
 					tcID := chunk.ToolCall.ID
-					output <- NewTextBlockEndEvent(replyID, extraBlockID)
-					output <- NewToolCallStartEvent(replyID, tcID, chunk.ToolCall.Name)
+					// 工具调用出现 → 结束文本块，开始工具调用（全部缓冲）
+					bufferedEvents = append(bufferedEvents, NewTextBlockEndEvent(replyID, extraBlockID))
+					bufferedEvents = append(bufferedEvents, NewToolCallStartEvent(replyID, tcID, chunk.ToolCall.Name))
 					if extraFullThinking != "" {
-						output <- NewThinkingBlockEndEvent(replyID, extraThinkingBlockID)
+						bufferedEvents = append(bufferedEvents, NewThinkingBlockEndEvent(replyID, extraThinkingBlockID))
 					}
 					if paramsJSON, err := model.ParamsToJSON(chunk.ToolCall.Params); err == nil {
-						output <- NewToolCallDeltaEvent(replyID, tcID, paramsJSON)
+						bufferedEvents = append(bufferedEvents, NewToolCallDeltaEvent(replyID, tcID, paramsJSON))
 					}
-					output <- NewToolCallEndEvent(replyID, tcID)
+					bufferedEvents = append(bufferedEvents, NewToolCallEndEvent(replyID, tcID))
 					extraToolCalls = append(extraToolCalls, *chunk.ToolCall)
 				} else if chunk.Thinking != "" {
 					if extraFullThinking == "" {
-						output <- NewThinkingBlockStartEvent(replyID, extraThinkingBlockID)
+						bufferedEvents = append(bufferedEvents, NewThinkingBlockStartEvent(replyID, extraThinkingBlockID))
 					}
 					extraFullThinking += chunk.Thinking
-					output <- NewThinkingBlockDeltaEvent(replyID, extraThinkingBlockID, chunk.Thinking)
+					bufferedEvents = append(bufferedEvents, NewThinkingBlockDeltaEvent(replyID, extraThinkingBlockID, chunk.Thinking))
 				} else if chunk.Content != "" {
 					if extraFullThinking != "" {
 						extraSavedThinking = extraFullThinking
-						output <- NewThinkingBlockEndEvent(replyID, extraThinkingBlockID)
+						bufferedEvents = append(bufferedEvents, NewThinkingBlockEndEvent(replyID, extraThinkingBlockID))
 						extraFullThinking = ""
 					}
 					extraContent += chunk.Content
-					output <- NewTextBlockDeltaEvent(replyID, extraBlockID, chunk.Content)
+					bufferedEvents = append(bufferedEvents, NewTextBlockDeltaEvent(replyID, extraBlockID, chunk.Content))
 				}
 			}
 			if extraFullThinking != "" {
-				output <- NewThinkingBlockEndEvent(replyID, extraThinkingBlockID)
+				bufferedEvents = append(bufferedEvents, NewThinkingBlockEndEvent(replyID, extraThinkingBlockID))
 			}
 			if extraSavedThinking != "" && extraFullThinking == "" {
 				extraFullThinking = extraSavedThinking
 			}
-			output <- NewTextBlockEndEvent(replyID, extraBlockID)
-			output <- NewModelCallEndEvent(replyID, 0, 0)
+			bufferedEvents = append(bufferedEvents, NewTextBlockEndEvent(replyID, extraBlockID))
+			bufferedEvents = append(bufferedEvents, NewModelCallEndEvent(replyID, 0, 0))
 			a.session.ClearHintMessages()
 
 			if len(extraToolCalls) > 0 {
-				// 模型被提示后决定调用工具 → 执行工具并继续循环
+				// ★ 模型被提示后决定调用工具 → 刷新缓冲到前端，执行工具并继续循环 ★
+				for _, evt := range bufferedEvents {
+					output <- evt
+				}
+
 				assistantBlocks := []ContentBlock{}
 				if extraContent != "" {
 					assistantBlocks = append(assistantBlocks, NewTextBlock(extraContent))
@@ -478,7 +489,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				a.session.AddMessage(assistantMsg)
 				continue
 			}
-			// 模型确认不需要继续调工具 → 用原纯文本作为最终回复
+			// ★ 连续第2次无工具调用 → 丢弃缓冲（不发送到前端），用第一次的文本作为最终回复 ★
 		}
 
 	finalReply:
