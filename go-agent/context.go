@@ -30,14 +30,18 @@ import (
 // 字段：
 //   - TriggerRatio: 当 token 用量超过该比例 × 模型上下文长度时触发压缩（默认 0.8，上限 0.9）
 //   - ReserveRatio: 压缩后作为最近消息保留的上下文 token 比例（默认 0.1）
-//   - ToolResultLimit: 单条工具结果的最大 token 数，超出则截断（默认 3000）
+//   - ToolResultLimit: 单条工具结果的最大 token 数，超出则截断（默认 100000，即不限制）
+//   - ToolResultExemptTools: 豁免截断的工具名列表（如 ["browser_use", "read_file"]）
+//   - ToolResultExemptExts: 豁免截断的文件扩展名列表（如 [".png", ".jpg", ".pdf"]）
 //   - CompressionPrompt: 引导模型生成摘要的 prompt
 //   - SummaryTemplate: 把摘要拼回上下文时的模板（支持 {{field}} 占位符）
 //   - SummarySchema: 约束模型结构化摘要输出的 JSON Schema
 type ContextConfig struct {
 	TriggerRatio      float64                `json:"trigger_ratio"`      // 触发压缩比例（默认 0.8）
 	ReserveRatio      float64                `json:"reserve_ratio"`      // 保留比例（默认 0.1）
-	ToolResultLimit   int                    `json:"tool_result_limit"`  // 工具结果截断阈值（默认 3000）
+	ToolResultLimit   int                    `json:"tool_result_limit"`  // 工具结果截断阈值（默认 100000）
+	ToolResultExemptTools []string            `json:"tool_result_exempt_tools"`  // 豁免截断的工具名
+	ToolResultExemptExts  []string            `json:"tool_result_exempt_exts"`   // 豁免截断的文件扩展名
 	CompressionPrompt string                 `json:"compression_prompt"` // 压缩提示词
 	SummaryTemplate   string                 `json:"summary_template"`   // 摘要模板
 	SummarySchema     map[string]interface{} `json:"summary_schema"`     // 摘要 JSON Schema
@@ -48,12 +52,14 @@ type ContextConfig struct {
 // 默认值：
 //   - TriggerRatio: 0.8（使用 80% 上下文时触发压缩）
 //   - ReserveRatio: 0.1（压缩后保留最近 10% 的内容）
-//   - ToolResultLimit: 3000（工具结果超过 3000 token 时截断）
+//   - ToolResultLimit: 100000（工具结果不截断，足够容纳完整的 SKILL.md）
+//   - ToolResultExemptTools: nil（不过滤任何工具）
+//   - ToolResultExemptExts: nil（不过滤任何扩展名）
 func DefaultContextConfig() *ContextConfig {
 	return &ContextConfig{
 		TriggerRatio:    0.8,
 		ReserveRatio:    0.1,
-		ToolResultLimit: 100000, // 不限制工具结果长度（足够容纳完整的 SKILL.md）
+		ToolResultLimit: 100000,
 		CompressionPrompt: `请对以下对话历史进行摘要，保留关键信息。输出 JSON 格式：
 {"task_overview":"...","current_state":"...","important_discoveries":[...],"next_steps":[...],"context_to_preserve":"..."}`,
 		SummaryTemplate: `<summary>
@@ -457,6 +463,11 @@ func (m *ContextManager) GetSummaryText() string {
 // 当工具结果的 token 数超过 ToolResultLimit 时，
 // 截断并追加标记。如果配置了 Offloader，截断部分持久化。
 //
+// 豁免规则：
+//   - 如果 toolName 在 ToolResultExemptTools 列表中，不截断
+//   - 如果结果文本中包含 ToolResultExemptExts 中的扩展名文件链接，不截断
+//   - ToolResultLimit <= 0 时不截断（相当于无限）
+//
 // 截断标记格式：
 //
 //	<<<TRUNCATED>>>
@@ -465,13 +476,35 @@ func (m *ContextManager) GetSummaryText() string {
 // 参数：
 //   - ctx: 上下文
 //   - sessionID: 会话 ID
+//   - toolName: 工具名称（用于豁免判断）
 //   - result: 原始工具结果块
+//   - exemptTools: 豁免截断的工具名列表
+//   - exemptExts: 豁免截断的文件扩展名列表
 //
 // 返回：
 //   - ContentBlock: 保留的结果块（含截断标记）
 //   - string: offload 引用（无 offloader 或未截断时为空）
 //   - bool: 是否进行了截断
-func (m *ContextManager) TruncateToolResult(ctx context.Context, sessionID string, result ContentBlock) (ContentBlock, string, bool) {
+func (m *ContextManager) TruncateToolResult(ctx context.Context, sessionID string, toolName string, result ContentBlock, exemptTools, exemptExts []string) (ContentBlock, string, bool) {
+	// 1. 阈值 <= 0 → 不截断
+	if m.config.ToolResultLimit <= 0 {
+		return result, "", false
+	}
+
+	// 2. 豁免工具检查
+	for _, name := range exemptTools {
+		if name == toolName {
+			return result, "", false
+		}
+	}
+
+	// 3. 豁免扩展名检查 — 结果中包含豁免扩展名的文件链接，不截断
+	for _, ext := range exemptExts {
+		if strings.Contains(result.ToolResultOutput[0].Text, ext) {
+			return result, "", false
+		}
+	}
+
 	resultTokens := m.countToolResultTokens(result)
 	if resultTokens <= m.config.ToolResultLimit {
 		return result, "", false

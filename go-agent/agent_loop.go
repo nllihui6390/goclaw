@@ -114,7 +114,8 @@ func (a *Agent) actingStep(ctx context.Context, tc model.ToolCall) (ContentBlock
 		} else {
 			resultBlock = NewToolResultTextBlock(tc.ID, result)
 			resultBlock.ToolResultState = ToolResultStateSuccess
-			keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), resultBlock)
+			keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
+			a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
 			if truncated {
 				resultBlock = keepResult
 			}

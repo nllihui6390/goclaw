@@ -205,7 +205,8 @@ func (a *Agent) handleToolCallsWithPermission(ctx context.Context, toolCalls []m
 				resultBlock.ToolResultState = ToolResultStateError
 			} else {
 				resultBlock = NewToolResultTextBlock(tc.ID, result)
-				keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), resultBlock)
+				keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
+					a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
 				if truncated {
 					resultBlock = keepResult
 				}

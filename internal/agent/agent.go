@@ -122,6 +122,20 @@ func (a *Agent) initGoAgent() {
 		agentCfg = agentCfg.WithPersonaLoader(cfg.WorkspaceLoader)
 	}
 
+	// 接入 go-claw 的上下文截断配置
+	if cfg.ToolResultMaxBytes > 0 || len(cfg.ToolResultExemptTools) > 0 || len(cfg.ToolResultExemptExts) > 0 {
+		// go-claw 用字节数，go-agent 用 token 数。保守换算：1 token ≈ 3 字节
+		limit := cfg.ToolResultMaxBytes / 3
+		if limit <= 0 {
+			limit = 100000 // 兜底：不截断
+		}
+		agentCfg = agentCfg.WithContextConfig(&goAgent.ContextConfig{
+			ToolResultLimit:       limit,
+			ToolResultExemptTools: cfg.ToolResultExemptTools,
+			ToolResultExemptExts:  cfg.ToolResultExemptExts,
+		})
+	}
+
 	a.goAgent = goAgent.NewAgent(*agentCfg)
 
 	// 默认允许所有工具执行（go-claw 通过 ToolGuard 做安全检查，不走 PermissionChecker）
