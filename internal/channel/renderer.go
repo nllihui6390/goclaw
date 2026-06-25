@@ -1,6 +1,10 @@
 package channel
 
-import "fmt"
+import (
+	"fmt"
+
+	"go-claw/pkg/utils"
+)
 
 // Renderer 消息渲染器：将 ToolEvent 渲染为渠道可发送的文本
 type Renderer struct {
@@ -42,9 +46,9 @@ func (r *Renderer) RenderToolEvent(event ToolEvent) string {
 			return ""
 		}
 		if r.Style.UseEmoji {
-			return fmt.Sprintf("💭 **思考中**\n%s", truncateStr(event.Thinking, 500))
+			return fmt.Sprintf("💭 **思考中**\n%s", utils.Truncate(event.Thinking, 500))
 		}
-		return fmt.Sprintf("**思考中**\n%s", truncateStr(event.Thinking, 500))
+		return fmt.Sprintf("**思考中**\n%s", utils.Truncate(event.Thinking, 500))
 
 	case ToolEventCalling:
 		args := event.Args
@@ -56,7 +60,7 @@ func (r *Renderer) RenderToolEvent(event ToolEvent) string {
 		if !r.Style.UseEmoji {
 			prefix = "**"
 		}
-		return fmt.Sprintf("%s%s%s\n```\n%s\n```", prefix, event.ToolName, suffix, truncateStr(args, 500))
+		return fmt.Sprintf("%s%s%s\n```\n%s\n```", prefix, event.ToolName, suffix, utils.Truncate(args, 500))
 
 	case ToolEventResult:
 		result := event.Result
@@ -68,7 +72,7 @@ func (r *Renderer) RenderToolEvent(event ToolEvent) string {
 		if !r.Style.UseEmoji {
 			prefix = "**"
 		}
-		return fmt.Sprintf("%s%s%s\n```\n%s\n```", prefix, event.ToolName, suffix, truncateStr(result, 500))
+		return fmt.Sprintf("%s%s%s\n```\n%s\n```", prefix, event.ToolName, suffix, utils.Truncate(result, 500))
 
 	case ToolEventError:
 		prefix := "❌ **"
@@ -93,12 +97,4 @@ func (r *Renderer) RenderToolEvent(event ToolEvent) string {
 	}
 
 	return ""
-}
-
-// truncateStr 截断字符串到指定最大长度
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

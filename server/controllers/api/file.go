@@ -14,6 +14,7 @@ import (
 	"go-claw/global"
 	"go-claw/internal/channel"
 	"go-claw/internal/media"
+	"go-claw/pkg/utils"
 )
 
 // HandleAgentFiles 列出/读写 Agent 工作空间文件
@@ -99,7 +100,7 @@ func handleLocalFileDownload(rw http.ResponseWriter, r *http.Request, path, file
 	localPath := channel.FileURLToLocalPath(path)
 
 	// 安全检查：禁止下载敏感路径
-	if isSensitiveDownloadPath(localPath) {
+	if utils.IsSensitiveDownloadPath(localPath) {
 		writeError(rw, http.StatusForbidden, "禁止下载敏感路径文件")
 		return
 	}
@@ -190,33 +191,6 @@ func handleURLDownload(rw http.ResponseWriter, r *http.Request, targetURL, filen
 
 	// 流式传输
 	io.Copy(rw, resp.Body)
-}
-
-// isSensitiveDownloadPath 检查是否为敏感路径
-func isSensitiveDownloadPath(path string) bool {
-	lower := strings.ToLower(path)
-
-	sensitive := []string{
-		".env",
-		".git",
-		"credentials",
-		"secret",
-		"password",
-		"private_key",
-		"id_rsa",
-		"authorized_keys",
-		"shadow",
-		"passwd",
-		".ssh",
-		".gnupg",
-	}
-
-	for _, s := range sensitive {
-		if strings.Contains(lower, s) {
-			return true
-		}
-	}
-	return false
 }
 
 // HandleFilePreview 文件预览端点

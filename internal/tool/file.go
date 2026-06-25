@@ -12,6 +12,7 @@ import (
 
 	"go-claw/internal/channel"
 	"go-claw/internal/media"
+	"go-claw/pkg/utils"
 )
 
 // WriteFileTool 写文件工具
@@ -57,7 +58,7 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]interface{}
 	}
 
 	// 安全检查：禁止写入敏感路径
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return "", fmt.Errorf("禁止写入敏感路径: %s", path)
 	}
 
@@ -125,7 +126,7 @@ func (t *ReadFileTool) Execute(_ context.Context, params map[string]interface{})
 	}
 
 	// 安全检查：禁止读取敏感文件
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return "", fmt.Errorf("禁止读取敏感路径: %s", path)
 	}
 
@@ -227,7 +228,7 @@ func (t *EditFileTool) Execute(_ context.Context, params map[string]interface{})
 	}
 
 	// 安全检查
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return "", fmt.Errorf("禁止编辑敏感路径: %s", path)
 	}
 
@@ -241,7 +242,7 @@ func (t *EditFileTool) Execute(_ context.Context, params map[string]interface{})
 	// 检查 old_string 是否存在
 	count := strings.Count(content, oldStr)
 	if count == 0 {
-		return "", fmt.Errorf("未找到匹配内容: %s", truncate(oldStr, 50))
+		return "", fmt.Errorf("未找到匹配内容: %s", utils.Truncate(oldStr, 50))
 	}
 	if count > 1 {
 		return "", fmt.Errorf("匹配到 %d 处，old_string 必须唯一匹配", count)
@@ -258,46 +259,12 @@ func (t *EditFileTool) Execute(_ context.Context, params map[string]interface{})
 	result := map[string]interface{}{
 		"status":      "success",
 		"path":        path,
-		"old":         truncate(oldStr, 100),
-		"new":         truncate(newStr, 100),
+		"old":         utils.Truncate(oldStr, 100),
+		"new":         utils.Truncate(newStr, 100),
 		"replacements": 1,
 	}
 	jsonData, _ := json.MarshalIndent(result, "", "  ")
 	return string(jsonData), nil
-}
-
-// isSensitivePath 检查是否为敏感路径
-func isSensitivePath(path string) bool {
-	// 统一为小写比较
-	lower := strings.ToLower(path)
-
-	sensitive := []string{
-		".env",
-		".git",
-		"credentials",
-		"secret",
-		"password",
-		"private_key",
-		"id_rsa",
-		"authorized_keys",
-		"shadow",
-		"passwd",
-	}
-
-	for _, s := range sensitive {
-		if strings.Contains(lower, s) {
-			return true
-		}
-	}
-	return false
-}
-
-// truncate 截断字符串
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
 
 // AppendFileTool 追加文件工具
@@ -341,7 +308,7 @@ func (t *AppendFileTool) Execute(_ context.Context, params map[string]interface{
 	}
 
 	// 安全检查
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return "", fmt.Errorf("禁止追加敏感路径: %s", path)
 	}
 
@@ -425,7 +392,7 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]interface{
 
 	if !isURL {
 		// 本地文件：安全检查
-		if isSensitivePath(path) {
+		if utils.IsSensitivePath(path) {
 			return "", fmt.Errorf("禁止发送敏感文件: %s", path)
 		}
 
@@ -484,7 +451,7 @@ func (t *SendFileTool) ExecuteStructured(ctx context.Context, params map[string]
 
 	if !isURL {
 		// 本地文件：安全检查
-		if isSensitivePath(path) {
+		if utils.IsSensitivePath(path) {
 			return nil, fmt.Errorf("禁止发送敏感文件: %s", path)
 		}
 
@@ -662,7 +629,7 @@ func (t *ListFilesTool) Execute(ctx context.Context, params map[string]interface
 	}
 
 	// 安全检查
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return "", fmt.Errorf("禁止访问敏感路径: %s", path)
 	}
 

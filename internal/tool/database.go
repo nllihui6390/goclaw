@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"go-claw/pkg/utils"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -74,7 +76,7 @@ func (t *DatabaseQueryTool) Execute(ctx context.Context, params map[string]inter
 	}
 
 	// 安全检查
-	if isSensitivePath(dbPath) {
+	if utils.IsSensitivePath(dbPath) {
 		return "", fmt.Errorf("禁止访问敏感路径: %s", dbPath)
 	}
 

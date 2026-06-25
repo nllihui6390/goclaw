@@ -9,13 +9,13 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"go-claw/internal/media"
 	"go-claw/pkg/log"
+	"go-claw/pkg/utils"
 
 	"github.com/gorilla/websocket"
 )
@@ -36,9 +36,6 @@ type DingTalkChannel struct {
 	// 每个用户的 sessionWebhook（用于发回复）
 	sessionWebhooks   map[string]dingtalkSession
 	sessionWebhooksMu sync.RWMutex
-	// 已发送文件路径去重
-	sentFiles   map[string]bool
-	sentFilesMu sync.Mutex
 }
 
 type dingtalkSession struct {
@@ -50,13 +47,12 @@ type dingtalkSession struct {
 // NewDingTalkChannel 创建钉钉渠道
 func NewDingTalkChannel(clientID, clientSecret, botPrefix string, display DisplayConfig) *DingTalkChannel {
 	return &DingTalkChannel{
-		BotChannelBase:   NewBotChannelBase("dingtalk", "", display),
-		clientID:         clientID,
-		clientSecret:     clientSecret,
-		botPrefix:        botPrefix,
-		stopChan:         make(chan struct{}),
-		sessionWebhooks:  make(map[string]dingtalkSession),
-		sentFiles:        make(map[string]bool),
+		BotChannelBase:  NewBotChannelBase("dingtalk", "", display),
+		clientID:        clientID,
+		clientSecret:    clientSecret,
+		botPrefix:       botPrefix,
+		stopChan:        make(chan struct{}),
+		sessionWebhooks: make(map[string]dingtalkSession),
 	}
 }
 
@@ -96,10 +92,10 @@ func (d *DingTalkChannel) connect(ctx context.Context) error {
 		{"topic": "/v1.0/im/bot/messages/get", "type": "CALLBACK"},
 	}
 	body := map[string]interface{}{
-		"clientId":     d.clientID,
-		"clientSecret": d.clientSecret,
+		"clientId":      d.clientID,
+		"clientSecret":  d.clientSecret,
 		"subscriptions": subs,
-		"ua":           "go-claw/1.0",
+		"ua":            "go-claw/1.0",
 	}
 	jsonData, _ := json.Marshal(body)
 
@@ -190,9 +186,9 @@ type streamFrame struct {
 
 // botMessageBody 机器人消息 body
 type botMessageBody struct {
-	MsgID          string `json:"msgId"`
-	MsgType        string `json:"msgtype"`
-	Text           struct {
+	MsgID   string `json:"msgId"`
+	MsgType string `json:"msgtype"`
+	Text    struct {
 		Content string `json:"content"`
 	} `json:"text"`
 	PictureUrls []struct {
@@ -625,67 +621,9 @@ func (d *DingTalkChannel) SendToolEvent(event ToolEvent) error {
 		return nil
 	}
 
-	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
-	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
-		for _, block := range event.Content {
-			var localPath, filename string
-			switch b := block.(type) {
-			case *ImageBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *VideoBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *AudioBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *FileBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = b.Filename
-				if filename == "" {
-					filename = filepath.Base(localPath)
-				}
-			default:
-				continue
-			}
-
-			info := &FileBlockInfo{
-				Filename: filename,
-				FileType: "file",
-				Path:     localPath,
-			}
-			// 去重
-			dedupeKey := event.To + "|" + localPath
-			d.sentFilesMu.Lock()
-			if d.sentFiles[dedupeKey] {
-				d.sentFilesMu.Unlock()
-				log.Logger().Debug("[DingTalk] 跳过重复发送的文件", "user", event.To, "filename", filename)
-				return nil
-			}
-			d.sentFiles[dedupeKey] = true
-			d.sentFilesMu.Unlock()
-
-			supported, err := d.SendFile(context.Background(), event.To, info)
-			if supported && err == nil {
-				log.Logger().Info("[DingTalk] 通过 ContentBlock 发送文件成功", "user", event.To, "filename", filename, "type", block.Type())
-				return nil
-			}
-			if err != nil {
-				log.Logger().Warn("[DingTalk] 通过 ContentBlock 发送文件失败", "user", event.To, "filename", filename, "err", err)
-			}
-		}
+	// 统一文件分发
+	if event.Type == ToolEventContent && len(event.Content) > 0 {
+		DispatchFileBlocks(context.Background(), event.Content, event.To, d)
 	}
 
 	d.sessionWebhooksMu.RLock()
@@ -725,7 +663,7 @@ func (d *DingTalkChannel) httpPost(ctx context.Context, url string, body []byte,
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("钉钉API返回 %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		return fmt.Errorf("钉钉API返回 %d: %s", resp.StatusCode, utils.Truncate(string(respBody), 200))
 	}
 	return nil
 }
@@ -733,11 +671,4 @@ func (d *DingTalkChannel) httpPost(ctx context.Context, url string, body []byte,
 func toJSON(v interface{}) string {
 	data, _ := json.Marshal(v)
 	return string(data)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }

@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"go-claw/pkg/utils"
 )
 
 // OCRImageTool 图片文字识别工具
@@ -115,7 +117,7 @@ func getImageData(path string) ([]byte, error) {
 		return io.ReadAll(resp.Body)
 	}
 
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return nil, fmt.Errorf("禁止读取敏感路径: %s", path)
 	}
 	data, err := os.ReadFile(path)

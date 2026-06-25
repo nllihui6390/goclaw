@@ -6,8 +6,10 @@ logs
 .env
 .claude
 .agents
+.cursor
 config.json
 data.json
+skills-lock.json
 CLAUDE.md
 go-claw
 clawdata

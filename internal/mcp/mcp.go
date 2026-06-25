@@ -15,6 +15,7 @@ import (
 	"time"
 
 	glog "go-claw/pkg/log"
+	"go-claw/pkg/utils"
 )
 
 // ServerConfig MCP 服务器配置
@@ -195,7 +196,7 @@ func (c *Client) sseConnect(ctx context.Context) (string, error) {
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("SSE GET HTTP %d: %s", resp.StatusCode, truncateStr(string(body), 200))
+		return "", fmt.Errorf("SSE GET HTTP %d: %s", resp.StatusCode, utils.Truncate(string(body), 200))
 	}
 
 	// 解析 SSE 流，提取 endpoint（仅读取前面少量事件）
@@ -380,12 +381,12 @@ func (c *Client) sendRequest(ctx context.Context, method string, params *map[str
 		glog.Logger().Info("[MCP] HTTP 响应",
 			"status", resp.StatusCode,
 			"method", method,
-			"body", truncateStr(string(body), 500),
+			"body", utils.Truncate(string(body), 500),
 			"session_id", c.sessionID,
 			"sent_session_id", httpReq.Header.Get("mcp-session-id"),
 		)
 		if resp.StatusCode != 200 && resp.StatusCode != 202 {
-			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateStr(string(body), 200))
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, utils.Truncate(string(body), 200))
 		}
 
 		// 202 Accepted 表示服务器接受了请求但没有响应体
@@ -398,10 +399,10 @@ func (c *Client) sendRequest(ctx context.Context, method string, params *map[str
 
 		var rpcResp JSONRPCResponse
 		if err := json.Unmarshal(body, &rpcResp); err != nil {
-			return nil, fmt.Errorf("解析 HTTP 响应失败: %v (body: %s)", err, truncateStr(string(body), 200))
+			return nil, fmt.Errorf("解析 HTTP 响应失败: %v (body: %s)", err, utils.Truncate(string(body), 200))
 		}
 		if rpcResp.Error != nil {
-			return nil, fmt.Errorf("MCP 错误 [%d]: %s (body: %s)", rpcResp.Error.Code, rpcResp.Error.Message, truncateStr(string(body), 200))
+			return nil, fmt.Errorf("MCP 错误 [%d]: %s (body: %s)", rpcResp.Error.Code, rpcResp.Error.Message, utils.Truncate(string(body), 200))
 		}
 		return rpcResp.Result, nil
 	} else {
@@ -643,13 +644,6 @@ func extractSSEData(raw string) string {
 		}
 	}
 	return raw
-}
-
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
 
 func CreateMCPToolsFromManager(mgr *Manager, ctx context.Context) []*MCPToolAdapter {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	glog "go-claw/pkg/log"
+	"go-claw/pkg/utils"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
@@ -370,7 +371,7 @@ func (t *BrowserUseTool) typeText(b *rod.Browser, params map[string]interface{})
 		return "", fmt.Errorf("输入失败: %v", err)
 	}
 
-	return fmt.Sprintf("已输入: %s", truncate(text, 30)), nil
+	return fmt.Sprintf("已输入: %s", utils.Truncate(text, 30)), nil
 }
 
 func (t *BrowserUseTool) extract(b *rod.Browser, params map[string]interface{}) (string, error) {

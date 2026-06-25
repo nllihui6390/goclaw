@@ -11,7 +11,6 @@ import (
 
 	"go-claw/internal/channel"
 	"go-claw/internal/inbox"
-	"go-claw/internal/media"
 	"go-claw/internal/memory"
 	"go-claw/internal/security"
 	"go-claw/internal/skill"
@@ -342,6 +341,7 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	var finalResponse string
 	var replyMsg *goAgent.Msg
 	var currentToolName, currentToolArgs string
+	var chatModelError bool
 
 	// ─────────── 使用 go-agent AppendEvent 增量重建消息 ───────────
 	for event := range eventCh {
@@ -424,38 +424,11 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 							IsURL      bool   `json:"is_url"`
 						}
 						if err := json.Unmarshal([]byte(resultText), &sfResult); err == nil && sfResult.Status == "success" && sfResult.DisplayURL != "" {
-							var block channel.ContentBlock
-							isRemote := strings.HasPrefix(sfResult.DisplayURL, "http://") || strings.HasPrefix(sfResult.DisplayURL, "https://")
-							isFile := strings.HasPrefix(sfResult.DisplayURL, "file://")
 							filename := sfResult.Filename
 							if filename == "" {
 								filename = filepath.Base(sfResult.DisplayURL)
 							}
-							if isFile {
-								mime := media.GetMediaType(filename)
-								switch media.IsMediaType(mime) {
-								case "image":
-									block = channel.NewImageBlockURL(sfResult.DisplayURL)
-								case "video":
-									block = channel.NewVideoBlockURL(sfResult.DisplayURL)
-								case "audio":
-									block = channel.NewAudioBlockURL(sfResult.DisplayURL)
-								default:
-									block = channel.NewFileBlockURL(sfResult.DisplayURL, filename)
-								}
-							} else if isRemote {
-								ext := strings.ToLower(filepath.Ext(sfResult.DisplayURL))
-								switch ext {
-								case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico":
-									block = channel.NewImageBlockURL(sfResult.DisplayURL)
-								case ".mp4", ".webm", ".mov":
-									block = channel.NewVideoBlockURL(sfResult.DisplayURL)
-								case ".mp3", ".wav", ".ogg":
-									block = channel.NewAudioBlockURL(sfResult.DisplayURL)
-								default:
-									block = channel.NewFileBlockURL(sfResult.DisplayURL, filename)
-								}
-							}
+							block := channel.BlockFromURL(sfResult.DisplayURL, filename)
 							if block != nil {
 								handler(channel.ToolEvent{Type: channel.ToolEventContent, Content: channel.ContentBlocks{block}})
 							}
@@ -468,6 +441,10 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 		case goAgent.ReplyEndEvent:
 			logger.Info("[Agent] ReplyEnd", "replyID", e.ReplyID, "session", e.SessionID,
 				"totalInputTokens", e.TotalInputTokens, "totalOutputTokens", e.TotalOutputTokens)
+			// LLM 调用失败时 tokens 为 0，标记错误
+			if e.TotalInputTokens == 0 && e.TotalOutputTokens == 0 && finalResponse == "" {
+				chatModelError = true
+			}
 		case goAgent.ModelCallStartEvent:
 			logger.Info("[Agent] ModelCallStart", "model", e.ModelName)
 		case goAgent.ModelCallEndEvent:
@@ -485,19 +462,18 @@ func (a *Agent) ProcessWithBlocks(ctx context.Context, sessionID, userMessage st
 	}
 
 	if finalResponse == "" && replyMsg != nil {
-		// 无纯文本回复时，从重建的消息中查找最后一条无工具调用的 assistant 消息
-		goSess := a.goAgent.GetSession()
-		history := goSess.GetHistory()
-		for i := len(history) - 1; i >= 0; i-- {
-			if history[i].Role == goAgent.RoleAssistant && !history[i].HasToolCalls() {
-				replyMsg = &history[i]
-				break
-			}
-		}
-		if replyMsg != nil {
-			finalResponse = replyMsg.GetTextContent()
+		// 无纯文本回复时，检查 replyMsg 中是否有 assistant 内容（不是从历史中捞旧消息）
+		content := replyMsg.GetTextContent()
+		if content != "" {
+			finalResponse = content
 		}
 	}
+
+	// LLM 调用失败时返回错误，让 gateway 层显示错误信息给用户
+	if chatModelError {
+		return "", fmt.Errorf("LLM 调用失败：模型未返回有效内容（可能是 API 密钥无效或服务不可用）")
+	}
+
 	logger.Info("[Agent] go-agent 循环完成", "response_len", len(finalResponse))
 
 	// 合并 go-agent session 中的工具调用历史回 go-claw session
@@ -829,39 +805,7 @@ func (a *Agent) mergeGoAgentHistory(clawSess *Session, replyMsg *goAgent.Msg) {
 						if filename == "" {
 							filename = filepath.Base(sfResult.Path)
 						}
-						// 判断 URL 类型
-						isRemoteURL := strings.HasPrefix(sfResult.DisplayURL, "http://") || strings.HasPrefix(sfResult.DisplayURL, "https://")
-						isFileURL := strings.HasPrefix(sfResult.DisplayURL, "file://")
-
-						var block channel.ContentBlock
-						if isFileURL {
-							// file:// URL：从 path 判断文件类型
-							mime := media.GetMediaType(filename)
-							asType := media.IsMediaType(mime)
-							switch asType {
-							case "image":
-								block = channel.NewImageBlockURL(displayURL)
-							case "video":
-								block = channel.NewVideoBlockURL(displayURL)
-							case "audio":
-								block = channel.NewAudioBlockURL(displayURL)
-							default:
-								block = channel.NewFileBlockURL(displayURL, filename)
-							}
-						} else if isRemoteURL {
-							// 远程 URL：直接从 URL 后缀判断
-							ext := strings.ToLower(filepath.Ext(sfResult.DisplayURL))
-							switch ext {
-							case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico":
-								block = channel.NewImageBlockURL(displayURL)
-							case ".mp4", ".webm", ".mov":
-								block = channel.NewVideoBlockURL(displayURL)
-							case ".mp3", ".wav", ".ogg":
-								block = channel.NewAudioBlockURL(displayURL)
-							default:
-								block = channel.NewFileBlockURL(displayURL, filename)
-							}
-						}
+						block := channel.BlockFromURL(displayURL, filename)
 						if block != nil {
 							allDataBlocks = append(allDataBlocks, block)
 						}

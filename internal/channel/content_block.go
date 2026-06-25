@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -37,15 +38,15 @@ func NewTextBlock(text string) *TextBlock {
 
 // Source 数据源（URL 或 Base64）
 type Source struct {
-	Type      string `json:"type"`                // "url" 或 "base64"
-	URL       string `json:"url,omitempty"`       // URL 类型的地址
-	Data      string `json:"data,omitempty"`      // base64 数据
+	Type      string `json:"type"`                 // "url" 或 "base64"
+	URL       string `json:"url,omitempty"`        // URL 类型的地址
+	Data      string `json:"data,omitempty"`       // base64 数据
 	MediaType string `json:"media_type,omitempty"` // 如 "image/png"
 }
 
 // ImageBlock 图片内容块
 type ImageBlock struct {
-	Type_  ContentType `json:"type"`  // "image"
+	Type_  ContentType `json:"type"` // "image"
 	Source Source      `json:"source"`
 }
 
@@ -63,7 +64,7 @@ func NewImageBlockBase64(data, mediaType string) *ImageBlock {
 
 // AudioBlock 音频内容块
 type AudioBlock struct {
-	Type_  ContentType `json:"type"`  // "audio"
+	Type_  ContentType `json:"type"` // "audio"
 	Source Source      `json:"source"`
 }
 
@@ -76,7 +77,7 @@ func NewAudioBlockURL(url string) *AudioBlock {
 
 // VideoBlock 视频内容块
 type VideoBlock struct {
-	Type_  ContentType `json:"type"`  // "video"
+	Type_  ContentType `json:"type"` // "video"
 	Source Source      `json:"source"`
 }
 
@@ -89,7 +90,7 @@ func NewVideoBlockURL(url string) *VideoBlock {
 
 // FileBlock 文件内容块
 type FileBlock struct {
-	Type_    ContentType `json:"type"`            // "file"
+	Type_    ContentType `json:"type"` // "file"
 	Source   Source      `json:"source"`
 	Filename string      `json:"filename,omitempty"`
 }
@@ -177,17 +178,12 @@ func (cb *ContentBlocks) UnmarshalJSON(data []byte) error {
 // ToTextContent 将 ContentBlocks 转换为纯文本字符串（用于向后兼容）
 func (cb ContentBlocks) ToTextContent() string {
 	var result string
-	for _, block := range blockList(cb) {
+	for _, block := range cb {
 		if t, ok := block.(*TextBlock); ok {
 			result += t.Text
 		}
 	}
 	return result
-}
-
-// blockList 辅助函数，用于迭代
-func blockList(cb ContentBlocks) []ContentBlock {
-	return cb
 }
 
 // TextOnlyContent 从 ContentBlocks 提取纯文本内容
@@ -267,7 +263,8 @@ func StripImageBlocks(cb ContentBlocks) ContentBlocks {
 // ParseFileMarkers 解析文本中的 [图片: filename (path)] 和 [文件: filename (path)] 标记，
 // 将它们转换为 ImageBlock/FileBlock，其余文本保留为 TextBlock。
 // 例如 "[图片: photo.png (file:///path/photo.png)]\n看看这个图片" 会变为：
-//   [ImageBlock{source:{url:"file:///path/photo.png"}}, TextBlock{text:"看看这个图片"}]
+//
+//	[ImageBlock{source:{url:"file:///path/photo.png"}}, TextBlock{text:"看看这个图片"}]
 func ParseFileMarkers(text string) ContentBlocks {
 	var blocks ContentBlocks
 	remaining := text
@@ -327,6 +324,7 @@ func ParseFileMarkers(text string) ContentBlocks {
 
 	return blocks
 }
+
 // ExtractPlainTextFromBlocks 从 ContentBlocks 中提取纯文本内容
 func ExtractPlainTextFromBlocks(blocks ContentBlocks) string {
 	var texts []string
@@ -336,4 +334,64 @@ func ExtractPlainTextFromBlocks(blocks ContentBlocks) string {
 		}
 	}
 	return strings.Join(texts, " ")
+}
+
+// BlockFromURL 根据 URL 和文件名自动判断类型并创建对应的 ContentBlock
+// url: file:// 本地路径或 http(s):// 远程 URL
+// filename: 显示文件名（用于 MIME 判断）
+func BlockFromURL(url, filename string) ContentBlock {
+	if url == "" {
+		return nil
+	}
+
+	// 判断是本地文件还是远程 URL
+	isLocal := strings.HasPrefix(url, "file://")
+	isRemote := strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+
+	if !isLocal && !isRemote {
+		// 未知协议，当作普通文件
+		return NewFileBlockURL(url, filename)
+	}
+
+	var ext string
+	if isLocal {
+		// 本地文件：通过文件名判断 MIME 类型
+		ext = strings.ToLower(filepath.Ext(filename))
+		if ext == "" {
+			ext = filepath.Ext(url)
+		}
+	} else {
+		// 远程 URL：从 URL 路径提取扩展名
+		ext = strings.ToLower(filepath.Ext(url))
+	}
+
+	// 图片扩展名
+	imageExts := map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+		".webp": true, ".bmp": true, ".svg": true, ".ico": true,
+	}
+	// 视频扩展名
+	videoExts := map[string]bool{
+		".mp4": true, ".webm": true, ".mov": true,
+	}
+	// 音频扩展名
+	audioExts := map[string]bool{
+		".mp3": true, ".wav": true, ".ogg": true,
+	}
+
+	if imageExts[ext] {
+		return NewImageBlockURL(url)
+	}
+	if videoExts[ext] {
+		return NewVideoBlockURL(url)
+	}
+	if audioExts[ext] {
+		return NewAudioBlockURL(url)
+	}
+
+	// 默认：文件块
+	if filename == "" {
+		filename = filepath.Base(url)
+	}
+	return NewFileBlockURL(url, filename)
 }

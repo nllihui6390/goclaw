@@ -3,7 +3,11 @@ package channel
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"sync"
+
+	"go-claw/pkg/log"
 )
 
 // FileBlockInfo 统一的文件块信息结构体
@@ -111,4 +115,97 @@ func ExtractFileBlockDescription(content string) string {
 
 	result := content[:start] + desc + content[end+len("[/FILE_BLOCK]"):]
 	return strings.TrimSpace(result)
+}
+
+// ─────────── 统一文件分发 ───────────
+
+// sentFilesTracker 跨渠道的文件发送去重跟踪器
+type sentFilesTracker struct {
+	mu    sync.Mutex
+	files map[string]bool // key: "to|path"
+}
+
+var globalFileTracker = &sentFilesTracker{files: make(map[string]bool)}
+
+// TrackSentFile 标记文件已发送（用于去重），返回 true 表示是重复的应跳过
+func TrackSentFile(to, path string) bool {
+	key := to + "|" + path
+	globalFileTracker.mu.Lock()
+	defer globalFileTracker.mu.Unlock()
+	if globalFileTracker.files[key] {
+		return true
+	}
+	globalFileTracker.files[key] = true
+	return false
+}
+
+// DispatchFileBlocks 统一分发 ContentBlocks 中的本地文件到 FileSender
+// 遍历 blocks，提取 file:// URL 类型的图片/视频/音频/文件，通过 sender 发送
+// 返回是否成功发送了至少一个文件
+func DispatchFileBlocks(ctx context.Context, blocks ContentBlocks, to string, sender FileSender) bool {
+	if len(blocks) == 0 || to == "" || sender == nil {
+		return false
+	}
+
+	sent := false
+	for _, block := range blocks {
+		var localPath, filename string
+		switch b := block.(type) {
+		case *ImageBlock:
+			if !isLocalFileBlock(b.Source) {
+				continue
+			}
+			localPath = FileURLToLocalPath(b.Source.URL)
+			filename = filepath.Base(localPath)
+		case *VideoBlock:
+			if !isLocalFileBlock(b.Source) {
+				continue
+			}
+			localPath = FileURLToLocalPath(b.Source.URL)
+			filename = filepath.Base(localPath)
+		case *AudioBlock:
+			if !isLocalFileBlock(b.Source) {
+				continue
+			}
+			localPath = FileURLToLocalPath(b.Source.URL)
+			filename = filepath.Base(localPath)
+		case *FileBlock:
+			if !isLocalFileBlock(b.Source) {
+				continue
+			}
+			localPath = FileURLToLocalPath(b.Source.URL)
+			filename = b.Filename
+			if filename == "" {
+				filename = filepath.Base(localPath)
+			}
+		default:
+			continue
+		}
+
+		// 去重
+		if TrackSentFile(to, localPath) {
+			log.Logger().Debug("跳过重复发送的文件", "user", to, "filename", filename)
+			continue
+		}
+
+		info := &FileBlockInfo{
+			Filename: filename,
+			FileType: "file",
+			Path:     localPath,
+		}
+
+		supported, err := sender.SendFile(ctx, to, info)
+		if supported && err == nil {
+			log.Logger().Info("通过 ContentBlock 发送文件成功", "user", to, "filename", filename, "type", block.Type())
+			sent = true
+		} else if err != nil {
+			log.Logger().Warn("通过 ContentBlock 发送文件失败", "user", to, "filename", filename, "err", err)
+		}
+	}
+	return sent
+}
+
+// isLocalFileBlock 判断 Source 是否为本地 file:// URL
+func isLocalFileBlock(src Source) bool {
+	return src.Type == "url" && strings.HasPrefix(src.URL, "file://")
 }

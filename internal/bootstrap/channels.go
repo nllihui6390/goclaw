@@ -5,6 +5,7 @@ import (
 
 	"go-claw/config"
 	"go-claw/internal/channel"
+	"go-claw/pkg/utils"
 )
 
 // toDisplayConfig 从渠道配置提取显示控制配置
@@ -189,21 +190,11 @@ func (app *App) unregisterAllBotChannels() {
 	registeredChannels := app.Gateway.GetRegisteredChannels()
 	for _, key := range registeredChannels {
 		// 只处理 per-agent 渠道（格式为 agent:channel）
-		if containsColon(key) {
+		if utils.ContainsColon(key) {
 			app.Gateway.UnregisterChannel(key)
 			app.logger.Info("Bot 渠道已注销", "key", key)
 		}
 	}
-}
-
-// containsColon 检查字符串是否包含冒号（用于区分 per-agent 渠道）
-func containsColon(s string) bool {
-	for _, c := range s {
-		if c == ':' {
-			return true
-		}
-	}
-	return false
 }
 
 // SyncSingleChannel 精准同步单个渠道（注销旧的 + 注册新的）

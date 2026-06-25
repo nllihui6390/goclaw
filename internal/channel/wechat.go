@@ -52,9 +52,6 @@ type WeChatChannel struct {
 	// 扫码登录相关
 	qrCode       string
 	loginDone    chan struct{}
-	// 已发送文件路径去重
-	sentFiles   map[string]bool
-	sentFilesMu sync.Mutex
 }
 
 // NewWeChatChannel 创建微信渠道
@@ -77,7 +74,6 @@ func NewWeChatChannel(botToken, botPrefix, baseURL, mediaDir, tokenFile string, 
 		contextTokens:  make(map[string]string),
 		processedIDs:   make(map[string]time.Time),
 		loginDone:      make(chan struct{}),
-		sentFiles:      make(map[string]bool),
 	}
 }
 
@@ -652,67 +648,9 @@ func (w *WeChatChannel) SendProactive(ctx context.Context, userID, content strin
 }
 
 func (w *WeChatChannel) SendToolEvent(event ToolEvent) error {
-	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
-	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
-		for _, block := range event.Content {
-			var localPath, filename string
-			switch b := block.(type) {
-			case *ImageBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *VideoBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *AudioBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *FileBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = b.Filename
-				if filename == "" {
-					filename = filepath.Base(localPath)
-				}
-			default:
-				continue
-			}
-
-			info := &FileBlockInfo{
-				Filename: filename,
-				FileType: "file",
-				Path:     localPath,
-			}
-			// 去重
-			dedupeKey := event.To + "|" + localPath
-			w.sentFilesMu.Lock()
-			if w.sentFiles[dedupeKey] {
-				w.sentFilesMu.Unlock()
-				log.Logger().Debug("[WeChat] 跳过重复发送的文件", "user", event.To, "filename", filename)
-				return nil
-			}
-			w.sentFiles[dedupeKey] = true
-			w.sentFilesMu.Unlock()
-
-			supported, err := w.SendFile(context.Background(), event.To, info)
-			if supported && err == nil {
-				log.Logger().Info("[WeChat] 通过 ContentBlock 发送文件成功", "user", event.To, "filename", filename, "type", block.Type())
-				return nil
-			}
-			if err != nil {
-				log.Logger().Warn("[WeChat] 通过 ContentBlock 发送文件失败", "user", event.To, "filename", filename, "err", err)
-			}
-		}
+	// 统一文件分发
+	if event.Type == ToolEventContent && len(event.Content) > 0 {
+		DispatchFileBlocks(context.Background(), event.Content, event.To, w)
 	}
 
 	return nil // 微信不支持工具事件显示

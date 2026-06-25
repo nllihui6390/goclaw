@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	glog "go-claw/pkg/log"
+	"go-claw/pkg/utils"
 )
 
 // Registry Skill 注册和加载中心
@@ -146,7 +147,7 @@ func (r *SkillRegistry) List() []*Skill {
 func (r *SkillRegistry) SkillSummary() string {
 	var lines []string
 	for _, s := range r.skills {
-		lines = append(lines, fmt.Sprintf("%s %s - %s", s.Emoji(), s.Name, truncate(s.Description, 60)))
+		lines = append(lines, fmt.Sprintf("%s %s - %s", s.Emoji(), s.Name, utils.Truncate(s.Description, 60)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -166,11 +167,4 @@ func (r *SkillRegistry) GetSkillPrompt() string {
 		sb.WriteString("\n")
 	}
 	return sb.String()
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
 }

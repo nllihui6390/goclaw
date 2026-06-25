@@ -15,6 +15,7 @@ import (
 
 	"go-claw/internal/media"
 	"go-claw/pkg/log"
+	"go-claw/pkg/utils"
 
 	"github.com/gorilla/websocket"
 )
@@ -84,9 +85,6 @@ type WeComChannel struct {
 	pendingUploadResponsesMu sync.Mutex
 	// 文件上传互斥锁：防止并发上传触发 45033 限流
 	uploadMu sync.Mutex
-	// 已发送文件路径去重：避免同一文件重复上传
-	sentFiles map[string]bool
-	sentFilesMu sync.Mutex
 }
 
 type sessionData struct {
@@ -115,7 +113,6 @@ func NewWeComChannel(botID, secret, botPrefix string, display DisplayConfig) *We
 		replyAckTimeout:        5 * time.Second,
 		sessionInfo:            make(map[string]sessionData),
 		pendingUploadResponses: make(map[string]chan map[string]any),
-		sentFiles:              make(map[string]bool),
 	}
 }
 
@@ -347,7 +344,7 @@ func (w *WeComChannel) handleFrame(data []byte) {
 		return
 	}
 
-	log.Logger().Warn("[WeCom] 收到未知帧", "frame", truncateJSON(frame))
+	log.Logger().Warn("[WeCom] 收到未知帧", "frame", utils.TruncateJSON(frame, 200))
 }
 
 // handleAuthResponse 处理认证响应
@@ -726,7 +723,7 @@ func (w *WeComChannel) Send(ctx context.Context, resp Response) error {
 	}
 
 	// 普通文本消息
-	sendContent := extractFileContent(resp.Content)
+	sendContent := ExtractFileBlockDescription(resp.Content)
 	if w.botPrefix != "" {
 		sendContent = w.botPrefix + "  " + sendContent
 	}
@@ -1008,11 +1005,6 @@ func (w *WeComChannel) sendFrameAndWaitResponse(reqID string, frame map[string]a
 	}
 }
 
-// extractFileContent 从响应中提取 [FILE_BLOCK] 的内容，转为可发送的文本（用于回退）
-func extractFileContent(content string) string {
-	return ExtractFileBlockDescription(content)
-}
-
 // SendToolEvent 发送工具事件（流式中间帧）
 func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
 	if !w.display.ShouldShowToolEvent(event.Type) {
@@ -1048,68 +1040,9 @@ func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
 		return nil
 	}
 
-	// 处理 ToolEventContent：如果是本地文件 URL，通过 SendFile 上传并发送
-	if event.Type == ToolEventContent && len(event.Content) > 0 && event.To != "" {
-		bgCtx := context.Background()
-		for _, block := range event.Content {
-			var localPath, filename string
-			switch b := block.(type) {
-			case *ImageBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *VideoBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *AudioBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = filepath.Base(localPath)
-			case *FileBlock:
-				if b.Source.Type != "url" || !strings.HasPrefix(b.Source.URL, "file://") {
-					continue
-				}
-				localPath = FileURLToLocalPath(b.Source.URL)
-				filename = b.Filename
-				if filename == "" {
-					filename = filepath.Base(localPath)
-				}
-			default:
-				continue
-			}
-
-			info := &FileBlockInfo{
-				Filename: filename,
-				FileType: "file",
-				Path:     localPath,
-			}
-			// 去重：同一文件在同一会话中只发送一次
-			dedupeKey := event.To + "|" + localPath
-			w.sentFilesMu.Lock()
-			if w.sentFiles[dedupeKey] {
-				w.sentFilesMu.Unlock()
-				log.Logger().Debug("[WeCom] 跳过重复发送的文件", "user", event.To, "filename", filename)
-				return nil
-			}
-			w.sentFiles[dedupeKey] = true
-			w.sentFilesMu.Unlock()
-
-			supported, err := w.SendFile(bgCtx, event.To, info)
-			if supported && err == nil {
-				log.Logger().Info("[WeCom] 通过 ContentBlock 发送文件成功", "user", event.To, "filename", filename, "type", block.Type())
-				return nil
-			}
-			if err != nil {
-				log.Logger().Warn("[WeCom] 通过 ContentBlock 发送文件失败", "user", event.To, "filename", filename, "err", err)
-			}
-		}
+	// 统一文件分发：遍历 ContentBlocks 中的本地文件，通过 SendFile 发送
+	if event.Type == ToolEventContent && len(event.Content) > 0 {
+		DispatchFileBlocks(context.Background(), event.Content, event.To, w)
 	}
 
 	renderer := Renderer{Style: RenderStyle{
@@ -1136,7 +1069,7 @@ func (w *WeComChannel) SendToolEvent(event ToolEvent) error {
 		},
 	}
 
-	log.Logger().Debug("[WeCom] 发送中间帧", "type", event.Type, "content_len", len(content), "content_preview", truncateStr(content, 80))
+	log.Logger().Debug("[WeCom] 发送中间帧", "type", event.Type, "content_len", len(content), "content_preview", utils.Truncate(content, 80))
 	return w.sendFrame(frame) // 中间帧不等 ack
 }
 
@@ -1206,13 +1139,4 @@ func (w *WeComChannel) SendProactive(ctx context.Context, userID, content string
 
 	log.Logger().Info("[WeCom] 主动发送消息", "user", userID, "chat_id", chatID, "chat_type", chatType, "content_len", len(content))
 	return w.sendAndWaitAck(reqID, frame)
-}
-
-func truncateJSON(v any) string {
-	data, _ := json.Marshal(v)
-	s := string(data)
-	if len(s) > 200 {
-		return s[:200] + "..."
-	}
-	return s
 }

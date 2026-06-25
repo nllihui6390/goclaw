@@ -129,7 +129,7 @@ func (g *Gateway) findChannel(channelName string) channel.Channel {
 	}
 
 	// 2. 如果是简单渠道名，尝试 default:channel
-	if !containsColon(channelName) {
+	if !utils.ContainsColon(channelName) {
 		defaultAgent := g.router.defaultAgent
 		if defaultAgent != "" {
 			key := defaultAgent + ":" + channelName
@@ -148,16 +148,6 @@ func (g *Gateway) findChannel(channelName string) channel.Channel {
 	}
 
 	return nil
-}
-
-// containsColon 检查字符串是否包含冒号
-func containsColon(s string) bool {
-	for _, c := range s {
-		if c == ':' {
-			return true
-		}
-	}
-	return false
 }
 
 // isBotLikeChannel 判断是否为 Bot 渠道（企微/钉钉/飞书等）

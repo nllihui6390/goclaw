@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"go-claw/pkg/utils"
 )
 
 // ReadPDFTool PDF读取工具
@@ -58,9 +60,9 @@ func (t *ReadPDFTool) Parameters() map[string]interface{} {
 
 // PDFResult PDF读取结果JSON结构
 type PDFResult struct {
-	Filename string `json:"filename"`
-	Pages    int    `json:"pages"`
-	Content  string `json:"content"`
+	Filename  string `json:"filename"`
+	Pages     int    `json:"pages"`
+	Content   string `json:"content"`
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
@@ -77,7 +79,7 @@ func (t *ReadPDFTool) Execute(ctx context.Context, params map[string]interface{}
 	}
 
 	// 安全检查
-	if isSensitivePath(path) {
+	if utils.IsSensitivePath(path) {
 		return "", fmt.Errorf("禁止读取敏感路径: %s", path)
 	}
 
