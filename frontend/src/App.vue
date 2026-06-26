@@ -18,6 +18,8 @@ function onResize() {
 }
 
 onMounted(() => {
+  // Theme already applied in index.html before paint;
+  // only set up listeners and skin here.
   themeStore.init()
   onResize()
   window.addEventListener('resize', onResize)
