@@ -30,6 +30,9 @@ type Offloader interface {
 	// OffloadToolResult 持久化被截断的工具结果；返回引用
 	OffloadToolResult(ctx context.Context, sessionID string, result ContentBlock) (string, error)
 
+	// SaveSummary 持久化压缩摘要
+	SaveSummary(ctx context.Context, sessionID string, summary *Summary) error
+
 	// Initialize 初始化工作空间
 	Initialize(ctx context.Context) error
 
@@ -136,6 +139,30 @@ func (w *LocalWorkspace) OffloadContext(ctx context.Context, sessionID string, m
 	}
 
 	return contextFile, nil
+}
+
+// SaveSummary 持久化压缩摘要到 session 目录
+func (w *LocalWorkspace) SaveSummary(ctx context.Context, sessionID string, summary *Summary) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.initialized {
+		if err := w.Initialize(ctx); err != nil {
+			return err
+		}
+	}
+
+	sessionDir := filepath.Join(w.Workdir, "sessions", sessionID)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return fmt.Errorf("create session directory: %w", err)
+	}
+
+	summaryFile := filepath.Join(sessionDir, "summary.json")
+	data, err := json.Marshal(summary)
+	if err != nil {
+		return fmt.Errorf("marshal summary: %w", err)
+	}
+	return os.WriteFile(summaryFile, data, 0644)
 }
 
 // OffloadToolResult 持久化被截断的工具结果
@@ -245,6 +272,10 @@ func (o *NoOpOffloader) OffloadToolResult(ctx context.Context, sessionID string,
 	return "", nil // 不持久化，直接丢弃
 }
 
+func (o *NoOpOffloader) SaveSummary(ctx context.Context, sessionID string, summary *Summary) error {
+	return nil // 不持久化
+}
+
 func (o *NoOpOffloader) Initialize(ctx context.Context) error {
 	return nil
 }
@@ -309,4 +340,25 @@ func (w *LocalWorkspace) LoadOffloadedToolResult(sessionID, toolCallID string) (
 	}
 
 	return string(content), nil
+}
+
+// LoadSummary 从 LocalWorkspace 加载已持久化的摘要
+func (w *LocalWorkspace) LoadSummary(sessionID string) (*Summary, error) {
+	sessionDir := filepath.Join(w.Workdir, "sessions", sessionID)
+	summaryFile := filepath.Join(sessionDir, "summary.json")
+
+	if _, err := os.Stat(summaryFile); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(summaryFile)
+	if err != nil {
+		return nil, fmt.Errorf("read summary file: %w", err)
+	}
+
+	var summary Summary
+	if err := json.Unmarshal(data, &summary); err != nil {
+		return nil, fmt.Errorf("parse summary: %w", err)
+	}
+	return &summary, nil
 }

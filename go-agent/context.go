@@ -297,18 +297,29 @@ type ContextManager struct {
 // 参数：
 //   - config: 上下文配置（nil 则使用默认值）
 //   - maxTokens: 模型最大上下文长度
-//   - offloader: 卸载器
+//   - offloader: 卸载器（如果提供了 SessionID，会尝试加载已持久化的摘要）
 //
 // 返回：
 //   - *ContextManager: 上下文管理器
-func NewContextManager(config *ContextConfig, maxTokens int, offloader Offloader) *ContextManager {
+func NewContextManager(config *ContextConfig, maxTokens int, offloader Offloader, sessionID string) *ContextManager {
 	if config == nil {
 		config = DefaultContextConfig()
 	}
-	return &ContextManager{
+	cm := &ContextManager{
 		config: config, counter: NewSimpleTokenCounter(),
 		maxTokens: maxTokens, offloader: offloader,
 	}
+
+	// 尝试从 offloader 恢复已持久化的摘要
+	if sessionID != "" && offloader != nil {
+		if lw, ok := offloader.(*LocalWorkspace); ok {
+			if summary, err := lw.LoadSummary(sessionID); err == nil && summary != nil {
+				cm.summary = summary
+			}
+		}
+	}
+
+	return cm
 }
 
 // SetTokenCounter 设置自定义 Token 计算器。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nllihui6390/go-agent/memory"
@@ -88,17 +89,38 @@ func (a *Agent) CompressContext(ctx context.Context, config *ContextConfig) erro
 		return nil
 	}
 
-	summary := &Summary{
-		TaskOverview:         "Previous conversation compressed",
-		CurrentState:         "Continuing from compressed context",
-		ImportantDiscoveries: []string{"Context was compressed due to token limit"},
-		NextSteps:            []string{"Continue conversation"},
-		ContextToPreserve:    "See offloaded context for details",
-		CreatedAt:            nowISO(),
-		TokenCount:           200,
+	// 使用 LLM 生成高质量摘要（而非硬编码假摘要）
+	// compressMsgs = history 中不在 reserveMsgs 里的部分
+	var compressMsgs []Msg
+	reserveIDs := make(map[string]bool, len(reserveMsgs))
+	for _, msg := range reserveMsgs {
+		reserveIDs[msg.ID] = true
+	}
+	for _, msg := range history {
+		if !reserveIDs[msg.ID] {
+			compressMsgs = append(compressMsgs, msg)
+		}
+	}
+	summary, err := a.compressWithLLM(ctx, compressMsgs, a.config.SystemPrompt)
+	if err != nil {
+		fmt.Printf("LLM compression failed, falling back to default: %v\n", err)
+		summary = &Summary{
+			TaskOverview:         "Previous conversation compressed",
+			CurrentState:         "Continuing from compressed context",
+			ImportantDiscoveries: []string{"Context was compressed due to token limit"},
+			NextSteps:            []string{"Continue conversation"},
+			ContextToPreserve:    "See offloaded context for details",
+			CreatedAt:            nowISO(),
+			TokenCount:           200,
+		}
 	}
 
 	a.contextMgr.SetSummary(summary)
+
+	// 持久化摘要到 Offloader（重启后可恢复）
+	if a.contextMgr.offloader != nil {
+		_ = a.contextMgr.offloader.SaveSummary(ctx, a.session.GetID(), summary)
+	}
 
 	a.session.Clear()
 	for _, msg := range reserveMsgs {
@@ -106,6 +128,119 @@ func (a *Agent) CompressContext(ctx context.Context, config *ContextConfig) erro
 	}
 
 	return nil
+}
+
+// =============================================
+// LLM 辅助上下文压缩
+// =============================================
+
+// compressWithLLM 使用 LLM 对压缩的消息生成高质量摘要。
+// 替代硬编码的假摘要，使压缩后的上下文保留真实语义。
+//
+// 参数：
+//   - ctx: 上下文
+//   - compressMsgs: 将被压缩的消息列表
+//   - systemPrompt: 系统提示词
+//
+// 返回：
+//   - *Summary: 生成的结构化摘要
+//   - error: 压缩错误
+func (a *Agent) compressWithLLM(ctx context.Context, compressMsgs []Msg, systemPrompt string) (*Summary, error) {
+	if a.config.Model == nil {
+		return nil, fmt.Errorf("cannot compress: no model configured")
+	}
+
+	// 构建压缩提示词：将待压缩的消息转为 LLM 可读格式
+	var textParts []string
+	for _, msg := range compressMsgs {
+		roleLabel := string(msg.Role)
+		content := msg.GetTextContent()
+		if content != "" {
+			textParts = append(textParts, fmt.Sprintf("[%s]: %s", roleLabel, content))
+		}
+	}
+
+	if len(textParts) == 0 {
+		return nil, fmt.Errorf("nothing to compress")
+	}
+
+	compressPrompt := a.config.ContextConfig.CompressionPrompt
+	if compressPrompt == "" {
+		compressPrompt = DefaultContextConfig().CompressionPrompt
+	}
+
+	systemMsg := model.Msg{
+		Role:    "system",
+		Content: systemPrompt,
+	}
+	userMsg := model.Msg{
+		Role:    "user",
+		Content: fmt.Sprintf("请对以下对话历史进行摘要。\n\n%s", strings.Join(textParts, "\n\n")),
+	}
+
+	resp, err := a.config.Model.Call(ctx, []model.Msg{systemMsg, userMsg})
+	if err != nil {
+		return nil, fmt.Errorf("LLM compression failed: %w", err)
+	}
+
+	// 尝试解析结构化摘要
+	summary, err := parseSummaryResponse(resp.Content, a.config.ContextConfig.SummarySchema)
+	if err != nil {
+		// 解析失败时回退到纯文本摘要
+		summary = &Summary{
+			TaskOverview:    "Previous conversation",
+			CurrentState:    "Continuing from compressed context",
+			ContextToPreserve: resp.Content,
+			CreatedAt:       nowISO(),
+			TokenCount:      a.contextMgr.counter.CountTokens(resp.Content),
+		}
+	}
+
+	return summary, nil
+}
+
+// parseSummaryResponse 从 LLM 响应中解析结构化摘要。
+// 支持 JSON 格式和自然语言格式。
+func parseSummaryResponse(content string, schema map[string]interface{}) (*Summary, error) {
+	// 尝试直接解析 JSON
+	var s Summary
+	if err := json.Unmarshal([]byte(content), &s); err == nil {
+		if s.TaskOverview != "" {
+			s.CreatedAt = nowISO()
+			s.TokenCount = len([]rune(content)) / 3
+			return &s, nil
+		}
+	}
+
+	// 尝试从 JSON 代码块中提取
+	jsonStart := strings.Index(content, "```json")
+	if jsonStart >= 0 {
+		jsonEnd := strings.Index(content[jsonStart:], "```")
+		if jsonEnd > 0 {
+			jsonStr := content[jsonStart+7 : jsonStart+jsonEnd]
+			if err := json.Unmarshal([]byte(jsonStr), &s); err == nil && s.TaskOverview != "" {
+				s.CreatedAt = nowISO()
+				s.TokenCount = len([]rune(content)) / 3
+				return &s, nil
+			}
+		}
+	}
+
+	// 尝试从任意 {} 块中提取
+ braceStart := strings.Index(content, "{")
+	if braceStart >= 0 {
+		braceEnd := strings.LastIndex(content, "}")
+		if braceEnd > braceStart {
+			jsonStr := content[braceStart : braceEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &s); err == nil && s.TaskOverview != "" {
+				s.CreatedAt = nowISO()
+				s.TokenCount = len([]rune(content)) / 3
+				return &s, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("could not parse summary from LLM response")
 }
 
 // =============================================
@@ -532,9 +667,11 @@ func (a *Agent) autoCompressContext(ctx context.Context) error {
 
 	// 标记被压缩的消息（ mark_messages_compressed）
 	compressedIDs := make([]string, 0, len(history)-len(reserveMsgs))
+	var compressedMsgs []Msg
 	for _, msg := range history {
 		if !reserveIDs[msg.ID] {
 			compressedIDs = append(compressedIDs, msg.ID)
+			compressedMsgs = append(compressedMsgs, msg)
 		}
 	}
 
@@ -542,15 +679,26 @@ func (a *Agent) autoCompressContext(ctx context.Context) error {
 		a.session.MarkMessagesCompressed(compressedIDs)
 	}
 
-	summary := &Summary{
-		TaskOverview:         "Previous conversation compressed",
-		CurrentState:         "Continuing from compressed context",
-		ImportantDiscoveries: []string{"Context was auto-compressed"},
-		NextSteps:            []string{"Continue conversation"},
-		ContextToPreserve:    "See offloaded context for details",
-		CreatedAt:            nowISO(),
+	// 使用 LLM 生成高质量摘要
+	summary, err := a.compressWithLLM(ctx, compressedMsgs, a.config.SystemPrompt)
+	if err != nil {
+		fmt.Printf("LLM auto-compression failed, falling back to default: %v\n", err)
+		summary = &Summary{
+			TaskOverview:         "Previous conversation compressed",
+			CurrentState:         "Continuing from compressed context",
+			ImportantDiscoveries: []string{"Context was auto-compressed"},
+			NextSteps:            []string{"Continue conversation"},
+			ContextToPreserve:    "See offloaded context for details",
+			CreatedAt:            nowISO(),
+			TokenCount:           200,
+		}
 	}
 	a.contextMgr.SetSummary(summary)
+
+	// 持久化摘要到 Offloader（重启后可恢复）
+	if a.contextMgr.offloader != nil {
+		_ = a.contextMgr.offloader.SaveSummary(ctx, a.session.GetID(), summary)
+	}
 
 	return nil
 }

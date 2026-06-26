@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // =============================================
@@ -35,6 +36,11 @@ const (
 	PhasePostActing   MiddlewarePhase = "post_acting"   // 工具执行后（）
 	PhaseModelCall    MiddlewarePhase = "model_call"    // 模型调用前/后
 	PhaseSystemPrompt MiddlewarePhase = "system_prompt" // 组装 system prompt
+	// Agent 生命周期钩子
+	PhaseAgentCreated MiddlewarePhase = "agent_created"   // Agent 创建后
+	PhaseAgentDestroyed MiddlewarePhase = "agent_destroyed" // Agent 销毁前
+	PhaseSessionStarted MiddlewarePhase = "session_started" // 会话启动时
+	PhaseSessionEnded   MiddlewarePhase = "session_ended"   // 会话结束时
 )
 
 // Middleware 中间件接口
@@ -299,6 +305,105 @@ func (m *PostActingMiddleware) Phase() MiddlewarePhase { return PhasePostActing 
 func (m *PostActingMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
 	if m.postActing != nil {
 		return m.postActing(ctx, agent, data)
+	}
+	return nil
+}
+
+// =============================================
+// Agent 生命周期中间件
+// =============================================
+
+// AgentCreatedMiddleware Agent 创建后中间件。
+//
+// 在 Agent 构造完成、首次可用之前触发，
+// 可用于初始化资源、注册钩子、预热缓存等。
+type AgentCreatedMiddleware struct {
+	name   string
+	onCreate func(ctx context.Context, agent *Agent) error
+}
+
+func NewAgentCreatedMiddleware(name string, onCreate func(ctx context.Context, agent *Agent) error) *AgentCreatedMiddleware {
+	return &AgentCreatedMiddleware{name: name, onCreate: onCreate}
+}
+
+func (m *AgentCreatedMiddleware) Name() string           { return m.name }
+func (m *AgentCreatedMiddleware) Phase() MiddlewarePhase { return PhaseAgentCreated }
+func (m *AgentCreatedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
+	if m.onCreate != nil {
+		return m.onCreate(ctx, agent)
+	}
+	return nil
+}
+
+// AgentDestroyedMiddleware Agent 销毁前中间件。
+//
+// 在 Agent 被回收之前触发，
+// 可用于释放资源、保存状态、断开连接等。
+type AgentDestroyedMiddleware struct {
+	name     string
+	onDestroy func(ctx context.Context, agent *Agent) error
+}
+
+func NewAgentDestroyedMiddleware(name string, onDestroy func(ctx context.Context, agent *Agent) error) *AgentDestroyedMiddleware {
+	return &AgentDestroyedMiddleware{name: name, onDestroy: onDestroy}
+}
+
+func (m *AgentDestroyedMiddleware) Name() string           { return m.name }
+func (m *AgentDestroyedMiddleware) Phase() MiddlewarePhase { return PhaseAgentDestroyed }
+func (m *AgentDestroyedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
+	if m.onDestroy != nil {
+		return m.onDestroy(ctx, agent)
+	}
+	return nil
+}
+
+// SessionStartedMiddleware 会话启动中间件。
+//
+// 在每次 Reply/ReplyStream 开始时触发，
+// 可用于加载会话上下文、预热资源、记录指标等。
+type SessionStartedMiddleware struct {
+	name     string
+	onStart  func(ctx context.Context, agent *Agent, sessionID string) error
+}
+
+func NewSessionStartedMiddleware(name string, onStart func(ctx context.Context, agent *Agent, sessionID string) error) *SessionStartedMiddleware {
+	return &SessionStartedMiddleware{name: name, onStart: onStart}
+}
+
+func (m *SessionStartedMiddleware) Name() string           { return m.name }
+func (m *SessionStartedMiddleware) Phase() MiddlewarePhase { return PhaseSessionStarted }
+func (m *SessionStartedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
+	if m.onStart != nil {
+		if sessionID, ok := data.(string); ok {
+			return m.onStart(ctx, agent, sessionID)
+		}
+	}
+	return nil
+}
+
+// SessionEndedMiddleware 会话结束中间件。
+//
+// 在每次 Reply/ReplyStream 结束后触发，
+// 可用于持久化会话、清理临时资源、触发摘要等。
+type SessionEndedMiddleware struct {
+	name     string
+	onEnd    func(ctx context.Context, agent *Agent, sessionID string, duration time.Duration) error
+}
+
+func NewSessionEndedMiddleware(name string, onEnd func(ctx context.Context, agent *Agent, sessionID string, duration time.Duration) error) *SessionEndedMiddleware {
+	return &SessionEndedMiddleware{name: name, onEnd: onEnd}
+}
+
+func (m *SessionEndedMiddleware) Name() string           { return m.name }
+func (m *SessionEndedMiddleware) Phase() MiddlewarePhase { return PhaseSessionEnded }
+func (m *SessionEndedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
+	if m.onEnd != nil {
+		if d, ok := data.(struct {
+			SessionID string
+			Duration  time.Duration
+		}); ok {
+			return m.onEnd(ctx, agent, d.SessionID, d.Duration)
+		}
 	}
 	return nil
 }

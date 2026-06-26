@@ -34,6 +34,7 @@ type Runtime struct {
 	chatModel    goModel.ChatModel // go-agent 模型（带 token 记录包装）
 	rawModel     goModel.ChatModel // 原始模型（用于 CallLLM 等不需要 token 记录的场景）
 	workspaceDir string            // 用于缓存大工具结果
+	lastError    error             // 最后一次 LLM 调用错误
 }
 
 // NewRuntime 创建运行时
@@ -104,6 +105,11 @@ func (r *Runtime) SetWorkspaceDir(dir string) {
 	r.workspaceDir = dir
 }
 
+// GetLastError 获取最后一次 LLM 调用错误
+func (r *Runtime) GetLastError() error {
+	return r.lastError
+}
+
 // SetSkillRegistry 设置技能注册中心（用于热重载）
 func (r *Runtime) SetSkillRegistry(reg *skill.SkillRegistry) {
 	r.config.SkillRegistry = reg
@@ -154,6 +160,7 @@ func (r *Runtime) CallLLM(ctx context.Context, systemPrompt, userPrompt string) 
 
 	resp, err := r.chatModel.Call(ctx, messages)
 	if err != nil {
+		r.lastError = err
 		logger.Error("[Runtime] ChatModel 调用失败", "err", err)
 		return "", err
 	}
@@ -169,6 +176,7 @@ func (r *Runtime) CallLLMWithMessages(ctx context.Context, messages []goModel.Ms
 
 	resp, err := r.chatModel.Call(ctx, messages)
 	if err != nil {
+		r.lastError = err
 		logger.Error("[Runtime] ChatModel 调用失败", "err", err)
 		return "", err
 	}

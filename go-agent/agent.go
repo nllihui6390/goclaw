@@ -143,7 +143,7 @@ func NewAgent(cfg Config) *Agent {
 
 	maxTokens := 200000 // 默认 200K 上下文
 
-	contextMgr := NewContextManager(cfg.ContextConfig, maxTokens, cfg.Offloader)
+	contextMgr := NewContextManager(cfg.ContextConfig, maxTokens, cfg.Offloader, cfg.UserID)
 
 	return &Agent{
 		config:          cfg,
