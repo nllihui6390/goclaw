@@ -15,6 +15,7 @@ const sessionStore = useSessionStore()
 const messages = ref([])
 const input = ref('')
 const sending = ref(false)
+const abortController = ref(null)
 const files = ref([])
 const fileInput = ref(null)
 const showNewChatOverlay = ref(false)
@@ -100,11 +101,24 @@ watch(() => route.query, (q, oldQ) => {
   }
 })
 
+// 停止按钮点击：调用后端 stop API 中断 agent 处理
+const handleStop = async () => {
+  abortController.value?.abort()
+  sending.value = false
+  try {
+    await api.stopChat(sessionId.value)
+  } catch {
+    // 忽略 stop 请求失败（agent 可能已经完成）
+  }
+}
+
 async function send() {
   const text = input.value.trim()
   if ((!text && !files.value.length) || sending.value) return
   input.value = ''
   sending.value = true
+
+  abortController.value = new AbortController()
 
   const uploadedFiles = []
   for (const file of files.value) {
@@ -173,7 +187,7 @@ async function send() {
         return lastMsg.tool_calls?.find(tc => tc.name === name && tc.status === 'calling')
       }
 
-      for await (const event of api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent)) {
+      for await (const event of api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent, abortController.value.signal)) {
         if (event.type === 'file') {
           files.push(event.info)
           ensureAssistantMsg()
@@ -290,7 +304,7 @@ async function send() {
         scrollBottom()
       }
     } else {
-      const rawContent = await api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent)
+      const rawContent = await api.sendMessage(sessionId.value, sendContent, agentStore.selectedAgent, abortController.value.signal)
       let content, thinking = [], toolCalls = []
       try {
         const parsed = JSON.parse(rawContent)
@@ -328,9 +342,12 @@ async function send() {
       scrollBottom()
     }
   } catch (e) {
-    messages.value.push({ role: 'assistant', content: '请求失败: ' + e.message })
+    if (e.name !== 'AbortError') {
+      messages.value.push({ role: 'assistant', content: '请求失败: ' + e.message })
+    }
   } finally {
     sending.value = false
+    abortController.value?.abort()
   }
 }
 
@@ -476,7 +493,7 @@ async function confirmNewChat() {
           </div>
           <div class="sender-right">
             <span class="sender-counter">{{ input.length }}/10000</span>
-            <button class="sender-btn" :class="{ stop: sending }" :disabled="!sending && !input.trim() && !files.length" @click="sending ? (input = '') : send()">
+            <button class="sender-btn" :class="{ stop: sending }" :disabled="!sending && !input.trim() && !files.length" @click="sending ? handleStop() : send()">
               <svg v-if="sending" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
               <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 2L2 7l6 1-6 1-.5 5L15 8 1.5 2Z" /></svg>
             </button>

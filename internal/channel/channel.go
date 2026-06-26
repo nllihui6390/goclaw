@@ -48,6 +48,7 @@ type Message struct {
 	Timestamp int64
 	Metadata  map[string]any
 	Blocks    ContentBlocks          // 结构化内容块（多模态：图片/文件等）
+	Ctx       context.Context        // per-request context，用于传递取消信号（如前端停止按钮）
 }
 
 // Response 响应消息

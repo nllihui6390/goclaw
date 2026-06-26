@@ -331,6 +331,19 @@ func (g *Gateway) GetAgent(name string) *agent.Agent {
 	return g.agents[name]
 }
 
+// CancelSession 取消指定 session 的 agent 处理（用于停止按钮）
+func (g *Gateway) CancelSession(sessionID string) bool {
+	ch := g.GetChannel("console")
+	if ch == nil {
+		return false
+	}
+	cc, ok := ch.(*channel.ConsoleChannel)
+	if !ok {
+		return false
+	}
+	return cc.CancelSession(sessionID)
+}
+
 // handleChannel 处理单个渠道的消息
 // agentName 参数：per-agent 渠道自动路由到该 Agent；空字符串表示全局渠道（console），走正常路由
 func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName string) {
@@ -440,7 +453,13 @@ func (g *Gateway) handleChannel(channelKey string, ch channel.Channel, agentName
 				ch.SendToolEvent(event)
 			}
 
-			response, err := ag.ProcessWithBlocks(msgCtx, sessionID, msg.Content, msg.Blocks, handler)
+			// 从消息中提取 per-request context（如有，用于前端停止按钮中断）
+			processCtx := g.ctx
+			if msg.Ctx != nil {
+				processCtx = msg.Ctx
+			}
+
+			response, err := ag.ProcessWithBlocks(processCtx, sessionID, msg.Content, msg.Blocks, handler)
 			if err != nil {
 				response = fmt.Sprintf("处理出错: %v", err)
 				log.Logger().Error("消息处理失败", "err", err, "session", sessionID)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +13,34 @@ import (
 	"go-claw/global"
 	"go-claw/internal/channel"
 )
+
+// HandleChatStop 停止当前 session 的 agent 处理（POST）
+func HandleChatStop(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var body map[string]string
+	json.NewDecoder(r.Body).Decode(&body)
+	sessionID := body["session"]
+	if sessionID == "" {
+		writeError(rw, http.StatusBadRequest, "session is required")
+		return
+	}
+
+	gw := global.GetGateway()
+	if gw == nil {
+		writeError(rw, http.StatusServiceUnavailable, "gateway not initialized")
+		return
+	}
+
+	if gw.CancelSession(sessionID) {
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "stopped"})
+	} else {
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "not_found"})
+	}
+}
 
 // HandleCreateSession 创建新会话并返回 UUID（POST）
 func HandleCreateSession(rw http.ResponseWriter, r *http.Request) {
@@ -215,6 +244,13 @@ func writeFileEvent(rw http.ResponseWriter, flusher http.Flusher, hadTextEvents 
 }
 
 func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agentName string, stream bool, rw http.ResponseWriter, r *http.Request) {
+	// 创建 per-request context，跟随 HTTP 请求生命周期（客户端 abort 时自动取消）
+	reqCtx, reqCancel := context.WithCancel(r.Context())
+	defer reqCancel()
+
+	// 注册 cancel 到 channel，供停止按钮调用
+	ch.RegisterCancel(session, reqCancel)
+
 	// 渠道配置关闭流式输出时，强制走阻塞模式
 	if stream && !ch.GetDisplay().StreamOutput {
 		stream = false
@@ -226,6 +262,7 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 		go ch.PushMessage(channel.Message{
 			ID: msgID, Channel: ch.GetName(), From: session,
 			Content: content, Agent: agentName, Timestamp: time.Now().Unix(),
+			Ctx: reqCtx,  // 注入 per-request context，用于停止按钮中断
 		})
 
 		rw.Header().Set("Content-Type", "text/event-stream")
@@ -281,6 +318,7 @@ func handleChatRequest(ch *channel.ConsoleChannel, msgID, session, content, agen
 	if !ch.PushMessage(channel.Message{
 		ID: msgID, Channel: ch.GetName(), From: session,
 		Content: content, Agent: agentName, Timestamp: time.Now().Unix(),
+		Ctx: reqCtx,  // 注入 per-request context，用于停止按钮中断
 	}) {
 		writeError(rw, http.StatusServiceUnavailable, "console channel is stopped")
 		return

@@ -18,12 +18,13 @@ export class HttpAdapter {
 
   // 对话（SSE 流式）
   // yield { type: 'text', content } 或 { type: 'file', info: {...} }
-  async *sendMessage(sessionId, content, agent) {
+  async *sendMessage(sessionId, content, agent, signal) {
     // 如果 sessionId 已含频道前缀（如 "webhook:xxx"），需剥离前缀避免重复拼接
     let chatSession = sessionId
     const resp = await fetch('/api/v1/chat', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: chatSession, content, agent, stream: true })
+      body: JSON.stringify({ session: chatSession, content, agent, stream: true }),
+      signal  // AbortSignal，用于停止按钮中断
     })
     if (!resp.ok) {
       let msg = `HTTP ${resp.status}`
@@ -138,6 +139,9 @@ export class HttpAdapter {
       }
     }
   }
+
+  // 停止当前 session 的 agent 处理
+  stopChat(sessionId) { return http.post('/chat/stop', { session: sessionId }).then(r => r.data) }
 
   // 获取历史消息
   async getChatHistory(sessionId, agent) {

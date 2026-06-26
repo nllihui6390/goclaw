@@ -23,6 +23,8 @@ type ConsoleChannel struct {
 	enabled     bool
 	stopped     atomic.Bool
 	closed      atomic.Bool
+	// cancelCh 存储 per-request cancel 函数，用于停止按钮中断 agent 处理
+	cancelCh map[string]context.CancelFunc
 }
 
 // NewConsoleChannel 创建 Console 渠道
@@ -35,6 +37,7 @@ func NewConsoleChannel(botPrefix string, display DisplayConfig) *ConsoleChannel 
 		streamResps: make(map[string]chan string),
 		fileEvents:  make(map[string]chan ToolEvent),
 		display:     display,
+		cancelCh:    make(map[string]context.CancelFunc),
 	}
 }
 
@@ -44,6 +47,28 @@ func (w *ConsoleChannel) SetEnabled(v bool)                                   { 
 func (w *ConsoleChannel) IsEnabled() bool                                     { return w.enabled }
 func (w *ConsoleChannel) IsStopped() bool                                     { return w.stopped.Load() }
 func (w *ConsoleChannel) Receive(ctx context.Context) (<-chan Message, error) { return w.msgChan, nil }
+
+// RegisterCancel 注册 per-request cancel 函数（用于停止按钮中断 agent 处理）
+func (w *ConsoleChannel) RegisterCancel(session string, cancel context.CancelFunc) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.cancelCh[session] = cancel
+}
+
+// CancelSession 取消指定 session 的 agent 处理（停止按钮调用）
+func (w *ConsoleChannel) CancelSession(session string) bool {
+	w.mu.Lock()
+	cancel, exists := w.cancelCh[session]
+	if exists {
+		delete(w.cancelCh, session)
+	}
+	w.mu.Unlock()
+	if exists {
+		cancel()
+		return true
+	}
+	return false
+}
 
 // PushMessage 安全地发送消息到 msgChan
 func (w *ConsoleChannel) PushMessage(msg Message) bool {

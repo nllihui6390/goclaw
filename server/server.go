@@ -89,6 +89,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/files/download", api.HandleFileDownload)
 	mux.HandleFunc("/api/v1/files/preview", api.HandleFilePreview)
 	mux.HandleFunc("/api/v1/chat", api.HandleChat)
+	mux.HandleFunc("/api/v1/chat/stop", api.HandleChatStop)
 	mux.HandleFunc("/api/v1/chat/session", api.HandleCreateSession)
 	mux.HandleFunc("/api/v1/chat/session/latest", api.HandleGetLatestSession)
 	mux.HandleFunc("/api/v1/chat/history/", api.HandleChatHistory)
