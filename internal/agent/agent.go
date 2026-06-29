@@ -153,6 +153,12 @@ func (a *Agent) initGoAgent() {
 		agentCfg = agentCfg.WithContextConfig(ctxCfg)
 	}
 
+	// 配置 Offloader：将压缩消息和摘要持久化到本地文件系统
+	// 重启时 ContextManager 会自动从文件恢复摘要
+	if cfg.WorkspaceDir != "" {
+		agentCfg = agentCfg.WithOffloader(goAgent.NewLocalWorkspace(cfg.WorkspaceDir))
+	}
+
 	a.goAgent = goAgent.NewAgent(*agentCfg)
 
 	// 默认允许所有工具执行（go-claw 通过 ToolGuard 做安全检查，不走 PermissionChecker）
