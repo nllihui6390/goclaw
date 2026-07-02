@@ -12,17 +12,25 @@ import (
 
 // Config 全局配置（根 config.json）
 type Config struct {
-	Gateway   GatewayConfig             `json:"gateway"`
-	Providers map[string]ProviderConfig `json:"providers"` // 模型供应商配置
-	Agents    AgentsRefConfig           `json:"agents"`    // Agent 轻量引用（完整配置在 agent.json）
-	Skills    SkillsConfig              `json:"skills"`
-	Logging   LoggingConfig             `json:"logging"`
-	Auth      AuthConfig                `json:"auth"`
-	Proactive ProactiveConfig           `json:"proactive"`
-	Cron      CronConfig                `json:"cron"`
-	MCP       MCPConfig                 `json:"mcp"`
-	ACP       ACPConfig                 `json:"acp"`
-	Security  SecurityConfig            `json:"security"`
+	Gateway        GatewayConfig             `json:"gateway"`
+	Providers      map[string]ProviderConfig `json:"providers"` // 模型供应商配置
+	Agents         AgentsRefConfig           `json:"agents"`    // Agent 轻量引用（完整配置在 agent.json）
+	Skills         SkillsConfig              `json:"skills"`
+	Logging        LoggingConfig             `json:"logging"`
+	Auth           AuthConfig                `json:"auth"`
+	Proactive      ProactiveConfig           `json:"proactive"`
+	Cron           CronConfig                `json:"cron"`
+	MCP            MCPConfig                 `json:"mcp"`
+	ACP            ACPConfig                 `json:"acp"`
+	Security       SecurityConfig            `json:"security"`
+	Observability  ObservabilityConfig       `json:"observability"`
+}
+
+// ObservabilityConfig 可观测性配置
+type ObservabilityConfig struct {
+	Enabled      bool   `json:"enabled"`      // 是否启用
+	MetricsPort  string `json:"metrics_port"` // Prometheus 指标端口，默认 9090
+	TracingEnabled bool `json:"tracing_enabled"` // 是否启用分布式追踪
 }
 
 // AgentsRefConfig Agent 轻量引用配置（根 config.json 中）

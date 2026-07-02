@@ -2,6 +2,7 @@ package agent
 
 import (
 	"sync"
+	"time"
 )
 
 // =============================================
@@ -14,11 +15,15 @@ import (
 // 通过 SessionStore 接口支持持久化到不同后端（内存、文件、数据库等）。
 //
 // 会话是并发安全的（内部使用互斥锁保护）。
+// 支持延迟持久化：AddMessage 标记 dirty，2秒后自动 Flush，减少频繁 IO。
 type Session struct {
-	id      string       // 会话唯一标识符
-	store   SessionStore // 会话持久化存储
-	history []Msg        // 对话历史（按时间排序）
-	mu      sync.Mutex   // 互斥锁，保证并发安全
+	id         string       // 会话唯一标识符
+	store      SessionStore // 会话持久化存储
+	history    []Msg        // 对话历史（按时间排序）
+	mu         sync.Mutex   // 互斥锁，保证并发安全
+	dirty      bool         // 标记是否需要持久化
+	flushTimer *time.Timer  // 延迟持久化定时器
+	flushMu    sync.Mutex   // 定时器互斥锁
 }
 
 // SessionStore 会话存储接口。
@@ -71,22 +76,60 @@ func NewSession(store SessionStore) *Session {
 // AddMessage 添加消息到会话历史。
 //
 // 自动设置消息的 CreatedAt 时间戳（如果未设置），
-// 然后持久化到 SessionStore。
+// 标记 dirty 状态，延迟 2 秒后自动持久化到 SessionStore。
 //
 // 参数：
 //   - msg: 要添加的消息（用户消息、assistant 回复等）
+var flushDelay = 2 * time.Second
+
 func (s *Session) AddMessage(msg Msg) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if msg.CreatedAt == "" {
 		msg.CreatedAt = nowISO()
 	}
 	s.history = append(s.history, msg)
+	s.dirty = true
+	s.mu.Unlock()
 
-	if s.store != nil {
-		_ = s.store.Save(s.id, s.history)
+	s.scheduleFlush()
+}
+
+// scheduleFlush 调度延迟持久化。
+//
+// 如果已有定时器则取消，重新创建 2 秒后的定时器。
+func (s *Session) scheduleFlush() {
+	s.flushMu.Lock()
+	defer s.flushMu.Unlock()
+
+	if s.store == nil {
+		return
 	}
+
+	if s.flushTimer != nil {
+		s.flushTimer.Stop()
+	}
+
+	s.flushTimer = time.AfterFunc(flushDelay, func() {
+		s.Flush()
+	})
+}
+
+// Flush 立即将会话历史持久化到存储。
+//
+// 如果没有脏数据或没有存储后端，则跳过。
+// 持久化前会创建历史副本，避免锁竞争。
+func (s *Session) Flush() {
+	s.mu.Lock()
+	if !s.dirty || s.store == nil {
+		s.mu.Unlock()
+		return
+	}
+	historyCopy := make([]Msg, len(s.history))
+	copy(historyCopy, s.history)
+	s.dirty = false
+	s.mu.Unlock()
+
+	_ = s.store.Save(s.id, historyCopy)
 }
 
 // GetHistory 获取会话的完整历史记录（副本）。
@@ -148,8 +191,6 @@ func (s *Session) GetHistoryExcludeMarks(excludeMarks ...MsgMark) []Msg {
 //   - int: 成功标记的消息数量
 func (s *Session) MarkMessagesCompressed(messageIDs []string) int {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	count := 0
 	for i, msg := range s.history {
 		for _, id := range messageIDs {
@@ -160,9 +201,13 @@ func (s *Session) MarkMessagesCompressed(messageIDs []string) int {
 			}
 		}
 	}
+	if count > 0 {
+		s.dirty = true
+	}
+	s.mu.Unlock()
 
-	if s.store != nil && count > 0 {
-		_ = s.store.Save(s.id, s.history)
+	if count > 0 {
+		s.scheduleFlush()
 	}
 
 	return count
@@ -204,12 +249,11 @@ func (s *Session) ClearHintMessages() int {
 // 清空内存中的历史记录，并将空列表持久化到存储。
 func (s *Session) Clear() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.history = make([]Msg, 0)
-	if s.store != nil {
-		_ = s.store.Save(s.id, s.history)
-	}
+	s.dirty = true
+	s.mu.Unlock()
+
+	s.scheduleFlush()
 }
 
 // SetID 设置会话 ID。

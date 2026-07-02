@@ -3,6 +3,8 @@ package agent
 import (
 	"github.com/nllihui6390/go-agent/memory"
 	"github.com/nllihui6390/go-agent/model"
+	"github.com/nllihui6390/go-agent/observability"
+	"github.com/nllihui6390/go-agent/plugin"
 	"github.com/nllihui6390/go-agent/skill"
 	"github.com/nllihui6390/go-agent/tool"
 )
@@ -65,73 +67,47 @@ type ReActConfig struct {
 //   - Middlewares: 中间件列表
 //   - Storage: 状态持久化存储
 type Config struct {
-	// --- 必填参数 ---
-	// Name Agent 标识符，用于消息和日志
-	Name string
-	// Model 主 LLM 模型（实现 model.ChatModel 接口）
-	Model model.ChatModel
-	// SystemPrompt 基础系统提示词（不含 skill 指令和 middleware 注入）
-	SystemPrompt string
+	Name         string          // Agent 标识符，用于消息和日志
+	Model        model.ChatModel // 主 LLM 模型（实现 model.ChatModel 接口）
+	SystemPrompt string          // 基础系统提示词（不含 skill 指令和 middleware 注入）
 
-	// --- 工具相关 ---
-	// Tools 工具注册表（依赖注入，非全局变量）
-	Tools *tool.Registry
-	// Skills 技能注册表（其指令自动拼接到 SystemPrompt）
-	Skills *skill.Registry
+	Tools  *tool.Registry  // 工具注册表（依赖注入，非全局变量）
+	Skills *skill.Registry // 技能注册表（其指令自动拼接到 SystemPrompt）
+	Memory memory.Memory   // 长期记忆（用于 Retrieve 增强上下文）
 
-	// --- 上下文管理 ---
-	// Memory 长期记忆（用于 Retrieve 增强上下文）
-	Memory memory.Memory
-	// SessionStore 会话存储（对话历史持久化）
-	SessionStore SessionStore
-	// ContextConfig 上下文压缩配置（nil 则使用 DefaultContextConfig()）
-	ContextConfig *ContextConfig
-	// Offloader 卸载器（压缩内容持久化，nil 则使用 NoOpOffloader）
-	Offloader Offloader
+	SessionStore  SessionStore   // 会话存储（对话历史持久化）
+	ContextConfig *ContextConfig // 上下文压缩配置（nil 则使用 DefaultContextConfig()）
+	Offloader     Offloader      // 卸载器（压缩内容持久化，nil 则使用 NoOpOffloader）
 
-	// --- 模型配置 ---
-	// ModelConfig 模型重试/备用配置（nil 则使用默认值）
-	ModelConfig *ModelConfig
+	ModelConfig *ModelConfig // 模型重试/备用配置（nil 则使用默认值）
+	ReActConfig *ReActConfig // ReAct 循环控制配置（nil 则使用默认值）
 
-	// --- ReAct 配置 ---
-	// ReActConfig ReAct 循环控制配置（nil 则使用默认值）
-	ReActConfig *ReActConfig
+	Permission  PermissionChecker // 权限检查器（nil 则使用 DefaultPermissionChecker）
+	Middlewares []Middleware      // 中间件列表（按添加顺序执行）
+	OnToolCall  ToolCallHandler   // 工具调用回调（每次工具执行完成时调用）
+	OnStream    StreamHandler     // 流式输出回调（每次文本增量到达时调用）
 
-	// --- 权限系统 ---
-	// Permission 权限检查器（nil 则使用 DefaultPermissionChecker）
-	Permission PermissionChecker
+	Storage StateStorage // 状态存储（nil 表示不持久化状态）
+	UserID  string       // 用户 ID（用于状态持久化的键）
+	AgentID string       // Agent ID（用于状态持久化的键）
 
-	// --- 中间件 ---
-	// Middlewares 中间件列表（按添加顺序执行）
-	Middlewares []Middleware
+	Options *AgentOptions // 扩展选项（go-claw 兼容字段）
+}
 
-	// --- 回调 ---
-	// OnToolCall 工具调用回调（每次工具执行完成时调用）
-	OnToolCall ToolCallHandler
-	// OnStream 流式输出回调（每次文本增量到达时调用）
-	OnStream StreamHandler
+// AgentOptions Agent 扩展选项。
+//
+// 包含 go-claw 兼容的扩展字段，与 go-agent 核心配置分离。
+type AgentOptions struct {
+	PersonaLoader  PersonaLoader         // 人设文件加载器（AGENTS.md + SOUL.md + PROFILE.md）
+	WorkspaceDir   string                // 工作空间目录路径
+	ConfigProvider DynamicConfigProvider // 动态配置提供器（运行时切换模型/API Key）
+	TokenRecorder  TokenRecorder         // Token 使用量记录器
+	SupportsImage  bool                  // 模型是否支持图片输入
+	SupportsVideo  bool                  // 模型是否支持视频输入
 
-	// --- 状态持久化（可选） ---
-	// Storage 状态存储（nil 表示不持久化状态）
-	Storage StateStorage
-	// UserID 用户 ID（用于状态持久化的键）
-	UserID string
-	// AgentID Agent ID（用于状态持久化的键）
-	AgentID string
-
-	// --- 扩展字段（go-claw 兼容） ---
-	// PersonaLoader 人设文件加载器（AGENTS.md + SOUL.md + PROFILE.md）
-	PersonaLoader PersonaLoader
-	// WorkspaceDir 工作空间目录路径
-	WorkspaceDir string
-	// ConfigProvider 动态配置提供器（运行时切换模型/API Key）
-	ConfigProvider DynamicConfigProvider
-	// TokenRecorder Token 使用量记录器
-	TokenRecorder TokenRecorder
-	// SupportsImage 模型是否支持图片输入
-	SupportsImage bool
-	// SupportsVideo 模型是否支持视频输入
-	SupportsVideo bool
+	Metrics *observability.Metrics // 指标收集器（Prometheus）
+	Tracer  *observability.Tracer  // 分布式追踪器（OpenTelemetry）
+	Plugins *plugin.Manager        // 插件管理器
 }
 
 // DefaultConfig 创建带默认值的配置。
@@ -312,7 +288,10 @@ func (c *Config) WithStorage(storage StateStorage, userID, agentID string) *Conf
 // 返回：
 //   - *Config: 自身指针，支持链式调用
 func (c *Config) WithPersonaLoader(loader PersonaLoader) *Config {
-	c.PersonaLoader = loader
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.PersonaLoader = loader
 	return c
 }
 
@@ -326,7 +305,10 @@ func (c *Config) WithPersonaLoader(loader PersonaLoader) *Config {
 // 返回：
 //   - *Config: 自身指针，支持链式调用
 func (c *Config) WithWorkspaceDir(dir string) *Config {
-	c.WorkspaceDir = dir
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.WorkspaceDir = dir
 	return c
 }
 
@@ -341,7 +323,10 @@ func (c *Config) WithWorkspaceDir(dir string) *Config {
 // 返回：
 //   - *Config: 自身指针，支持链式调用
 func (c *Config) WithConfigProvider(provider DynamicConfigProvider) *Config {
-	c.ConfigProvider = provider
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.ConfigProvider = provider
 	return c
 }
 
@@ -356,7 +341,10 @@ func (c *Config) WithConfigProvider(provider DynamicConfigProvider) *Config {
 // 返回：
 //   - *Config: 自身指针，支持链式调用
 func (c *Config) WithTokenRecorder(recorder TokenRecorder) *Config {
-	c.TokenRecorder = recorder
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.TokenRecorder = recorder
 	return c
 }
 
@@ -368,7 +356,10 @@ func (c *Config) WithTokenRecorder(recorder TokenRecorder) *Config {
 // 返回：
 //   - *Config: 自身指针，支持链式调用
 func (c *Config) WithSupportsImage(v bool) *Config {
-	c.SupportsImage = v
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.SupportsImage = v
 	return c
 }
 
@@ -380,7 +371,55 @@ func (c *Config) WithSupportsImage(v bool) *Config {
 // 返回：
 //   - *Config: 自身指针，支持链式调用
 func (c *Config) WithSupportsVideo(v bool) *Config {
-	c.SupportsVideo = v
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.SupportsVideo = v
+	return c
+}
+
+// WithMetrics 设置指标收集器（Builder 方法）。
+//
+// 参数：
+//   - metrics: 指标收集器实现
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithMetrics(metrics *observability.Metrics) *Config {
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.Metrics = metrics
+	return c
+}
+
+// WithTracer 设置分布式追踪器（Builder 方法）。
+//
+// 参数：
+//   - tracer: 追踪器实现
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithTracer(tracer *observability.Tracer) *Config {
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.Tracer = tracer
+	return c
+}
+
+// WithPluginManager 设置插件管理器（Builder 方法）。
+//
+// 参数：
+//   - manager: 插件管理器实现
+//
+// 返回：
+//   - *Config: 自身指针，支持链式调用
+func (c *Config) WithPluginManager(manager *plugin.Manager) *Config {
+	if c.Options == nil {
+		c.Options = &AgentOptions{}
+	}
+	c.Options.Plugins = manager
 	return c
 }
 

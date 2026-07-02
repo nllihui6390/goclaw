@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/nllihui6390/go-agent/model"
-	"github.com/nllihui6390/go-agent/tool"
 )
 
 // =============================================
@@ -179,7 +178,7 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				fullContent += chunk.Content
 				output <- NewTextBlockDeltaEvent(replyID, blockID, chunk.Content)
 			}
-			
+
 		}
 
 		if fullThinking != "" {
@@ -204,75 +203,12 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			}
 
 			for _, tc := range toolCalls {
-				t, _ := a.config.Tools.Get(tc.Name)
-				decision, err := a.config.Permission.Check(ctx, t, tc.Params, nil)
+				result, err := a.executeToolWithPermission(ctx, tc, replyID, output)
 				if err != nil {
-					output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
-					output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Permission check error: "+err.Error())
-					output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
-					resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+err.Error())
-					resultBlock.ToolResultState = ToolResultStateError
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-					assistantBlocks = append(assistantBlocks, resultBlock)
 					continue
 				}
-
-				switch decision.Action {
-				case tool.PermissionAllow:
-					output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
-					result, err := a.executeTool(ctx, tc)
-					if a.config.OnToolCall != nil {
-						a.config.OnToolCall(tc.Name, tc.Params, result)
-					}
-					if err != nil {
-						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Error: "+err.Error())
-						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
-						resultBlock := NewToolResultTextBlock(tc.ID, "Error: "+err.Error())
-						resultBlock.ToolResultState = ToolResultStateError
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-						assistantBlocks = append(assistantBlocks, resultBlock)
-					} else {
-						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, result)
-						resultBlock := NewToolResultTextBlock(tc.ID, result)
-						resultBlock.ToolResultState = ToolResultStateSuccess
-						// 截断工具结果（前端通过 SSE 已收到全量文本，此处仅影响 session 存储）
-						keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
-							a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
-						if truncated {
-							resultBlock = keepResult
-						}
-						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateSuccess)
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-						assistantBlocks = append(assistantBlocks, resultBlock)
-					}
-
-				case tool.PermissionAsk:
-					output <- NewRequireUserConfirmEvent(replyID, []ContentBlock{
-						NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
-					})
-					resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
-					resultBlock.ToolResultState = ToolResultStateDenied
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-					assistantBlocks = append(assistantBlocks, resultBlock)
-
-				case tool.PermissionDeny:
-					output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
-					output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Permission denied")
-					output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateDenied)
-					resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
-					resultBlock.ToolResultState = ToolResultStateDenied
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-					assistantBlocks = append(assistantBlocks, resultBlock)
-
-				case tool.PermissionExternal:
-					output <- NewRequireExternalExecutionEvent(replyID, []ContentBlock{
-						NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
-					})
-					resultBlock := NewToolResultTextBlock(tc.ID, "External execution required")
-					resultBlock.ToolResultState = ToolResultStateDenied
-					assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-					assistantBlocks = append(assistantBlocks, resultBlock)
-				}
+				assistantBlocks = append(assistantBlocks, result.ToolCallBlock)
+				assistantBlocks = append(assistantBlocks, result.ResultBlock)
 			}
 
 			// 将助手消息（含工具调用和结果）存入 session
@@ -282,11 +218,11 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				Role:      RoleAssistant,
 				Content:   assistantBlocks,
 				CreatedAt: nowISO(),
-					Usage: &Usage{
-						InputTokens:  totalInputTokens,
-						OutputTokens: totalOutputTokens,
-						TotalTokens:  totalInputTokens + totalOutputTokens,
-					},
+				Usage: &Usage{
+					InputTokens:  totalInputTokens,
+					OutputTokens: totalOutputTokens,
+					TotalTokens:  totalInputTokens + totalOutputTokens,
+				},
 			}
 			a.session.AddMessage(assistantMsg)
 
@@ -404,74 +340,12 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 				}
 
 				for _, tc := range extraToolCalls {
-					t, _ := a.config.Tools.Get(tc.Name)
-					decision, cerr := a.config.Permission.Check(ctx, t, tc.Params, nil)
-					if cerr != nil {
-						output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
-						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Permission check error: "+cerr.Error())
-						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
-						resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+cerr.Error())
-						resultBlock.ToolResultState = ToolResultStateError
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-						assistantBlocks = append(assistantBlocks, resultBlock)
+					result, err := a.executeToolWithPermission(ctx, tc, replyID, output)
+					if err != nil {
 						continue
 					}
-
-					switch decision.Action {
-					case tool.PermissionAllow:
-						output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
-						result, terr := a.executeTool(ctx, tc)
-						if a.config.OnToolCall != nil {
-							a.config.OnToolCall(tc.Name, tc.Params, result)
-						}
-						if terr != nil {
-							output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Error: "+terr.Error())
-							output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateError)
-							resultBlock := NewToolResultTextBlock(tc.ID, "Error: "+terr.Error())
-							resultBlock.ToolResultState = ToolResultStateError
-							assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-							assistantBlocks = append(assistantBlocks, resultBlock)
-						} else {
-							output <- NewToolResultTextDeltaEvent(replyID, tc.ID, result)
-							resultBlock := NewToolResultTextBlock(tc.ID, result)
-							resultBlock.ToolResultState = ToolResultStateSuccess
-							keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
-								a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
-							if truncated {
-								resultBlock = keepResult
-							}
-							output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateSuccess)
-							assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-							assistantBlocks = append(assistantBlocks, resultBlock)
-						}
-
-					case tool.PermissionAsk:
-						output <- NewRequireUserConfirmEvent(replyID, []ContentBlock{
-							NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
-						})
-						resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
-						resultBlock.ToolResultState = ToolResultStateDenied
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-						assistantBlocks = append(assistantBlocks, resultBlock)
-
-					case tool.PermissionDeny:
-						output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
-						output <- NewToolResultTextDeltaEvent(replyID, tc.ID, "Permission denied")
-						output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateDenied)
-						resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied")
-						resultBlock.ToolResultState = ToolResultStateDenied
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-						assistantBlocks = append(assistantBlocks, resultBlock)
-
-					case tool.PermissionExternal:
-						output <- NewRequireExternalExecutionEvent(replyID, []ContentBlock{
-							NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
-						})
-						resultBlock := NewToolResultTextBlock(tc.ID, "External execution required")
-						resultBlock.ToolResultState = ToolResultStateDenied
-						assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)))
-						assistantBlocks = append(assistantBlocks, resultBlock)
-					}
+					assistantBlocks = append(assistantBlocks, result.ToolCallBlock)
+					assistantBlocks = append(assistantBlocks, result.ResultBlock)
 				}
 
 				assistantMsg := Msg{
@@ -506,11 +380,11 @@ func (a *Agent) processReplyStream(ctx context.Context, output chan<- interface{
 			Role:      RoleAssistant,
 			Content:   blocks,
 			CreatedAt: nowISO(),
-				Usage: &Usage{
-					InputTokens:  totalInputTokens,
-					OutputTokens: totalOutputTokens,
-					TotalTokens:  totalInputTokens + totalOutputTokens,
-				},
+			Usage: &Usage{
+				InputTokens:  totalInputTokens,
+				OutputTokens: totalOutputTokens,
+				TotalTokens:  totalInputTokens + totalOutputTokens,
+			},
 		}
 		finalMsg.SetFinished()
 		a.session.AddMessage(*finalMsg)

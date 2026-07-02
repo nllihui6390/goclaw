@@ -19,6 +19,7 @@ import (
 	glog "go-claw/pkg/log"
 
 	goAgent "github.com/nllihui6390/go-agent"
+	"github.com/nllihui6390/go-agent/observability"
 	goTool "github.com/nllihui6390/go-agent/tool"
 )
 
@@ -65,6 +66,10 @@ type AgentConfig struct {
 	RateLimitMaxConcurrent  int // 最大并发请求数（默认 10）
 	RateLimitMaxQPM         int // 每分钟最大请求数（默认 60）
 	RateLimitAcquireTimeout int // 获取槽位超时秒数（默认 30）
+
+	// 可观测性
+	Metrics *observability.Metrics
+	Tracer  *observability.Tracer
 }
 
 // Agent AI智能体
@@ -121,6 +126,13 @@ func (a *Agent) initGoAgent() {
 	}
 	if cfg.WorkspaceLoader != nil {
 		agentCfg = agentCfg.WithPersonaLoader(cfg.WorkspaceLoader)
+	}
+
+	if cfg.Metrics != nil {
+		agentCfg = agentCfg.WithMetrics(cfg.Metrics)
+	}
+	if cfg.Tracer != nil {
+		agentCfg = agentCfg.WithTracer(cfg.Tracer)
 	}
 
 	// 接入 go-claw 的上下文截断配置

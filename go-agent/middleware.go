@@ -37,7 +37,7 @@ const (
 	PhaseModelCall    MiddlewarePhase = "model_call"    // 模型调用前/后
 	PhaseSystemPrompt MiddlewarePhase = "system_prompt" // 组装 system prompt
 	// Agent 生命周期钩子
-	PhaseAgentCreated MiddlewarePhase = "agent_created"   // Agent 创建后
+	PhaseAgentCreated   MiddlewarePhase = "agent_created"   // Agent 创建后
 	PhaseAgentDestroyed MiddlewarePhase = "agent_destroyed" // Agent 销毁前
 	PhaseSessionStarted MiddlewarePhase = "session_started" // 会话启动时
 	PhaseSessionEnded   MiddlewarePhase = "session_ended"   // 会话结束时
@@ -92,6 +92,37 @@ func (c *MiddlewareChain) Execute(ctx context.Context, phase MiddlewarePhase, ag
 // GetByPhase 获取指定阶段的中间件列表
 func (c *MiddlewareChain) GetByPhase(phase MiddlewarePhase) []Middleware {
 	return c.middlewares[phase]
+}
+
+// =============================================
+// 函数式中间件（通用工厂）
+// =============================================
+
+// FunctionalMiddleware 函数式中间件
+// 通过 name、phase、executeFunc 直接创建中间件，
+// 替代 PreReplyMiddleware、PostReplyMiddleware 等重复的包装类
+type FunctionalMiddleware struct {
+	name        string
+	phase       MiddlewarePhase
+	executeFunc func(ctx context.Context, agent *Agent, data interface{}) error
+}
+
+// NewFunctionalMiddleware 创建函数式中间件
+func NewFunctionalMiddleware(name string, phase MiddlewarePhase, executeFunc func(ctx context.Context, agent *Agent, data interface{}) error) *FunctionalMiddleware {
+	return &FunctionalMiddleware{
+		name:        name,
+		phase:       phase,
+		executeFunc: executeFunc,
+	}
+}
+
+func (m *FunctionalMiddleware) Name() string           { return m.name }
+func (m *FunctionalMiddleware) Phase() MiddlewarePhase { return m.phase }
+func (m *FunctionalMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
+	if m.executeFunc != nil {
+		return m.executeFunc(ctx, agent, data)
+	}
+	return nil
 }
 
 // =============================================
@@ -210,200 +241,94 @@ func (m *ErrorHandlingMiddleware) Execute(ctx context.Context, agent *Agent, dat
 }
 
 // =============================================
-// 新增中间件（ Context Manager 钩子）
+// 便捷中间件创建函数（基于 FunctionalMiddleware）
 // =============================================
 
-// PreReplyMiddleware 回复前中间件。
+// NewPreReplyMiddleware 回复前中间件。
 //
 //	pre_reply 钩子：
 //
 // 在 Agent 发出最终回复前执行，用于注入记忆检索结果、
 // 动态上下文等。
-type PreReplyMiddleware struct {
-	name     string
-	preReply func(ctx context.Context, agent *Agent, data interface{}) error
+func NewPreReplyMiddleware(name string, preReply func(ctx context.Context, agent *Agent, data interface{}) error) Middleware {
+	return NewFunctionalMiddleware(name, PhasePreReply, preReply)
 }
 
-func NewPreReplyMiddleware(name string, preReply func(ctx context.Context, agent *Agent, data interface{}) error) *PreReplyMiddleware {
-	return &PreReplyMiddleware{name: name, preReply: preReply}
-}
-
-func (m *PreReplyMiddleware) Name() string           { return m.name }
-func (m *PreReplyMiddleware) Phase() MiddlewarePhase { return PhasePreReply }
-func (m *PreReplyMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.preReply != nil {
-		return m.preReply(ctx, agent, data)
-	}
-	return nil
-}
-
-// PostReplyMiddleware 回复后中间件。
+// NewPostReplyMiddleware 回复后中间件。
 //
 //	post_reply 钩子：
 //
 // 在 Agent 发出最终回复后执行，用于后台记忆摘要、
 // 状态持久化等。
-type PostReplyMiddleware struct {
-	name      string
-	postReply func(ctx context.Context, agent *Agent, data interface{}) error
+func NewPostReplyMiddleware(name string, postReply func(ctx context.Context, agent *Agent, data interface{}) error) Middleware {
+	return NewFunctionalMiddleware(name, PhasePostReply, postReply)
 }
 
-func NewPostReplyMiddleware(name string, postReply func(ctx context.Context, agent *Agent, data interface{}) error) *PostReplyMiddleware {
-	return &PostReplyMiddleware{name: name, postReply: postReply}
-}
-
-func (m *PostReplyMiddleware) Name() string           { return m.name }
-func (m *PostReplyMiddleware) Phase() MiddlewarePhase { return PhasePostReply }
-func (m *PostReplyMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.postReply != nil {
-		return m.postReply(ctx, agent, data)
-	}
-	return nil
-}
-
-// PreReasoningMiddleware 推理前中间件。
+// NewPreReasoningMiddleware 推理前中间件。
 //
 //	pre_reasoning 钩子：
 //
 // 在每次模型调用前执行，用于检查上下文大小、
 // 触发自动压缩、截断过长消息等。
-type PreReasoningMiddleware struct {
-	name         string
-	preReasoning func(ctx context.Context, agent *Agent, data interface{}) error
+func NewPreReasoningMiddleware(name string, preReasoning func(ctx context.Context, agent *Agent, data interface{}) error) Middleware {
+	return NewFunctionalMiddleware(name, PhasePreReasoning, preReasoning)
 }
 
-func NewPreReasoningMiddleware(name string, preReasoning func(ctx context.Context, agent *Agent, data interface{}) error) *PreReasoningMiddleware {
-	return &PreReasoningMiddleware{name: name, preReasoning: preReasoning}
-}
-
-func (m *PreReasoningMiddleware) Name() string           { return m.name }
-func (m *PreReasoningMiddleware) Phase() MiddlewarePhase { return PhasePreReasoning }
-func (m *PreReasoningMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.preReasoning != nil {
-		return m.preReasoning(ctx, agent, data)
-	}
-	return nil
-}
-
-// PostActingMiddleware 工具执行后中间件。
+// NewPostActingMiddleware 工具执行后中间件。
 //
 //	post_acting 钩子：
 //
 // 在每次工具执行完成后执行，用于截断过大的工具结果、
 // 记录工具调用统计、安全审计等。
-type PostActingMiddleware struct {
-	name       string
-	postActing func(ctx context.Context, agent *Agent, data interface{}) error
+func NewPostActingMiddleware(name string, postActing func(ctx context.Context, agent *Agent, data interface{}) error) Middleware {
+	return NewFunctionalMiddleware(name, PhasePostActing, postActing)
 }
 
-func NewPostActingMiddleware(name string, postActing func(ctx context.Context, agent *Agent, data interface{}) error) *PostActingMiddleware {
-	return &PostActingMiddleware{name: name, postActing: postActing}
-}
-
-func (m *PostActingMiddleware) Name() string           { return m.name }
-func (m *PostActingMiddleware) Phase() MiddlewarePhase { return PhasePostActing }
-func (m *PostActingMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.postActing != nil {
-		return m.postActing(ctx, agent, data)
-	}
-	return nil
-}
-
-// =============================================
-// Agent 生命周期中间件
-// =============================================
-
-// AgentCreatedMiddleware Agent 创建后中间件。
+// NewAgentCreatedMiddleware Agent 创建后中间件。
 //
 // 在 Agent 构造完成、首次可用之前触发，
 // 可用于初始化资源、注册钩子、预热缓存等。
-type AgentCreatedMiddleware struct {
-	name   string
-	onCreate func(ctx context.Context, agent *Agent) error
+func NewAgentCreatedMiddleware(name string, onCreate func(ctx context.Context, agent *Agent) error) Middleware {
+	return NewFunctionalMiddleware(name, PhaseAgentCreated, func(ctx context.Context, agent *Agent, data interface{}) error {
+		return onCreate(ctx, agent)
+	})
 }
 
-func NewAgentCreatedMiddleware(name string, onCreate func(ctx context.Context, agent *Agent) error) *AgentCreatedMiddleware {
-	return &AgentCreatedMiddleware{name: name, onCreate: onCreate}
-}
-
-func (m *AgentCreatedMiddleware) Name() string           { return m.name }
-func (m *AgentCreatedMiddleware) Phase() MiddlewarePhase { return PhaseAgentCreated }
-func (m *AgentCreatedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.onCreate != nil {
-		return m.onCreate(ctx, agent)
-	}
-	return nil
-}
-
-// AgentDestroyedMiddleware Agent 销毁前中间件。
+// NewAgentDestroyedMiddleware Agent 销毁前中间件。
 //
 // 在 Agent 被回收之前触发，
 // 可用于释放资源、保存状态、断开连接等。
-type AgentDestroyedMiddleware struct {
-	name     string
-	onDestroy func(ctx context.Context, agent *Agent) error
+func NewAgentDestroyedMiddleware(name string, onDestroy func(ctx context.Context, agent *Agent) error) Middleware {
+	return NewFunctionalMiddleware(name, PhaseAgentDestroyed, func(ctx context.Context, agent *Agent, data interface{}) error {
+		return onDestroy(ctx, agent)
+	})
 }
 
-func NewAgentDestroyedMiddleware(name string, onDestroy func(ctx context.Context, agent *Agent) error) *AgentDestroyedMiddleware {
-	return &AgentDestroyedMiddleware{name: name, onDestroy: onDestroy}
-}
-
-func (m *AgentDestroyedMiddleware) Name() string           { return m.name }
-func (m *AgentDestroyedMiddleware) Phase() MiddlewarePhase { return PhaseAgentDestroyed }
-func (m *AgentDestroyedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.onDestroy != nil {
-		return m.onDestroy(ctx, agent)
-	}
-	return nil
-}
-
-// SessionStartedMiddleware 会话启动中间件。
+// NewSessionStartedMiddleware 会话启动中间件。
 //
 // 在每次 Reply/ReplyStream 开始时触发，
 // 可用于加载会话上下文、预热资源、记录指标等。
-type SessionStartedMiddleware struct {
-	name     string
-	onStart  func(ctx context.Context, agent *Agent, sessionID string) error
-}
-
-func NewSessionStartedMiddleware(name string, onStart func(ctx context.Context, agent *Agent, sessionID string) error) *SessionStartedMiddleware {
-	return &SessionStartedMiddleware{name: name, onStart: onStart}
-}
-
-func (m *SessionStartedMiddleware) Name() string           { return m.name }
-func (m *SessionStartedMiddleware) Phase() MiddlewarePhase { return PhaseSessionStarted }
-func (m *SessionStartedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.onStart != nil {
+func NewSessionStartedMiddleware(name string, onStart func(ctx context.Context, agent *Agent, sessionID string) error) Middleware {
+	return NewFunctionalMiddleware(name, PhaseSessionStarted, func(ctx context.Context, agent *Agent, data interface{}) error {
 		if sessionID, ok := data.(string); ok {
-			return m.onStart(ctx, agent, sessionID)
+			return onStart(ctx, agent, sessionID)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
-// SessionEndedMiddleware 会话结束中间件。
+// NewSessionEndedMiddleware 会话结束中间件。
 //
 // 在每次 Reply/ReplyStream 结束后触发，
 // 可用于持久化会话、清理临时资源、触发摘要等。
-type SessionEndedMiddleware struct {
-	name     string
-	onEnd    func(ctx context.Context, agent *Agent, sessionID string, duration time.Duration) error
-}
-
-func NewSessionEndedMiddleware(name string, onEnd func(ctx context.Context, agent *Agent, sessionID string, duration time.Duration) error) *SessionEndedMiddleware {
-	return &SessionEndedMiddleware{name: name, onEnd: onEnd}
-}
-
-func (m *SessionEndedMiddleware) Name() string           { return m.name }
-func (m *SessionEndedMiddleware) Phase() MiddlewarePhase { return PhaseSessionEnded }
-func (m *SessionEndedMiddleware) Execute(ctx context.Context, agent *Agent, data interface{}) error {
-	if m.onEnd != nil {
+func NewSessionEndedMiddleware(name string, onEnd func(ctx context.Context, agent *Agent, sessionID string, duration time.Duration) error) Middleware {
+	return NewFunctionalMiddleware(name, PhaseSessionEnded, func(ctx context.Context, agent *Agent, data interface{}) error {
 		if d, ok := data.(struct {
 			SessionID string
 			Duration  time.Duration
 		}); ok {
-			return m.onEnd(ctx, agent, d.SessionID, d.Duration)
+			return onEnd(ctx, agent, d.SessionID, d.Duration)
 		}
-	}
-	return nil
+		return nil
+	})
 }

@@ -1,5 +1,12 @@
 package agent
 
+import (
+	"encoding/json"
+	"fmt"
+	"math/rand"
+	"time"
+)
+
 // =============================================
 // 消息系统（ 的 Message 设计）
 //
@@ -19,12 +26,6 @@ package agent
 //   - AssistantMsg: 助手消息（允许所有块类型）
 //   - SystemMsg: 系统消息（仅允许 TextBlock）
 // =============================================
-
-import (
-	"encoding/json"
-	"fmt"
-	"time"
-)
 
 // =============================================
 // 角色类型
@@ -279,6 +280,7 @@ func NewThinkingBlock(thinking string) ContentBlock {
 // 示例：
 //
 //	block := agent.NewToolCallBlock("call_123", "search", `{"query": "golang"}`)
+//
 // ParamsToJSON 将工具参数字典序列化为 JSON 字符串。
 func ParamsToJSON(params map[string]interface{}) string {
 	if params == nil {
@@ -616,15 +618,19 @@ func nowISO() string {
 
 // generateID 生成带前缀的唯一 ID。
 //
-// 格式：<prefix>_<YYYYMMDD_HHMMSS>
+// 格式：<prefix>_<YYYYMMDD_HHMMSS>_<6位随机数>
+//
+// 包含时间戳和随机数，避免高并发场景下的 ID 碰撞。
 //
 // 参数：
 //   - prefix: ID 前缀（如 "msg", "evt", "reply"）
 //
 // 返回：
 //   - string: 唯一 ID
+var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 func generateID(prefix string) string {
-	return fmt.Sprintf("%s_%s", prefix, time.Now().UTC().Format("20060102_150405"))
+	return fmt.Sprintf("%s_%s_%06d", prefix, time.Now().UTC().Format("20060102_150405"), randSource.Intn(1000000))
 }
 
 // =============================================

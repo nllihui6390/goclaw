@@ -18,6 +18,8 @@ Go 语言 AI Agent 框架，实现 Gateway-Agent-Session 三层解耦架构。�
 | **技能** | Prompt-based 技能系统、全局 + Agent 专属两层、热加载 |
 | **协作** | 多 Agent 交互、监督者模式、Mission 自主任务、Plan 任务规划 |
 | **扩展** | MCP 客户端、ACP 外部 Agent 协议、定时任务 Cron |
+| **可观测性** | Prometheus 指标、OpenTelemetry 追踪、模型/工具调用监控、Token 统计 |
+| **插件系统** | 工具/技能热加载、运行时扩展、文件监听自动重载 |
 | **运维** | Docker 部署、配置热加载、Prometheus 指标、日志按日分割 |
 
 ## 快速开始
@@ -246,6 +248,106 @@ metadata:
 
 支持活跃时段控制（如仅 09:00-18:00 执行）。
 
+## 可观测性
+
+### Prometheus 指标
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `go_agent_model_calls_total` | Counter | 模型调用总数 |
+| `go_agent_model_calls_latency_seconds` | Histogram | 模型调用耗时 |
+| `go_agent_tool_calls_total` | Counter | 工具调用总数 |
+| `go_agent_tool_calls_latency_seconds` | Histogram | 工具调用耗时 |
+| `go_agent_token_usage_total` | Counter | Token 使用总量 |
+| `go_agent_context_compressions_total` | Counter | 上下文压缩次数 |
+| `go_agent_sessions_active` | Gauge | 活跃会话数量 |
+| `go_agent_inference_iterations` | Counter | 推理迭代次数 |
+
+**访问端点**：`http://localhost:9090/metrics`
+
+### OpenTelemetry 追踪
+
+支持分布式追踪，记录以下 Span：
+- `inference_loop` — 推理循环
+- `model_call` — 模型调用
+- `tool_call` — 工具调用
+- `memory_retrieval` — 记忆检索
+
+### 配置
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "metrics_port": "9090",
+    "tracing_enabled": true
+  }
+}
+```
+
+## 插件系统
+
+### 插件接口
+
+```go
+type Plugin interface {
+    Name() string
+    Version() string
+    Initialize(ctx context.Context, config map[string]interface{}) error
+    Tools() []tool.Tool
+    Shutdown(ctx context.Context) error
+}
+```
+
+#### 使用 BasePlugin 快速创建
+
+```go
+myPlugin := plugin.NewBasePlugin("my-plugin", "1.0.0")
+myPlugin.AddTool(myTool)
+```
+
+### 热加载机制
+
+插件管理器支持运行时动态加载和卸载插件：
+- 监听插件目录变化
+- 自动重新加载修改的插件
+- 无需重启服务
+
+### 插件目录
+
+```
+goclaw-data/
+└── plugins/           # 插件目录
+    └── my-plugin/     # 插件包
+        ├── plugin.go  # 插件实现
+        └── config.json
+```
+
+### 插件管理器 API
+
+```go
+// 创建管理器
+pm := plugin.NewManager()
+
+// 注册加载器
+pm.RegisterLoader("local", localLoader)
+
+// 加载插件
+plugin, err := pm.LoadPlugin(ctx, "local", "./plugins/my-plugin", config)
+
+// 热重载
+plugin, err := pm.ReloadPlugin(ctx, "local", "./plugins/my-plugin", config)
+
+// 监听文件变化自动重载
+pm.WatchAndReload(ctx, "local", "./plugins/my-plugin", config, 5*time.Second)
+
+// 获取所有插件工具
+tools := pm.GetAllTools()
+
+// 卸载插件
+err := pm.UnloadPlugin(ctx, "my-plugin")
+```
+
 ## 安全守卫
 
 三层机制：
@@ -323,6 +425,17 @@ go-claw/
 │   ├── frontend.go            # SPA 服务
 │   ├── controllers/           # API 处理器
 │   └── service/               # 业务服务
+├── go-agent/                  # 核心 Agent 框架
+│   ├── agent.go               # Agent 核心实现
+│   ├── agent_pool.go          # Agent 池管理
+│   ├── agent_router.go        # Agent 路由
+│   ├── config.go              # 配置构建器
+│   ├── observability/         # 可观测性
+│   │   ├── metrics.go         # Prometheus 指标
+│   │   └── tracing.go         # OpenTelemetry 追踪
+│   └── plugin/                # 插件系统
+│       ├── plugin.go          # 插件接口
+│       └── manager.go         # 插件管理器
 ├── frontend/                  # Vue 3 前端
 │   └── src/
 │       ├── views/             # 14 个页面
@@ -347,9 +460,13 @@ go-claw/
 │   ├── acp/                   # ACP 协议
 │   ├── mcp/                   # MCP 客户端
 │   ├── ratelimiter/           # 限流器
-│   └── middleware/            # HTTP 中间件
+│   ├── middleware/            # HTTP 中间件
+│   └── bootstrap/             # 启动引导
+│       ├── bootstrap.go       # 应用初始化
+│       └── agents.go          # Agent 加载
 ├── goclaw-data/               # 数据目录
 │   ├── skills/                # 全局技能
+│   ├── plugins/               # 插件目录
 │   └── workspaces/            # Agent 工作空间
 ├── logs/                      # 日志目录
 ├── Dockerfile
@@ -389,7 +506,12 @@ go-claw/
   },
   "logging": { "level": "info", "file_path": "logs/app.log" },
   "skills": { "enabled": true },
-  "proactive": { "enabled": false, "idle_minutes": 30 }
+  "proactive": { "enabled": false, "idle_minutes": 30 },
+  "observability": {
+    "enabled": true,
+    "metrics_port": "9090",
+    "tracing_enabled": true
+  }
 }
 ```
 

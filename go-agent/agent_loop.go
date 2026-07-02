@@ -88,64 +88,24 @@ func (a *Agent) reasoningStep(ctx context.Context, iterCount int) (*Msg, error) 
 //   - ContentBlock: 工具结果块
 //   - error: 错误信息
 func (a *Agent) actingStep(ctx context.Context, tc model.ToolCall) (ContentBlock, error) {
-	if err := a.middlewareChain.Execute(ctx, PhaseActing, a, tc); err != nil {
+	result, err := a.executeToolWithPermission(ctx, tc, "", nil)
+	if err != nil {
 		return ContentBlock{}, err
 	}
 
-	t, _ := a.config.Tools.Get(tc.Name)
-	decision, err := a.config.Permission.Check(ctx, t, tc.Params, nil)
-	if err != nil {
-		resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+err.Error())
-		resultBlock.ToolResultState = ToolResultStateError
-		return resultBlock, nil
-	}
-
-	var resultBlock ContentBlock
-
-	switch decision.Action {
-	case tool.PermissionAllow:
-		result, err := a.executeTool(ctx, tc)
-		if a.config.OnToolCall != nil {
-			a.config.OnToolCall(tc.Name, tc.Params, result)
-		}
-		if err != nil {
-			resultBlock = NewToolResultTextBlock(tc.ID, "Error: "+err.Error())
-			resultBlock.ToolResultState = ToolResultStateError
-		} else {
-			resultBlock = NewToolResultTextBlock(tc.ID, result)
-			resultBlock.ToolResultState = ToolResultStateSuccess
-			keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
-			a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
-			if truncated {
-				resultBlock = keepResult
-			}
-		}
-	case tool.PermissionAsk:
-		resultBlock = NewToolResultTextBlock(tc.ID, "Tool call requires user confirmation.")
-		resultBlock.ToolResultState = ToolResultStateDenied
-	case tool.PermissionDeny:
-		resultBlock = NewToolResultTextBlock(tc.ID, "Permission denied: "+decision.Reason)
-		resultBlock.ToolResultState = ToolResultStateDenied
-	case tool.PermissionExternal:
-		resultBlock = NewToolResultTextBlock(tc.ID, "External execution required.")
-		resultBlock.ToolResultState = ToolResultStateDenied
-	}
-
-	// 将工具调用+结果存入 session（ finally 块：memory.add(tool_res_msg)）
 	tcBlock := NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params))
 	assistantMsg := &Msg{
 		ID:        generateID("msg"),
 		Name:      a.config.Name,
 		Role:      RoleAssistant,
-		Content:   []ContentBlock{tcBlock, resultBlock},
+		Content:   []ContentBlock{tcBlock, result.ResultBlock},
 		CreatedAt: nowISO(),
 	}
 	a.session.AddMessage(*assistantMsg)
 
-	// PhasePostActing: 工具执行后（ post_acting 钩子，截断工具结果）
-	a.middlewareChain.Execute(ctx, PhasePostActing, a, resultBlock)
+	a.middlewareChain.Execute(ctx, PhasePostActing, a, result.ResultBlock)
 
-	return resultBlock, nil
+	return result.ResultBlock, nil
 }
 
 // compressMemoryIfNeeded 循环内压缩检测（ _compress_memory_if_needed）。
@@ -301,16 +261,129 @@ func (a *Agent) summarizingStep(ctx context.Context, userMsg Msg) (*Msg, error) 
 func buildAssistantContent(response *model.Response) []ContentBlock {
 	blocks := make([]ContentBlock, 0)
 
-	// 文本内容
 	if response.Content != "" {
 		blocks = append(blocks, NewTextBlock(response.Content))
 	}
 
-	// 工具调用
 	for _, tc := range response.ToolCalls {
 		paramsJSON, _ := model.ParamsToJSON(tc.Params)
 		blocks = append(blocks, NewToolCallBlock(tc.ID, tc.Name, paramsJSON))
 	}
 
 	return blocks
+}
+
+// ToolExecutionResult 工具执行结果。
+//
+// 统一封装同步和流式两种模式的工具执行结果。
+type ToolExecutionResult struct {
+	ResultBlock     ContentBlock // 工具执行结果块
+	ToolCallBlock   ContentBlock // 工具调用块
+	RequiresPause   bool         // 是否需要暂停循环等待外部事件
+	RequiresConfirm bool         // 是否需要用户确认
+	External        bool         // 是否需要外部执行
+}
+
+// executeToolWithPermission 执行单个工具调用（带权限检查）。
+//
+// 统一处理同步和流式两种模式：
+//   - 同步模式：output = nil，不发送事件，直接返回结果
+//   - 流式模式：output != nil，发送 ToolResultStart/TextDelta/End 事件
+//
+// 参数：
+//   - ctx: 上下文
+//   - tc: 工具调用
+//   - replyID: 回复 ID（用于事件关联）
+//   - output: 事件输出 channel（nil = 同步模式）
+//
+// 返回：
+//   - *ToolExecutionResult: 执行结果
+//   - error: 错误
+func (a *Agent) executeToolWithPermission(ctx context.Context, tc model.ToolCall, replyID string, output chan<- interface{}) (*ToolExecutionResult, error) {
+	if err := a.middlewareChain.Execute(ctx, PhaseActing, a, tc); err != nil {
+		return nil, err
+	}
+
+	t, _ := a.config.Tools.Get(tc.Name)
+	decision, err := a.config.Permission.Check(ctx, t, tc.Params, nil)
+	if err != nil {
+		resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+err.Error())
+		resultBlock.ToolResultState = ToolResultStateError
+		return &ToolExecutionResult{
+			ResultBlock:   resultBlock,
+			ToolCallBlock: NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
+		}, nil
+	}
+
+	var resultBlock ContentBlock
+	var requiresPause, requiresConfirm, external bool
+
+	switch decision.Action {
+	case tool.PermissionAllow:
+		result, err := a.executeTool(ctx, tc)
+		if a.config.OnToolCall != nil {
+			a.config.OnToolCall(tc.Name, tc.Params, result)
+		}
+
+		if err != nil {
+			resultBlock = NewToolResultTextBlock(tc.ID, "Error: "+err.Error())
+			resultBlock.ToolResultState = ToolResultStateError
+		} else {
+			resultBlock = NewToolResultTextBlock(tc.ID, result)
+			resultBlock.ToolResultState = ToolResultStateSuccess
+			keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
+				a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
+			if truncated {
+				resultBlock = keepResult
+			}
+		}
+
+		if output != nil {
+			output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
+			output <- NewToolResultTextDeltaEvent(replyID, tc.ID, resultBlock.ToolResultOutput[0].Text)
+			output <- NewToolResultEndEvent(replyID, tc.ID, resultBlock.ToolResultState)
+		}
+
+	case tool.PermissionAsk:
+		resultBlock = NewToolResultTextBlock(tc.ID, "Tool call requires user confirmation.")
+		resultBlock.ToolResultState = ToolResultStateDenied
+		requiresPause = true
+		requiresConfirm = true
+
+		if output != nil {
+			output <- NewRequireUserConfirmEvent(replyID, []ContentBlock{
+				NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
+			})
+		}
+
+	case tool.PermissionDeny:
+		resultBlock = NewToolResultTextBlock(tc.ID, "Permission denied: "+decision.Reason)
+		resultBlock.ToolResultState = ToolResultStateDenied
+
+		if output != nil {
+			output <- NewToolResultStartEvent(replyID, tc.ID, tc.Name)
+			output <- NewToolResultTextDeltaEvent(replyID, tc.ID, resultBlock.ToolResultOutput[0].Text)
+			output <- NewToolResultEndEvent(replyID, tc.ID, ToolResultStateDenied)
+		}
+
+	case tool.PermissionExternal:
+		resultBlock = NewToolResultTextBlock(tc.ID, "External execution required.")
+		resultBlock.ToolResultState = ToolResultStateDenied
+		requiresPause = true
+		external = true
+
+		if output != nil {
+			output <- NewRequireExternalExecutionEvent(replyID, []ContentBlock{
+				NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
+			})
+		}
+	}
+
+	return &ToolExecutionResult{
+		ResultBlock:     resultBlock,
+		ToolCallBlock:   NewToolCallBlock(tc.ID, tc.Name, ParamsToJSON(tc.Params)),
+		RequiresPause:   requiresPause,
+		RequiresConfirm: requiresConfirm,
+		External:        external,
+	}, nil
 }

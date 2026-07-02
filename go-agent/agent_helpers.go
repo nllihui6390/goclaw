@@ -9,7 +9,6 @@ import (
 
 	"github.com/nllihui6390/go-agent/memory"
 	"github.com/nllihui6390/go-agent/model"
-	"github.com/nllihui6390/go-agent/tool"
 )
 
 // =============================================
@@ -188,11 +187,11 @@ func (a *Agent) compressWithLLM(ctx context.Context, compressMsgs []Msg, systemP
 	if err != nil {
 		// 解析失败时回退到纯文本摘要
 		summary = &Summary{
-			TaskOverview:    "Previous conversation",
-			CurrentState:    "Continuing from compressed context",
+			TaskOverview:      "Previous conversation",
+			CurrentState:      "Continuing from compressed context",
 			ContextToPreserve: resp.Content,
-			CreatedAt:       nowISO(),
-			TokenCount:      a.contextMgr.counter.CountTokens(resp.Content),
+			CreatedAt:         nowISO(),
+			TokenCount:        a.contextMgr.counter.CountTokens(resp.Content),
 		}
 	}
 
@@ -227,7 +226,7 @@ func parseSummaryResponse(content string, schema map[string]interface{}) (*Summa
 	}
 
 	// 尝试从任意 {} 块中提取
- braceStart := strings.Index(content, "{")
+	braceStart := strings.Index(content, "{")
 	if braceStart >= 0 {
 		braceEnd := strings.LastIndex(content, "}")
 		if braceEnd > braceStart {
@@ -313,60 +312,13 @@ func (a *Agent) handleToolCallsWithPermission(ctx context.Context, toolCalls []m
 	assistantBlocks := []ContentBlock{}
 
 	for _, tc := range toolCalls {
-		if err := a.middlewareChain.Execute(ctx, PhaseActing, a, tc); err != nil {
+		result, err := a.executeToolWithPermission(ctx, tc, "", nil)
+		if err != nil {
 			return nil, false, err
 		}
 
-		t, _ := a.config.Tools.Get(tc.Name)
-		decision, err := a.config.Permission.Check(ctx, t, tc.Params, nil)
-		if err != nil {
-			resultBlock := NewToolResultTextBlock(tc.ID, "Permission check error: "+err.Error())
-			resultBlock.ToolResultState = ToolResultStateError
-			assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
-			assistantBlocks = append(assistantBlocks, resultBlock)
-			continue
-		}
-
-		switch decision.Action {
-		case tool.PermissionAllow:
-			result, err := a.executeTool(ctx, tc)
-			if a.config.OnToolCall != nil {
-				a.config.OnToolCall(tc.Name, tc.Params, result)
-			}
-
-			var resultBlock ContentBlock
-			if err != nil {
-				resultBlock = NewToolResultTextBlock(tc.ID, "Tool execution error: "+err.Error())
-				resultBlock.ToolResultState = ToolResultStateError
-			} else {
-				resultBlock = NewToolResultTextBlock(tc.ID, result)
-				keepResult, _, truncated := a.contextMgr.TruncateToolResult(ctx, a.session.GetID(), tc.Name, resultBlock,
-					a.config.ContextConfig.ToolResultExemptTools, a.config.ContextConfig.ToolResultExemptExts)
-				if truncated {
-					resultBlock = keepResult
-				}
-			}
-			assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
-			assistantBlocks = append(assistantBlocks, resultBlock)
-
-		case tool.PermissionAsk:
-			resultBlock := NewToolResultTextBlock(tc.ID, "Tool call requires user confirmation. Use ReplyStream for interactive confirmation.")
-			resultBlock.ToolResultState = ToolResultStateDenied
-			assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
-			assistantBlocks = append(assistantBlocks, resultBlock)
-
-		case tool.PermissionDeny:
-			resultBlock := NewToolResultTextBlock(tc.ID, "Permission denied: "+decision.Reason)
-			resultBlock.ToolResultState = ToolResultStateDenied
-			assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
-			assistantBlocks = append(assistantBlocks, resultBlock)
-
-		case tool.PermissionExternal:
-			resultBlock := NewToolResultTextBlock(tc.ID, "Tool requires external execution. Use ReplyStream for interactive mode.")
-			resultBlock.ToolResultState = ToolResultStateDenied
-			assistantBlocks = append(assistantBlocks, NewToolCallBlock(tc.ID, tc.Name, fmt.Sprintf("%v", tc.Params)))
-			assistantBlocks = append(assistantBlocks, resultBlock)
-		}
+		assistantBlocks = append(assistantBlocks, result.ToolCallBlock)
+		assistantBlocks = append(assistantBlocks, result.ResultBlock)
 	}
 
 	assistantMsg := Msg{

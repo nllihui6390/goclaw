@@ -47,6 +47,8 @@ func main() {
 ```
 go-agent/
 ├── agent.go           # Agent 核心：Reply / ReplyStream / Observe / CompressContext
+├── agent_pool.go      # AgentPool：池化管理、广播、健康检查
+├── agent_router.go    # AgentRouter：路由规则、分发策略
 ├── config.go          # Config / ModelConfig / ReActConfig + Builder 模式
 ├── message.go         # Msg / ContentBlock(6种) / 工厂函数 / 深拷贝 / 消息标记
 ├── event.go           # 完整事件系统（20+ 种事件类型，start→delta→end 模式）
@@ -70,8 +72,14 @@ go-agent/
 │   ├── memory.go      # Memory 接口 / MemoryItem
 │   └── simple.go      # SimpleMemory 实现
 ├── skill/
-│   ├── skill.go       # Skill 定义 / Registry / 匹配
+│   ├── skill.go       # Skill 定义 / Registry / 匹配 / 向量检索
 │   └── registry.go    # Executor / 变量替换
+├── observability/
+│   ├── metrics.go     # Prometheus 指标收集
+│   └── tracing.go     # OpenTelemetry 分布式追踪
+├── plugin/
+│   ├── plugin.go      # Plugin 接口 / BasePlugin / PluginLoader
+│   └── manager.go     # 插件管理器 / 热加载
 └── examples/          # 使用示例
 ```
 
@@ -135,7 +143,10 @@ cfg := agent.DefaultConfig("name", model, "system prompt").
     WithPermission(checker).              // 权限检查
     WithMaxIters(10).                     // 最大迭代次数
     WithMiddlewares(mw1, mw2).            // 中间件
-    WithStorage(storage, "user1", "agent1") // 状态持久化
+    WithStorage(storage, "user1", "agent1"). // 状态持久化
+    WithMetrics(metrics).                 // Prometheus 指标
+    WithTracer(tracer).                   // OpenTelemetry 追踪
+    WithPluginManager(pluginManager).     // 插件管理器
 
 ag := agent.NewAgent(*cfg)
 ```
@@ -158,6 +169,9 @@ ag := agent.NewAgent(*cfg)
 | `Permission` | `PermissionChecker` | Default | 权限检查 |
 | `Middlewares` | `[]Middleware` | 空 | 中间件列表 |
 | `Storage` | `StateStorage` | nil | 状态持久化 |
+| `Options.Metrics` | `*observability.Metrics` | nil | Prometheus 指标收集器 |
+| `Options.Tracer` | `*observability.Tracer` | nil | OpenTelemetry 追踪器 |
+| `Options.Plugins` | `*plugin.Manager` | nil | 插件管理器 |
 
 ---
 
@@ -643,6 +657,190 @@ type Skill struct {
 }
 ```
 
+#### 向量检索（可选）
+
+```go
+// 实现 VectorIndexer 接口启用语义匹配
+type VectorIndexer interface {
+    Add(ctx, skill) error
+    Search(ctx, query, limit) ([]Match, error)
+    Delete(ctx, skillName) error
+}
+
+// 注册向量索引器
+registry.SetVectorIndexer(myVectorIndexer)
+
+// Match 优先使用向量检索，降级到关键词匹配
+matches := registry.Match(ctx, "查询文本", 5)
+```
+
+---
+
+### 12. 多 Agent 编排 (`agent_pool.go`, `agent_router.go`)
+
+#### AgentPool — Agent 池管理器
+
+```go
+// 创建池
+pool := agent.NewAgentPool(10) // 最大 10 个 Agent
+
+// 注册 Agent
+pool.RegisterAgent("assistant", assistantAgent)
+pool.RegisterAgent("code", codeAgent)
+
+// 注册动态创建函数
+pool.RegisterCreator("dynamic", func() (*agent.Agent, error) {
+    return agent.NewAgent(*agent.DefaultConfig("dynamic", llm, "...")), nil
+})
+
+// 获取 Agent
+ag := pool.Get("assistant")
+ag, err := pool.GetOrCreate("dynamic") // 不存在则创建
+
+// 广播消息
+pool.Broadcast(agent.UserMsg("user", "系统通知"))
+
+// 健康检查
+health := pool.HealthCheck() // map[string]bool
+
+// 统计信息
+stats := pool.Stats() // {TotalAgents: 2, MaxAgents: 10, Registered: 1}
+```
+
+#### AgentRouter — Agent 路由器
+
+```go
+// 创建路由器
+router := agent.NewAgentRouter(pool, "default")
+
+// 添加路由规则（优先级从高到低）
+router.AddRule(agent.RuleByKeyword("code-rule", []string{"代码", "编程", "golang"}, "code", 10))
+router.AddRule(agent.RuleByUser("vip-rule", "user123", "vip-assistant", 20))
+router.AddRule(agent.RuleByRole("system-rule", agent.RoleSystem, "system-agent", 5))
+
+// 路由请求
+ag, ruleName := router.Route(msg)
+ag, ruleName, err := router.RouteOrCreate(msg)
+
+// 转发请求
+reply, err := router.Reply(ctx, msg)
+events, err := router.ReplyStream(ctx, msg)
+```
+
+#### 预定义路由规则
+
+| 规则 | 说明 |
+|-----|------|
+| `RuleByKeyword(name, keywords, target, priority)` | 关键词匹配（忽略大小写） |
+| `RuleByUser(name, userID, target, priority)` | 用户 ID 匹配 |
+| `RuleByRole(name, role, target, priority)` | 角色匹配 |
+| `RuleAlways(name, target, priority)` | 始终匹配 |
+
+---
+
+### 13. 可观测性 (`observability/`)
+
+#### Prometheus 指标
+
+```go
+import "github.com/nllihui6390/go-agent/observability"
+
+// 创建指标收集器
+metrics := observability.NewMetrics()
+
+// 启动 HTTP 服务（默认端口 9090）
+metrics.StartServer(":9090")
+
+// 记录指标
+metrics.RecordModelCall("assistant", "gpt-4", 1.2, nil)
+metrics.RecordToolCall("assistant", "search", 0.5, nil)
+metrics.RecordTokenUsage("assistant", "gpt-4", 1000, 500)
+metrics.RecordContextCompression("assistant", "auto")
+
+// 指标端点：http://localhost:9090/metrics
+```
+
+#### OpenTelemetry 追踪
+
+```go
+// 创建追踪器
+tracer := observability.NewTracer("go-agent")
+
+// 开始 span
+ctx, span := tracer.StartInferenceSpan(ctx, "assistant", 1)
+defer span.End()
+
+// 记录模型调用
+ctx, modelSpan := tracer.StartModelCallSpan(ctx, "assistant", "gpt-4", 1000)
+// ... 模型调用 ...
+tracer.RecordModelResult(modelSpan, 500, true)
+modelSpan.End()
+
+// 获取 trace ID
+traceID := tracer.GetTraceID(ctx)
+spanID := tracer.GetSpanID(ctx)
+```
+
+#### 支持的指标
+
+| 指标 | 说明 |
+|-----|------|
+| `go_agent_model_calls_total` | 模型调用次数 |
+| `go_agent_model_calls_latency_seconds` | 模型调用耗时 |
+| `go_agent_tool_calls_total` | 工具调用次数 |
+| `go_agent_tool_calls_latency_seconds` | 工具调用耗时 |
+| `go_agent_context_compressions_total` | 上下文压缩次数 |
+| `go_agent_sessions_active` | 活跃会话数 |
+| `go_agent_token_usage_total` | Token 使用总量 |
+| `go_agent_inference_iterations` | 推理迭代次数 |
+
+---
+
+### 14. 插件系统 (`plugin/`)
+
+#### Plugin 接口
+
+```go
+import "github.com/nllihui6390/go-agent/plugin"
+
+type Plugin interface {
+    Name() string
+    Version() string
+    Initialize(ctx, config) error
+    Tools() []tool.Tool
+    Shutdown(ctx) error
+}
+
+// 使用 BasePlugin 快速创建
+myPlugin := plugin.NewBasePlugin("my-plugin", "1.0.0")
+myPlugin.AddTool(myTool)
+```
+
+#### PluginManager — 插件管理器
+
+```go
+// 创建管理器
+pm := plugin.NewManager()
+
+// 注册加载器
+pm.RegisterLoader("local", localLoader)
+
+// 加载插件
+plugin, err := pm.LoadPlugin(ctx, "local", "./plugins/my-plugin", config)
+
+// 热重载
+plugin, err := pm.ReloadPlugin(ctx, "local", "./plugins/my-plugin", config)
+
+// 监听文件变化自动重载
+pm.WatchAndReload(ctx, "local", "./plugins/my-plugin", config, 5*time.Second)
+
+// 获取所有插件工具
+tools := pm.GetAllTools()
+
+// 卸载插件
+err := pm.UnloadPlugin(ctx, "my-plugin")
+```
+
 ---
 
 ## 完整使用示例
@@ -738,6 +936,10 @@ func main() {
 8. **Formatter 解耦** — 消息格式化与模型调用分离，轻松扩展新提供商
 9. **消息不可变** — 每次 LLM 调用前深拷贝消息，保护 session 历史
 10. **速率保护** — 内置 QPM + 并发限制，防止 API 429 错误
+11. **多 Agent 编排** — AgentPool + AgentRouter 支持分布式协作
+12. **可观测性** — Prometheus 指标 + OpenTelemetry 追踪
+13. **插件化** — 工具/技能热加载，运行时扩展
+14. **向量检索** — 技能匹配支持语义搜索，降级到关键词
 
 ## License
 

@@ -177,11 +177,24 @@ type ToolDefinition struct {
 }
 
 // ToolSetter 工具设置接口（可选）。
-//
-// 模型实现此接口后，Agent 可在调用前注入工具定义。
-// 未实现此接口的模型将无法使用工具调用功能。
 type ToolSetter interface {
 	SetTools(tools []ToolDefinition)
+}
+
+// StructuredOutputModel 结构化输出接口（可选）。
+//
+// 模型实现此接口后，Agent 可要求模型以指定的 JSON Schema 格式输出，
+// 避免解析自由文本的不确定性。
+type StructuredOutputModel interface {
+	SetResponseFormat(schema interface{})
+}
+
+// JSONModeModel JSON 模式接口（可选）。
+//
+// 模型实现此接口后，Agent 可要求模型始终以 JSON 格式输出，
+// 适用于需要可靠解析的场景。
+type JSONModeModel interface {
+	SetJSONMode(enabled bool)
 }
 
 // ModelConfig 模型配置。

@@ -165,6 +165,9 @@ func (app *App) createOrUpdateAgentFromJSON(agentName, workspaceDir string, root
 			m, b, k, p := app.Config.ResolveAgentConfig(curAgentCfg)
 			return m, k, b, p
 		},
+		// 可观测性
+		Metrics: app.Metrics,
+		Tracer:  app.Tracer,
 	})
 	app.Gateway.RegisterAgent(agentName, ag)
 	app.logger.Info("Agent 已注册/更新", "name", agentName, "provider", agentCfg.Provider, "model", model, "skills", len(enabledSkills))

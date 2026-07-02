@@ -18,6 +18,7 @@
 package skill
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -72,11 +73,23 @@ type Match struct {
 // Registry — 技能注册表
 // =============================================
 
+// VectorIndexer 向量索引器接口（可选）。
+//
+// 实现此接口后，技能注册表可使用向量检索替代关键词匹配，
+// 提供更精确的语义匹配能力。
+type VectorIndexer interface {
+	Add(ctx context.Context, skill *Skill) error                          // 添加技能到向量索引
+	Search(ctx context.Context, query string, limit int) ([]Match, error) // 语义搜索技能
+	Delete(ctx context.Context, skillName string) error                   // 从索引中删除技能
+}
+
 // Registry 技能注册表。
 //
-// 管理所有已注册的技能，支持关键词匹配和 prompt 注入。
+// 管理所有已注册的技能，支持关键词匹配和向量检索（可选）。
+// 向量检索优先，降级到关键词匹配。
 type Registry struct {
-	skills map[string]*Skill // 技能列表（key: 技能名称）
+	skills      map[string]*Skill // 技能列表（key: 技能名称）
+	vectorIndex VectorIndexer     // 向量索引器（可选）
 }
 
 // NewRegistry 创建空技能注册表。
@@ -93,9 +106,29 @@ func NewRegistry() *Registry {
 
 // Register 注册技能。
 //
+// 如果已配置向量索引器，会同步将技能添加到向量索引。
+//
 // 参数：
 //   - skill: 技能定义
-func (r *Registry) Register(skill *Skill) { r.skills[skill.Name] = skill }
+func (r *Registry) Register(skill *Skill) {
+	r.skills[skill.Name] = skill
+	if r.vectorIndex != nil {
+		_ = r.vectorIndex.Add(context.Background(), skill)
+	}
+}
+
+// SetVectorIndexer 设置向量索引器。
+//
+// 会自动将已注册的所有技能添加到索引器中。
+//
+// 参数：
+//   - indexer: 向量索引器实现
+func (r *Registry) SetVectorIndexer(indexer VectorIndexer) {
+	r.vectorIndex = indexer
+	for _, skill := range r.skills {
+		_ = indexer.Add(context.Background(), skill)
+	}
+}
 
 // Get 获取指定名称的技能。
 //
@@ -144,18 +177,13 @@ func (r *Registry) Count() int { return len(r.skills) }
 // 匹配和 Prompt 注入
 // =============================================
 
-// Match 根据查询关键词匹配技能。
-//
-// 匹配规则：在技能名称和描述中搜索查询中的关键词，
-// 按匹配得分排序。
-//
-// 参数：
-//   - query: 查询文本
-//   - limit: 最大返回数量（0 表示返回全部）
-//
-// 返回：
-//   - []Match: 匹配结果列表（按分数降序）
 func (r *Registry) Match(query string, limit int) []Match {
+	if r.vectorIndex != nil {
+		if matches, err := r.vectorIndex.Search(context.Background(), query, limit); err == nil && len(matches) > 0 {
+			return matches
+		}
+	}
+
 	keywords := extractKeywords(query)
 	matches := make([]Match, 0)
 	for _, skill := range r.skills {

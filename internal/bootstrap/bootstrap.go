@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,6 +14,9 @@ import (
 	"go-claw/internal/security"
 	"go-claw/internal/tool"
 	glog "go-claw/pkg/log"
+
+	"github.com/nllihui6390/go-agent/observability"
+	"github.com/nllihui6390/go-agent/plugin"
 )
 
 // App 应用程序结构体，集中管理所有子系统
@@ -26,6 +30,13 @@ type App struct {
 	CronMgr      *cron.Manager
 	ProactiveMgr *proactive.ProactiveManager
 	ToolGuard    *security.ToolGuard // 工具安全守卫
+
+	// 可观测性
+	Metrics *observability.Metrics
+	Tracer  *observability.Tracer
+
+	// 插件系统
+	PluginManager *plugin.Manager
 
 	// 内部状态
 	logger *slog.Logger
@@ -61,13 +72,19 @@ func NewApp(dataDir string) (*App, error) {
 		app.logger.Warn("加载环境变量配置失败", "err", err)
 	}
 
-	// 5. Agents 注册（必须在 Start 前）
+	// 5. 初始化可观测性
+	app.initObservability()
+
+	// 6. 初始化插件管理器
+	app.initPlugins()
+
+	// 7. Agents 注册（必须在 Start 前）
 	app.initAgents()
 
-	// 6. Channels 注册（必须在 Start 前）
+	// 8. Channels 注册（必须在 Start 前）
 	app.initChannels()
 
-	// 7. 启动 Gateway
+	// 9. 启动 Gateway
 	if err := app.Gateway.Start(); err != nil {
 		app.logger.Error("启动网关失败", "err", err)
 		os.Exit(1)
@@ -101,6 +118,43 @@ func (app *App) waitForShutdown() {
 	app.logger.Info("已退出")
 }
 
+// initObservability 初始化可观测性（Metrics + Tracing）
+func (app *App) initObservability() {
+	if !app.Config.Observability.Enabled {
+		app.logger.Info("可观测性已禁用")
+		return
+	}
+
+	app.Metrics = observability.NewMetrics()
+	app.Tracer = observability.NewTracer("go-claw")
+
+	metricsPort := app.Config.Observability.MetricsPort
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	app.Metrics.StartServer(":" + metricsPort)
+	app.logger.Info("可观测性已初始化", "metrics_port", metricsPort, "tracing", app.Config.Observability.TracingEnabled)
+}
+
+// initPlugins 初始化插件管理器
+func (app *App) initPlugins() {
+	app.PluginManager = plugin.NewManager()
+
+	app.PluginManager.SetCallbacks(
+		func(name string) {
+			app.logger.Info("插件已加载", "name", name)
+		},
+		func(name string) {
+			app.logger.Info("插件已卸载", "name", name)
+		},
+		func(name string, err error) {
+			app.logger.Error("插件错误", "name", name, "err", err)
+		},
+	)
+
+	app.logger.Info("插件管理器已初始化")
+}
+
 // Shutdown 关闭所有子系统
 func (app *App) Shutdown() {
 	// 按依赖反向顺序关闭
@@ -113,6 +167,12 @@ func (app *App) Shutdown() {
 	if app.Gateway != nil && app.Gateway.MCPMgr != nil {
 		app.Gateway.MCPMgr.DisconnectAll()
 	}
+
+	// 关闭插件管理器
+	if app.PluginManager != nil {
+		app.PluginManager.Clear(context.Background())
+	}
+
 	app.Gateway.Stop()
 	tool.CloseBrowser()
 	glog.Close()
